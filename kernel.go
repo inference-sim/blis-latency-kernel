@@ -305,6 +305,10 @@ func (k *Kernel) stepTime(b kernel.Batch,
 		// attnSeconds is apart from the FLOPs terms because attention is priced by a
 		// measured floor-and-rate form rather than from FLOPs.
 		var flops, routedFLOPs, weightBytes, elementwise, attnSeconds float64
+		// The routed-expert term is kept apart from the dense terms because it does NOT
+		// compose with its own compute the way the dense primitives do. See the composition
+		// below.
+		var routedWeightBytes float64
 		// attnSMSeconds is prefill attention, which binds on compute where decode binds on
 		// bandwidth. kvFallback records that a decode request had no measured form, so the
 		// raw KV read is charged instead.
@@ -332,7 +336,7 @@ func (k *Kernel) stepTime(b kernel.Batch,
 			// the batch sizes the "all local experts are read at decode" assumption was
 			// written for that is all of them; below those it is not, since one token
 			// reaches at most top_k.
-			weightBytes += l.ExpertWeightBytesPerExpert / k.expertTensorShards *
+			routedWeightBytes += l.ExpertWeightBytesPerExpert / k.expertTensorShards *
 				price.ExpertsTouched(tokens, k.totalExperts, l.TopK, k.expertsPerRank)
 			// A shared expert is dense: every token pays it, sharded like any projection.
 			flops += tokensF * l.SharedExpertFLOPsPerToken / k.tp
@@ -432,10 +436,54 @@ func (k *Kernel) stepTime(b kernel.Batch,
 		// because the normalization those tables use is not documented with the data. So
 		// this is the better of two assumptions on the evidence available, and the SM term
 		// for a high-top_k MoE model is the least certain part of this kernel.
-		sm := (flops+routedFLOPs)/(k.computeFLOPsPerSecond*
-			price.Efficiency(tokensF, k.epsMax, k.mHalf))*smDerate +
+		ramp := price.Efficiency(tokensF, k.epsMax, k.mHalf)
+		denseSM := flops/(k.computeFLOPsPerSecond*ramp)*smDerate +
 			recurrentSeconds + attnSMSeconds
-		hbm := (weightBytes+kvBytes+elementwise)/k.hbmBytesPerSecond + attnSeconds
+		denseHBM := (weightBytes+kvBytes+elementwise)/k.hbmBytesPerSecond + attnSeconds
+
+		// The routed-expert grouped GEMM composes its compute and memory as a SUM, where
+		// every other primitive in this layer composes as a max.
+		//
+		// That asymmetry is measured, not assumed. Priced against NVIDIA's own MoE tables --
+		// 3,223 shape comparisons over roughly 70 geometries per part, on the fastest kernel
+		// lane, expert parallelism off, balanced routing -- the sum fits the term's growth in
+		// token count better than the max on every part tested:
+		//
+		//	                max(c,m)    c+m
+		//	h200  fp8         64.04%  55.98%
+		//	h100  fp8         53.41%  44.91%
+		//	b200  nvfp4      101.49%  79.70%
+		//	b300  nvfp4      116.70%  91.95%
+		//
+		// The mechanism is visible in the shapes: measured MoE latency grows 3.58x from 4 to
+		// 256 tokens where the max-composed prediction grows 8.38x. ExpertsTouched rises 30x
+		// over that range, so above about 32 tokens the weight-read term dominates the max and
+		// drags the prediction up. A real grouped GEMM amortises each expert's weight read
+		// against the work done on that expert; a max between the two credits the whole read
+		// as free whenever compute exceeds it, and the sum is the closer of the two available
+		// approximations.
+		//
+		// The same test on DENSE GEMM says the opposite -- max 8.75% against sum 15.91% on
+		// h200 fp8 -- which is why this is scoped to the routed term rather than applied to
+		// the layer. A blanket sum improves the end-to-end score more (10.07% against 13.86%)
+		// and is wrong for the dense primitives, so it is not taken.
+		routedSM := routedFLOPs / (k.computeFLOPsPerSecond * ramp) * smDerate
+		routedHBM := routedWeightBytes / k.hbmBytesPerSecond
+		routed := routedSM + routedHBM
+
+		// Each half of the routed cost is charged to the resource that actually does it, so
+		// the per-resource breakdown remains a true account of where time went: the compute
+		// half to SM, the memory half to HBM. An earlier version charged the WHOLE routed cost
+		// to whichever half was larger, which doubled one resource and zeroed the other --
+		// four existing tests caught it, including one asserting that withholding SMs cannot
+		// move an HBM-bound step and one asserting routed compute falls as the expert group
+		// widens.
+		//
+		// The sum is then realised in the stage composition below rather than here: the
+		// routed halves are excluded from the per-layer max and added to it, which is what
+		// makes the MoE term compose as a sum while every other term still composes as a max.
+		sm := denseSM + routedSM
+		hbm := denseHBM + routedHBM
 
 		// Collectives in this layer, each priced against its own floor and rate. Every
 		// launch pays its own floor: summing bytes across layers and applying one floor
@@ -459,13 +507,17 @@ func (k *Kernel) stepTime(b kernel.Batch,
 			}
 		}
 
-		// Max across resources within the layer, summed over the layers of this kind.
-		stage := sm
-		for _, d := range [...]float64{hbm, onNode, crossNode} {
+		// Max across resources within the layer, summed over the layers of this kind --
+		// except that the routed-expert term composes as a sum rather than a max, for the
+		// measured reason given above. So the max is taken over the layer WITHOUT the routed
+		// halves, and the routed sum is added to it.
+		stage := sm - routedSM
+		for _, d := range [...]float64{hbm - routedHBM, onNode, crossNode} {
 			if d > stage {
 				stage = d
 			}
 		}
+		stage += routed
 		overlapSeconds += count * stage
 
 		perResource[idxSM] += count * sm

@@ -277,8 +277,16 @@ func TestStepTimeIsPureAndSafeUnderConcurrency(t *testing.T) {
 
 func TestFewerSMsCostMoreOnlyWhenComputeBinds(t *testing.T) {
 	k := fixture(t, "granite5-h200-ep16.yaml")
-	// A decode step here is HBM-bound, so withholding the 12 SMs an offload fetch takes
-	// must be absorbed entirely — that is the max-over-resources rule doing its work.
+	// A decode step here is HBM-bound, so withholding the 12 SMs an offload fetch takes must
+	// be almost entirely absorbed — that is the max-over-resources rule doing its work.
+	//
+	// "Almost" rather than "entirely", and the exception is measured. The routed-expert term
+	// composes its compute and memory as a SUM rather than a max, because NVIDIA's MoE tables
+	// fit the sum better on every part tested (see the composition in kernel.go). So on an MoE
+	// model a slower SM raises the routed compute half, and that half is additive. What must
+	// still hold is that the effect is SMALL relative to the derate: withholding 9% of the SMs
+	// moves an HBM-bound step by well under 9%, because everything except the routed compute
+	// is still absorbed.
 	full := decodeBatch(32, 2, 8192)
 	derated := full
 	derated.SMBudget = k.chip.SMCount - 12
@@ -287,9 +295,19 @@ func TestFewerSMsCostMoreOnlyWhenComputeBinds(t *testing.T) {
 		t.Skipf("this batch is %s-bound, so it does not test absorption",
 			before.Bottleneck)
 	}
-	if after.Overlap != before.Overlap {
-		t.Errorf("withholding 12 SMs moved an HBM-bound step from %v to %v",
+	derate := 12.0 / float64(k.chip.SMCount)
+	grew := after.Overlap.Seconds()/before.Overlap.Seconds() - 1
+	if grew < 0 {
+		t.Errorf("withholding SMs made an HBM-bound step faster: %v to %v",
 			before.Overlap, after.Overlap)
+	}
+	// A tenth of the derate: the routed compute half is a small part of an HBM-bound step, so
+	// almost all of the withheld capacity is still absorbed. A kernel that had lost the max
+	// rule entirely would grow by roughly the derate itself.
+	if grew > derate/10 {
+		t.Errorf("withholding %.1f%% of the SMs grew an HBM-bound step by %.2f%%; only the "+
+			"routed compute half is additive, so the growth should be a small fraction of "+
+			"the derate", 100*derate, 100*grew)
 	}
 	if after.PerResource[kernel.ResourceSM] <= before.PerResource[kernel.ResourceSM] {
 		t.Error("withholding SMs did not raise the SM term at all")
@@ -1154,5 +1172,81 @@ func TestAKindWithoutAFitFallsBackToThePartWideTerms(t *testing.T) {
 	if k.attentionRate <= 0 {
 		t.Error("the part-wide decode rate is zero, so the fallback path prices attention at " +
 			"nothing")
+	}
+}
+
+// The routed-expert term composes its compute and memory as a SUM, where every other term in a
+// layer composes as a max. This is the measured asymmetry recorded in kernel.go: NVIDIA's MoE
+// tables fit the sum better on all four parts tested, while the same test on dense GEMM prefers
+// the max, which is why the sum is scoped to the routed term rather than applied to the layer.
+//
+// Behavioural, and it must DISCRIMINATE the two rules. The discriminating property is that the
+// step time exceeds the largest single resource: under a max the stage equals its binding
+// resource, and under the routed sum it exceeds it by the smaller routed half. A first version
+// of this test perturbed the SM budget instead and did not discriminate -- on the reference
+// fixture SM is 157us against 5.1ms of HBM, so the routed compute half is about 1% of the step
+// and halving the SM budget moved it 1.2%, which a max-composed kernel also does through its
+// own SM term. The mutation reverting the sum to a max survived it.
+func TestTheRoutedExpertTermComposesAsASumNotAMax(t *testing.T) {
+	k := fixture(t, "granite5-h200-ep16.yaml")
+	b := decodeBatch(32, 2, 8192)
+	e := k.StepTime(b)
+
+	// The largest single resource. Under a pure max over resources the stage would equal this,
+	// summed over layers, and the step could not exceed it.
+	var largest time.Duration
+	for _, r := range []kernel.Resource{kernel.ResourceSM, kernel.ResourceHBM,
+		kernel.ResourceNVLink, kernel.ResourceNIC} {
+		if d := e.PerResource[r]; d > largest {
+			largest = d
+		}
+	}
+	if largest <= 0 {
+		t.Fatal("no resource carried any time")
+	}
+	// The host term is additive by design and is not part of the resource max, so it is
+	// excluded from the comparison.
+	gpu := e.Overlap - e.PerResource[kernel.ResourceHost]
+	if gpu <= largest {
+		t.Errorf("the GPU part of the step (%v) does not exceed its largest resource (%v); "+
+			"under the routed sum it must, because the smaller routed half is added to the "+
+			"stage rather than absorbed by the max", gpu, largest)
+	}
+	// And the excess must be bounded by the routed term, not by the whole layer: a kernel that
+	// summed EVERY resource would exceed the largest by far more.
+	var total time.Duration
+	for _, r := range []kernel.Resource{kernel.ResourceSM, kernel.ResourceHBM,
+		kernel.ResourceNVLink, kernel.ResourceNIC} {
+		total += e.PerResource[r]
+	}
+	if gpu >= total {
+		t.Errorf("the GPU part of the step (%v) is at or above the sum of every resource "+
+			"(%v); only the routed halves compose additively, so the rest must still be "+
+			"max-composed", gpu, total)
+	}
+}
+
+// The per-resource breakdown must remain a true account of where time went: the routed compute
+// charged to SM and the routed memory to HBM. An earlier version of the sum charged the WHOLE
+// routed cost to whichever half was larger, which doubled one resource and zeroed the other,
+// and three existing tests caught it -- including one asserting routed compute falls as the
+// expert group widens.
+func TestTheRoutedHalvesAreChargedToTheirOwnResources(t *testing.T) {
+	narrow := fixture(t, "granite5-h200-ep16.yaml")
+	wide := fixture(t, "granite5-h200-ep72.yaml")
+	b := decodeBatch(32, 2, 8192)
+
+	// Widening the expert group gives each rank fewer experts, so both routed halves fall.
+	nSM := narrow.StepTime(b).PerResource[kernel.ResourceSM]
+	wSM := wide.StepTime(b).PerResource[kernel.ResourceSM]
+	nHBM := narrow.StepTime(b).PerResource[kernel.ResourceHBM]
+	wHBM := wide.StepTime(b).PerResource[kernel.ResourceHBM]
+	if wSM >= nSM {
+		t.Errorf("SM at EP=72 (%v) did not fall below EP=16 (%v); the routed compute half is "+
+			"not being charged to SM", wSM, nSM)
+	}
+	if wHBM >= nHBM {
+		t.Errorf("HBM at EP=72 (%v) did not fall below EP=16 (%v); the routed memory half is "+
+			"not being charged to HBM", wHBM, nHBM)
 	}
 }
