@@ -1,0 +1,4987 @@
+{
+ "source": "NVIDIA AISimulate e2e accuracy artifact (e2e-accuracy-web)",
+ "measurement_source": "SemiAnalysis InferenceX",
+ "measurement_source_url": "https://github.com/SemiAnalysisAI/InferenceX-app/releases/tag/db-dump/2026-09-28",
+ "snapshot": {
+  "aic_commit_sha": "a4a59dce4fcfce1ec223008831f3328b77b1a3ce",
+  "aic_source": {
+   "branch": "main",
+   "commit_sha": "a4a59dce4fcfce1ec223008831f3328b77b1a3ce",
+   "repository": "https://github.com/ai-dynamo/aisimulate"
+  },
+  "aisimulate_completed_at": "2026-09-30T00:14:03.147320+00:00",
+  "aisimulate_method": "randomized_synthetic_engine_replay",
+  "aisimulate_packages": {
+   "aisimulate": "0.13.0"
+  },
+  "aisimulate_sot_sha256": "1bd1a70c1d90d928ac3eb9d0fc1ef8c1ef54267729bd0cdb7b754b73f7f314a7",
+  "campaign": {
+   "advisory": true,
+   "backend_versions": [
+    "0.24.0",
+    "0.5.14",
+    "1.3.0rc20"
+   ],
+   "branch": "main",
+   "cohort_sha256": "f8c0395c3c6311afe066ec32ec65d39f6cb72e423422775c6b2bf989019d4b56",
+   "commit_sha": "a4a59dce4fcfce1ec223008831f3328b77b1a3ce",
+   "completed_at": "2026-09-30T00:14:03.147320+00:00",
+   "dataset_sha256": "d813309b09472e6205d406d3eb54008fb77fd255bd309f44928cd8696c91cadf",
+   "driver_sha256": "6cbfcf8b2b2ac4105331af784cc9d1da67036b3925d0c7ee9a54a5e7eda742f8",
+   "exclusion_reasons": {
+    "adapter_unsupported": 2468,
+    "baseline_failed": 307,
+    "recipe_required": 218
+   },
+   "measurement_filter_counts": {
+    "incomplete_measurement_run": 33140,
+    "multinode": 10524,
+    "nonstandard_or_error": 2261,
+    "stale": 24649
+   },
+   "measurement_sha256": "9125257cb98e195918fee2ee451d9ee4057fed5fab40e0da43cfc054d4a2330a",
+   "outcomes": {
+    "baseline_failed": 307,
+    "evaluated": 1137,
+    "unsupported": 2686
+   },
+   "published": 1137,
+   "release_tag": "db-dump/2026-09-28",
+   "run_attempt": "1",
+   "run_id": "36643620072",
+   "schema_version": 1,
+   "selected": 4130,
+   "selection_policy": "latest-complete-config-run-v1",
+   "started_at": "2026-09-29T23:31:40.632828+00:00",
+   "status": "complete",
+   "wheel_sha256": "9756bf57b669ec7a398a8b8869cf6e6a624104c29c122634cf5fcd502cd40b91"
+  },
+  "corrections": [],
+  "evaluated_revision": {
+   "branch": "main",
+   "commit_sha": "a4a59dce4fcfce1ec223008831f3328b77b1a3ce"
+  },
+  "measurement_date_through": "2026-09-27",
+  "measurement_source": "SemiAnalysis InferenceX",
+  "measurement_source_url": "https://github.com/SemiAnalysisAI/InferenceX-app/releases/tag/db-dump/2026-09-28",
+  "prediction_generated_at": "2026-09-29T23:31:40.632828+00:00",
+  "predictions_sha256": "6628da982144d5dbb962ffe1ff5f84292d423e007f2097ad026bdce43a87b69e",
+  "release_tag": "db-dump/2026-09-28"
+ },
+ "scope": {
+  "claim": "Accuracy applies only to the exact measured operating points in this snapshot; it is not universal model, hardware, or deployment support.",
+  "excluded_multinode_rows": 0,
+  "latency_scope": "client_observed",
+  "measurement_scope": "end_to_end",
+  "metrics": [
+   "TTFT",
+   "TPOT"
+  ],
+  "multinode": "excluded",
+  "published_rows": 1137,
+  "raw_rows": 1137
+ },
+ "aisimulate_totals": {
+  "coverage_pct": 99.82,
+  "points": 1135,
+  "status_counts": {
+   "failed": 2,
+   "success": 1135,
+   "unknown": 0,
+   "unsupported": 0
+  },
+  "tpot_mape_pct": 24.32,
+  "tpot_shape_error_pct": 10.05,
+  "ttft_mape_pct": 43.67,
+  "ttft_shape_error_pct": 22.82
+ },
+ "selection": {
+  "models": [
+   "glm-5",
+   "gpt-oss-120b",
+   "minimax-m2.5",
+   "qwen3.5-397b-a17b"
+  ],
+  "min_points_per_sweep": 3,
+  "serving": "aggregated",
+  "spec_method": "none",
+  "skipped": {
+   "model not in catalog": 5,
+   "fewer than three successful points": 37
+  }
+ },
+ "sweeps": [
+  {
+   "scenario": "glm-5-b200-fp4-sglang-tp4.yaml",
+   "model": "glm-5",
+   "gpu": "b200",
+   "workload": "1024:1024",
+   "label": "1k1k",
+   "framework": "sglang",
+   "precision": "fp4",
+   "serving": "aggregated",
+   "spec_method": "none",
+   "parallelism": {
+    "attention_dp_size": 1,
+    "moe_ep_size": 1,
+    "moe_tp_size": 4,
+    "pp_size": 1,
+    "tp_size": 4
+   },
+   "topology_id": "4a0deb805149456a",
+   "points": [
+    {
+     "concurrency": 4,
+     "measured_tpot_relative": 1.0,
+     "aisimulate_tpot_relative": 0.877604,
+     "aisimulate_tpot_error_pct": 12.24,
+     "status": "success"
+    },
+    {
+     "concurrency": 8,
+     "measured_tpot_relative": 1.163029,
+     "aisimulate_tpot_relative": 1.121967,
+     "aisimulate_tpot_error_pct": 3.53,
+     "status": "success"
+    },
+    {
+     "concurrency": 16,
+     "measured_tpot_relative": 1.445819,
+     "aisimulate_tpot_relative": 1.351164,
+     "aisimulate_tpot_error_pct": 6.55,
+     "status": "success"
+    },
+    {
+     "concurrency": 32,
+     "measured_tpot_relative": 1.839235,
+     "aisimulate_tpot_relative": 1.650792,
+     "aisimulate_tpot_error_pct": 10.25,
+     "status": "success"
+    },
+    {
+     "concurrency": 64,
+     "measured_tpot_relative": 2.327788,
+     "aisimulate_tpot_relative": 2.214092,
+     "aisimulate_tpot_error_pct": 4.88,
+     "status": "success"
+    },
+    {
+     "concurrency": 128,
+     "measured_tpot_relative": 2.969138,
+     "aisimulate_tpot_relative": 2.787483,
+     "aisimulate_tpot_error_pct": 6.12,
+     "status": "success"
+    },
+    {
+     "concurrency": 256,
+     "measured_tpot_relative": 3.911467,
+     "aisimulate_tpot_relative": 3.932242,
+     "aisimulate_tpot_error_pct": 0.53,
+     "status": "success"
+    }
+   ]
+  },
+  {
+   "scenario": "glm-5-b200-fp4-sglang-tp4.yaml",
+   "model": "glm-5",
+   "gpu": "b200",
+   "workload": "8192:1024",
+   "label": "8k1k",
+   "framework": "sglang",
+   "precision": "fp4",
+   "serving": "aggregated",
+   "spec_method": "none",
+   "parallelism": {
+    "attention_dp_size": 1,
+    "moe_ep_size": 1,
+    "moe_tp_size": 4,
+    "pp_size": 1,
+    "tp_size": 4
+   },
+   "topology_id": "e476e2e8a9cc8057",
+   "points": [
+    {
+     "concurrency": 4,
+     "measured_tpot_relative": 1.0,
+     "aisimulate_tpot_relative": 0.90094,
+     "aisimulate_tpot_error_pct": 9.91,
+     "status": "success"
+    },
+    {
+     "concurrency": 8,
+     "measured_tpot_relative": 1.167949,
+     "aisimulate_tpot_relative": 1.185848,
+     "aisimulate_tpot_error_pct": 1.53,
+     "status": "success"
+    },
+    {
+     "concurrency": 16,
+     "measured_tpot_relative": 1.543153,
+     "aisimulate_tpot_relative": 1.52554,
+     "aisimulate_tpot_error_pct": 1.14,
+     "status": "success"
+    },
+    {
+     "concurrency": 32,
+     "measured_tpot_relative": 2.130693,
+     "aisimulate_tpot_relative": 2.130267,
+     "aisimulate_tpot_error_pct": 0.02,
+     "status": "success"
+    },
+    {
+     "concurrency": 64,
+     "measured_tpot_relative": 12.955654,
+     "aisimulate_tpot_relative": 3.210689,
+     "aisimulate_tpot_error_pct": 75.22,
+     "status": "success"
+    }
+   ]
+  },
+  {
+   "scenario": "glm-5-b200-fp8-sglang-tp8.yaml",
+   "model": "glm-5",
+   "gpu": "b200",
+   "workload": "1024:1024",
+   "label": "1k1k",
+   "framework": "sglang",
+   "precision": "fp8",
+   "serving": "aggregated",
+   "spec_method": "none",
+   "parallelism": {
+    "attention_dp_size": 1,
+    "moe_ep_size": 1,
+    "moe_tp_size": 8,
+    "pp_size": 1,
+    "tp_size": 8
+   },
+   "topology_id": "54a9c1184106945d",
+   "points": [
+    {
+     "concurrency": 4,
+     "measured_tpot_relative": 1.0,
+     "aisimulate_tpot_relative": 0.620625,
+     "aisimulate_tpot_error_pct": 37.94,
+     "status": "success"
+    },
+    {
+     "concurrency": 8,
+     "measured_tpot_relative": 1.1312,
+     "aisimulate_tpot_relative": 0.798676,
+     "aisimulate_tpot_error_pct": 29.4,
+     "status": "success"
+    },
+    {
+     "concurrency": 16,
+     "measured_tpot_relative": 1.356437,
+     "aisimulate_tpot_relative": 0.947485,
+     "aisimulate_tpot_error_pct": 30.15,
+     "status": "success"
+    },
+    {
+     "concurrency": 32,
+     "measured_tpot_relative": 1.67481,
+     "aisimulate_tpot_relative": 1.174417,
+     "aisimulate_tpot_error_pct": 29.88,
+     "status": "success"
+    },
+    {
+     "concurrency": 64,
+     "measured_tpot_relative": 2.190456,
+     "aisimulate_tpot_relative": 1.614693,
+     "aisimulate_tpot_error_pct": 26.29,
+     "status": "success"
+    },
+    {
+     "concurrency": 128,
+     "measured_tpot_relative": 2.994939,
+     "aisimulate_tpot_relative": 2.02721,
+     "aisimulate_tpot_error_pct": 32.31,
+     "status": "success"
+    },
+    {
+     "concurrency": 256,
+     "measured_tpot_relative": 4.338412,
+     "aisimulate_tpot_relative": 2.966662,
+     "aisimulate_tpot_error_pct": 31.62,
+     "status": "success"
+    }
+   ]
+  },
+  {
+   "scenario": "glm-5-b200-fp8-sglang-tp8.yaml",
+   "model": "glm-5",
+   "gpu": "b200",
+   "workload": "1024:8192",
+   "label": "1k8k",
+   "framework": "sglang",
+   "precision": "fp8",
+   "serving": "aggregated",
+   "spec_method": "none",
+   "parallelism": {
+    "attention_dp_size": 1,
+    "moe_ep_size": 1,
+    "moe_tp_size": 8,
+    "pp_size": 1,
+    "tp_size": 8
+   },
+   "topology_id": "309fb5fb6609d0c3",
+   "points": [
+    {
+     "concurrency": 4,
+     "measured_tpot_relative": 1.0,
+     "aisimulate_tpot_relative": 0.65362,
+     "aisimulate_tpot_error_pct": 34.64,
+     "status": "success"
+    },
+    {
+     "concurrency": 8,
+     "measured_tpot_relative": 1.119659,
+     "aisimulate_tpot_relative": 0.816103,
+     "aisimulate_tpot_error_pct": 27.11,
+     "status": "success"
+    },
+    {
+     "concurrency": 16,
+     "measured_tpot_relative": 1.262188,
+     "aisimulate_tpot_relative": 0.953798,
+     "aisimulate_tpot_error_pct": 24.43,
+     "status": "success"
+    },
+    {
+     "concurrency": 32,
+     "measured_tpot_relative": 1.401328,
+     "aisimulate_tpot_relative": 1.137788,
+     "aisimulate_tpot_error_pct": 18.81,
+     "status": "success"
+    },
+    {
+     "concurrency": 64,
+     "measured_tpot_relative": 1.712964,
+     "aisimulate_tpot_relative": 1.472651,
+     "aisimulate_tpot_error_pct": 14.03,
+     "status": "success"
+    },
+    {
+     "concurrency": 128,
+     "measured_tpot_relative": 2.112605,
+     "aisimulate_tpot_relative": 1.834742,
+     "aisimulate_tpot_error_pct": 13.15,
+     "status": "success"
+    }
+   ]
+  },
+  {
+   "scenario": "glm-5-b200-fp8-sglang-tp8.yaml",
+   "model": "glm-5",
+   "gpu": "b200",
+   "workload": "8192:1024",
+   "label": "8k1k",
+   "framework": "sglang",
+   "precision": "fp8",
+   "serving": "aggregated",
+   "spec_method": "none",
+   "parallelism": {
+    "attention_dp_size": 1,
+    "moe_ep_size": 1,
+    "moe_tp_size": 8,
+    "pp_size": 1,
+    "tp_size": 8
+   },
+   "topology_id": "a38ec62224dcca33",
+   "points": [
+    {
+     "concurrency": 4,
+     "measured_tpot_relative": 1.0,
+     "aisimulate_tpot_relative": 0.665231,
+     "aisimulate_tpot_error_pct": 33.48,
+     "status": "success"
+    },
+    {
+     "concurrency": 8,
+     "measured_tpot_relative": 1.173271,
+     "aisimulate_tpot_relative": 0.886958,
+     "aisimulate_tpot_error_pct": 24.4,
+     "status": "success"
+    },
+    {
+     "concurrency": 16,
+     "measured_tpot_relative": 1.467267,
+     "aisimulate_tpot_relative": 1.158076,
+     "aisimulate_tpot_error_pct": 21.07,
+     "status": "success"
+    },
+    {
+     "concurrency": 32,
+     "measured_tpot_relative": 1.947597,
+     "aisimulate_tpot_relative": 1.63487,
+     "aisimulate_tpot_error_pct": 16.06,
+     "status": "success"
+    },
+    {
+     "concurrency": 64,
+     "measured_tpot_relative": 2.869698,
+     "aisimulate_tpot_relative": 2.507264,
+     "aisimulate_tpot_error_pct": 12.63,
+     "status": "success"
+    },
+    {
+     "concurrency": 128,
+     "measured_tpot_relative": 4.460335,
+     "aisimulate_tpot_relative": 4.024649,
+     "aisimulate_tpot_error_pct": 9.77,
+     "status": "success"
+    }
+   ]
+  },
+  {
+   "scenario": "glm-5-b300-fp4-sglang-tp4.yaml",
+   "model": "glm-5",
+   "gpu": "b300",
+   "workload": "1024:1024",
+   "label": "1k1k",
+   "framework": "sglang",
+   "precision": "fp4",
+   "serving": "aggregated",
+   "spec_method": "none",
+   "parallelism": {
+    "attention_dp_size": 1,
+    "moe_ep_size": 1,
+    "moe_tp_size": 4,
+    "pp_size": 1,
+    "tp_size": 4
+   },
+   "topology_id": "443d13a1cd3d8610",
+   "points": [
+    {
+     "concurrency": 4,
+     "measured_tpot_relative": 1.0,
+     "aisimulate_tpot_relative": 0.82338,
+     "aisimulate_tpot_error_pct": 17.66,
+     "status": "success"
+    },
+    {
+     "concurrency": 8,
+     "measured_tpot_relative": 1.122937,
+     "aisimulate_tpot_relative": 1.03336,
+     "aisimulate_tpot_error_pct": 7.98,
+     "status": "success"
+    },
+    {
+     "concurrency": 16,
+     "measured_tpot_relative": 1.342479,
+     "aisimulate_tpot_relative": 1.290586,
+     "aisimulate_tpot_error_pct": 3.87,
+     "status": "success"
+    },
+    {
+     "concurrency": 32,
+     "measured_tpot_relative": 1.656606,
+     "aisimulate_tpot_relative": 1.540752,
+     "aisimulate_tpot_error_pct": 6.99,
+     "status": "success"
+    },
+    {
+     "concurrency": 64,
+     "measured_tpot_relative": 2.087276,
+     "aisimulate_tpot_relative": 2.094759,
+     "aisimulate_tpot_error_pct": 0.36,
+     "status": "success"
+    },
+    {
+     "concurrency": 128,
+     "measured_tpot_relative": 2.595457,
+     "aisimulate_tpot_relative": 2.599132,
+     "aisimulate_tpot_error_pct": 0.14,
+     "status": "success"
+    },
+    {
+     "concurrency": 256,
+     "measured_tpot_relative": 3.398235,
+     "aisimulate_tpot_relative": 3.667758,
+     "aisimulate_tpot_error_pct": 7.93,
+     "status": "success"
+    }
+   ]
+  },
+  {
+   "scenario": "glm-5-b300-fp4-sglang-tp4.yaml",
+   "model": "glm-5",
+   "gpu": "b300",
+   "workload": "8192:1024",
+   "label": "8k1k",
+   "framework": "sglang",
+   "precision": "fp4",
+   "serving": "aggregated",
+   "spec_method": "none",
+   "parallelism": {
+    "attention_dp_size": 1,
+    "moe_ep_size": 1,
+    "moe_tp_size": 4,
+    "pp_size": 1,
+    "tp_size": 4
+   },
+   "topology_id": "9d9566ec13f44bdb",
+   "points": [
+    {
+     "concurrency": 4,
+     "measured_tpot_relative": 1.0,
+     "aisimulate_tpot_relative": 0.845483,
+     "aisimulate_tpot_error_pct": 15.45,
+     "status": "success"
+    },
+    {
+     "concurrency": 8,
+     "measured_tpot_relative": 1.181693,
+     "aisimulate_tpot_relative": 1.089004,
+     "aisimulate_tpot_error_pct": 7.84,
+     "status": "success"
+    },
+    {
+     "concurrency": 16,
+     "measured_tpot_relative": 1.5307,
+     "aisimulate_tpot_relative": 1.4509,
+     "aisimulate_tpot_error_pct": 5.21,
+     "status": "success"
+    },
+    {
+     "concurrency": 32,
+     "measured_tpot_relative": 2.083934,
+     "aisimulate_tpot_relative": 1.982772,
+     "aisimulate_tpot_error_pct": 4.85,
+     "status": "success"
+    },
+    {
+     "concurrency": 64,
+     "measured_tpot_relative": 3.04856,
+     "aisimulate_tpot_relative": 3.003917,
+     "aisimulate_tpot_error_pct": 1.46,
+     "status": "success"
+    },
+    {
+     "concurrency": 128,
+     "measured_tpot_relative": 4.746225,
+     "aisimulate_tpot_relative": 4.763444,
+     "aisimulate_tpot_error_pct": 0.36,
+     "status": "success"
+    },
+    {
+     "concurrency": 256,
+     "measured_tpot_relative": 7.934804,
+     "aisimulate_tpot_relative": 8.069284,
+     "aisimulate_tpot_error_pct": 1.69,
+     "status": "success"
+    }
+   ]
+  },
+  {
+   "scenario": "glm-5-b300-fp8-sglang-tp8.yaml",
+   "model": "glm-5",
+   "gpu": "b300",
+   "workload": "1024:1024",
+   "label": "1k1k",
+   "framework": "sglang",
+   "precision": "fp8",
+   "serving": "aggregated",
+   "spec_method": "none",
+   "parallelism": {
+    "attention_dp_size": 1,
+    "moe_ep_size": 1,
+    "moe_tp_size": 8,
+    "pp_size": 1,
+    "tp_size": 8
+   },
+   "topology_id": "c1a72e7093b672fb",
+   "points": [
+    {
+     "concurrency": 4,
+     "measured_tpot_relative": 1.0,
+     "aisimulate_tpot_relative": 0.797196,
+     "aisimulate_tpot_error_pct": 20.28,
+     "status": "success"
+    },
+    {
+     "concurrency": 8,
+     "measured_tpot_relative": 1.155634,
+     "aisimulate_tpot_relative": 0.982213,
+     "aisimulate_tpot_error_pct": 15.01,
+     "status": "success"
+    },
+    {
+     "concurrency": 16,
+     "measured_tpot_relative": 1.369867,
+     "aisimulate_tpot_relative": 1.178563,
+     "aisimulate_tpot_error_pct": 13.97,
+     "status": "success"
+    },
+    {
+     "concurrency": 32,
+     "measured_tpot_relative": 1.672035,
+     "aisimulate_tpot_relative": 1.485378,
+     "aisimulate_tpot_error_pct": 11.16,
+     "status": "success"
+    },
+    {
+     "concurrency": 64,
+     "measured_tpot_relative": 2.224402,
+     "aisimulate_tpot_relative": 2.062996,
+     "aisimulate_tpot_error_pct": 7.26,
+     "status": "success"
+    },
+    {
+     "concurrency": 128,
+     "measured_tpot_relative": 3.007297,
+     "aisimulate_tpot_relative": 2.615445,
+     "aisimulate_tpot_error_pct": 13.03,
+     "status": "success"
+    },
+    {
+     "concurrency": 256,
+     "measured_tpot_relative": 4.322464,
+     "aisimulate_tpot_relative": 3.732237,
+     "aisimulate_tpot_error_pct": 13.65,
+     "status": "success"
+    }
+   ]
+  },
+  {
+   "scenario": "glm-5-b300-fp8-sglang-tp8.yaml",
+   "model": "glm-5",
+   "gpu": "b300",
+   "workload": "8192:1024",
+   "label": "8k1k",
+   "framework": "sglang",
+   "precision": "fp8",
+   "serving": "aggregated",
+   "spec_method": "none",
+   "parallelism": {
+    "attention_dp_size": 1,
+    "moe_ep_size": 1,
+    "moe_tp_size": 8,
+    "pp_size": 1,
+    "tp_size": 8
+   },
+   "topology_id": "38f487e805399eb4",
+   "points": [
+    {
+     "concurrency": 4,
+     "measured_tpot_relative": 1.0,
+     "aisimulate_tpot_relative": 0.802467,
+     "aisimulate_tpot_error_pct": 19.75,
+     "status": "success"
+    },
+    {
+     "concurrency": 8,
+     "measured_tpot_relative": 1.236805,
+     "aisimulate_tpot_relative": 1.031775,
+     "aisimulate_tpot_error_pct": 16.58,
+     "status": "success"
+    },
+    {
+     "concurrency": 16,
+     "measured_tpot_relative": 1.620592,
+     "aisimulate_tpot_relative": 1.367367,
+     "aisimulate_tpot_error_pct": 15.63,
+     "status": "success"
+    },
+    {
+     "concurrency": 32,
+     "measured_tpot_relative": 2.271431,
+     "aisimulate_tpot_relative": 1.966081,
+     "aisimulate_tpot_error_pct": 13.44,
+     "status": "success"
+    },
+    {
+     "concurrency": 64,
+     "measured_tpot_relative": 3.526284,
+     "aisimulate_tpot_relative": 3.017685,
+     "aisimulate_tpot_error_pct": 14.42,
+     "status": "success"
+    },
+    {
+     "concurrency": 128,
+     "measured_tpot_relative": 5.805653,
+     "aisimulate_tpot_relative": 4.84829,
+     "aisimulate_tpot_error_pct": 16.49,
+     "status": "success"
+    },
+    {
+     "concurrency": 256,
+     "measured_tpot_relative": 10.216695,
+     "aisimulate_tpot_relative": 8.30283,
+     "aisimulate_tpot_error_pct": 18.73,
+     "status": "success"
+    }
+   ]
+  },
+  {
+   "scenario": "glm-5-h200-fp8-sglang-tp8.yaml",
+   "model": "glm-5",
+   "gpu": "h200",
+   "workload": "1024:1024",
+   "label": "1k1k",
+   "framework": "sglang",
+   "precision": "fp8",
+   "serving": "aggregated",
+   "spec_method": "none",
+   "parallelism": {
+    "attention_dp_size": 1,
+    "moe_ep_size": 1,
+    "moe_tp_size": 8,
+    "pp_size": 1,
+    "tp_size": 8
+   },
+   "topology_id": "166b0f15bfc66788",
+   "points": [
+    {
+     "concurrency": 4,
+     "measured_tpot_relative": 1.0,
+     "aisimulate_tpot_relative": 0.878877,
+     "aisimulate_tpot_error_pct": 12.11,
+     "status": "success"
+    },
+    {
+     "concurrency": 8,
+     "measured_tpot_relative": 1.196537,
+     "aisimulate_tpot_relative": 1.138488,
+     "aisimulate_tpot_error_pct": 4.85,
+     "status": "success"
+    },
+    {
+     "concurrency": 16,
+     "measured_tpot_relative": 1.524026,
+     "aisimulate_tpot_relative": 1.612856,
+     "aisimulate_tpot_error_pct": 5.83,
+     "status": "success"
+    },
+    {
+     "concurrency": 32,
+     "measured_tpot_relative": 2.098999,
+     "aisimulate_tpot_relative": 1.967346,
+     "aisimulate_tpot_error_pct": 6.27,
+     "status": "success"
+    },
+    {
+     "concurrency": 64,
+     "measured_tpot_relative": 2.811858,
+     "aisimulate_tpot_relative": 2.699866,
+     "aisimulate_tpot_error_pct": 3.98,
+     "status": "success"
+    }
+   ]
+  },
+  {
+   "scenario": "glm-5-h200-fp8-sglang-tp8.yaml",
+   "model": "glm-5",
+   "gpu": "h200",
+   "workload": "1024:8192",
+   "label": "1k8k",
+   "framework": "sglang",
+   "precision": "fp8",
+   "serving": "aggregated",
+   "spec_method": "none",
+   "parallelism": {
+    "attention_dp_size": 1,
+    "moe_ep_size": 1,
+    "moe_tp_size": 8,
+    "pp_size": 1,
+    "tp_size": 8
+   },
+   "topology_id": "16e2a5e5bff10dd6",
+   "points": [
+    {
+     "concurrency": 4,
+     "measured_tpot_relative": 1.0,
+     "aisimulate_tpot_relative": 0.832016,
+     "aisimulate_tpot_error_pct": 16.8,
+     "status": "success"
+    },
+    {
+     "concurrency": 8,
+     "measured_tpot_relative": 1.133599,
+     "aisimulate_tpot_relative": 1.057962,
+     "aisimulate_tpot_error_pct": 6.67,
+     "status": "success"
+    },
+    {
+     "concurrency": 16,
+     "measured_tpot_relative": 1.369916,
+     "aisimulate_tpot_relative": 1.462881,
+     "aisimulate_tpot_error_pct": 6.79,
+     "status": "success"
+    },
+    {
+     "concurrency": 32,
+     "measured_tpot_relative": 1.742968,
+     "aisimulate_tpot_relative": 1.740656,
+     "aisimulate_tpot_error_pct": 0.13,
+     "status": "success"
+    },
+    {
+     "concurrency": 64,
+     "measured_tpot_relative": 2.301324,
+     "aisimulate_tpot_relative": 2.293807,
+     "aisimulate_tpot_error_pct": 0.33,
+     "status": "success"
+    }
+   ]
+  },
+  {
+   "scenario": "glm-5-h200-fp8-sglang-tp8.yaml",
+   "model": "glm-5",
+   "gpu": "h200",
+   "workload": "8192:1024",
+   "label": "8k1k",
+   "framework": "sglang",
+   "precision": "fp8",
+   "serving": "aggregated",
+   "spec_method": "none",
+   "parallelism": {
+    "attention_dp_size": 1,
+    "moe_ep_size": 1,
+    "moe_tp_size": 8,
+    "pp_size": 1,
+    "tp_size": 8
+   },
+   "topology_id": "6d34df651c1696f3",
+   "points": [
+    {
+     "concurrency": 4,
+     "measured_tpot_relative": 1.0,
+     "aisimulate_tpot_relative": 0.924586,
+     "aisimulate_tpot_error_pct": 7.54,
+     "status": "success"
+    },
+    {
+     "concurrency": 8,
+     "measured_tpot_relative": 1.246619,
+     "aisimulate_tpot_relative": 1.303673,
+     "aisimulate_tpot_error_pct": 4.58,
+     "status": "success"
+    },
+    {
+     "concurrency": 16,
+     "measured_tpot_relative": 1.749403,
+     "aisimulate_tpot_relative": 2.022299,
+     "aisimulate_tpot_error_pct": 15.6,
+     "status": "success"
+    },
+    {
+     "concurrency": 32,
+     "measured_tpot_relative": 2.657494,
+     "aisimulate_tpot_relative": 2.982593,
+     "aisimulate_tpot_error_pct": 12.23,
+     "status": "success"
+    },
+    {
+     "concurrency": 64,
+     "measured_tpot_relative": 3.109112,
+     "aisimulate_tpot_relative": 4.674977,
+     "aisimulate_tpot_error_pct": 50.36,
+     "status": "success"
+    }
+   ]
+  },
+  {
+   "scenario": "gpt-oss-120b-b200-fp4-trt-tp1.yaml",
+   "model": "gpt-oss-120b",
+   "gpu": "b200",
+   "workload": "8192:1024",
+   "label": "8k1k",
+   "framework": "trt",
+   "precision": "fp4",
+   "serving": "aggregated",
+   "spec_method": "none",
+   "parallelism": {
+    "attention_dp_size": 1,
+    "moe_ep_size": 1,
+    "moe_tp_size": 1,
+    "pp_size": 1,
+    "tp_size": 1
+   },
+   "topology_id": "25738a8a9de29ef6",
+   "points": [
+    {
+     "concurrency": 4,
+     "measured_tpot_relative": 1.0,
+     "aisimulate_tpot_relative": 2.503031,
+     "aisimulate_tpot_error_pct": 150.3,
+     "status": "success"
+    },
+    {
+     "concurrency": 8,
+     "measured_tpot_relative": 1.300272,
+     "aisimulate_tpot_relative": 4.070784,
+     "aisimulate_tpot_error_pct": 213.07,
+     "status": "success"
+    },
+    {
+     "concurrency": 16,
+     "measured_tpot_relative": 1.812285,
+     "aisimulate_tpot_relative": 5.951336,
+     "aisimulate_tpot_error_pct": 228.39,
+     "status": "success"
+    },
+    {
+     "concurrency": 32,
+     "measured_tpot_relative": 2.548728,
+     "aisimulate_tpot_relative": 9.081675,
+     "aisimulate_tpot_error_pct": 256.32,
+     "status": "success"
+    },
+    {
+     "concurrency": 64,
+     "measured_tpot_relative": 3.913795,
+     "aisimulate_tpot_relative": 15.08495,
+     "aisimulate_tpot_error_pct": 285.43,
+     "status": "success"
+    },
+    {
+     "concurrency": 128,
+     "measured_tpot_relative": 6.312615,
+     "aisimulate_tpot_relative": 21.942039,
+     "aisimulate_tpot_error_pct": 247.59,
+     "status": "success"
+    },
+    {
+     "concurrency": 256,
+     "measured_tpot_relative": 9.738815,
+     "aisimulate_tpot_relative": 35.346205,
+     "aisimulate_tpot_error_pct": 262.94,
+     "status": "success"
+    }
+   ]
+  },
+  {
+   "scenario": "gpt-oss-120b-b200-fp4-trt-tp2.yaml",
+   "model": "gpt-oss-120b",
+   "gpu": "b200",
+   "workload": "1024:1024",
+   "label": "1k1k",
+   "framework": "trt",
+   "precision": "fp4",
+   "serving": "aggregated",
+   "spec_method": "none",
+   "parallelism": {
+    "attention_dp_size": 1,
+    "moe_ep_size": 1,
+    "moe_tp_size": 2,
+    "pp_size": 1,
+    "tp_size": 2
+   },
+   "topology_id": "dac3b876a41df471",
+   "points": [
+    {
+     "concurrency": 4,
+     "measured_tpot_relative": 1.0,
+     "aisimulate_tpot_relative": 1.994361,
+     "aisimulate_tpot_error_pct": 99.44,
+     "status": "success"
+    },
+    {
+     "concurrency": 8,
+     "measured_tpot_relative": 1.215482,
+     "aisimulate_tpot_relative": 2.859205,
+     "aisimulate_tpot_error_pct": 135.23,
+     "status": "success"
+    },
+    {
+     "concurrency": 16,
+     "measured_tpot_relative": 1.502143,
+     "aisimulate_tpot_relative": 3.736573,
+     "aisimulate_tpot_error_pct": 148.75,
+     "status": "success"
+    },
+    {
+     "concurrency": 32,
+     "measured_tpot_relative": 1.935144,
+     "aisimulate_tpot_relative": 4.97866,
+     "aisimulate_tpot_error_pct": 157.28,
+     "status": "success"
+    },
+    {
+     "concurrency": 64,
+     "measured_tpot_relative": 2.580635,
+     "aisimulate_tpot_relative": 7.747571,
+     "aisimulate_tpot_error_pct": 200.22,
+     "status": "success"
+    },
+    {
+     "concurrency": 128,
+     "measured_tpot_relative": 3.629022,
+     "aisimulate_tpot_relative": 10.726563,
+     "aisimulate_tpot_error_pct": 195.58,
+     "status": "success"
+    },
+    {
+     "concurrency": 256,
+     "measured_tpot_relative": 5.144327,
+     "aisimulate_tpot_relative": 16.49436,
+     "aisimulate_tpot_error_pct": 220.63,
+     "status": "success"
+    }
+   ]
+  },
+  {
+   "scenario": "gpt-oss-120b-b200-fp4-trt-tp2.yaml",
+   "model": "gpt-oss-120b",
+   "gpu": "b200",
+   "workload": "8192:1024",
+   "label": "8k1k",
+   "framework": "trt",
+   "precision": "fp4",
+   "serving": "aggregated",
+   "spec_method": "none",
+   "parallelism": {
+    "attention_dp_size": 1,
+    "moe_ep_size": 1,
+    "moe_tp_size": 2,
+    "pp_size": 1,
+    "tp_size": 2
+   },
+   "topology_id": "9f49b8bc80895711",
+   "points": [
+    {
+     "concurrency": 4,
+     "measured_tpot_relative": 1.0,
+     "aisimulate_tpot_relative": 2.033983,
+     "aisimulate_tpot_error_pct": 103.4,
+     "status": "success"
+    },
+    {
+     "concurrency": 8,
+     "measured_tpot_relative": 1.197221,
+     "aisimulate_tpot_relative": 3.002933,
+     "aisimulate_tpot_error_pct": 150.83,
+     "status": "success"
+    },
+    {
+     "concurrency": 16,
+     "measured_tpot_relative": 1.573797,
+     "aisimulate_tpot_relative": 4.166356,
+     "aisimulate_tpot_error_pct": 164.73,
+     "status": "success"
+    },
+    {
+     "concurrency": 32,
+     "measured_tpot_relative": 2.092199,
+     "aisimulate_tpot_relative": 6.002823,
+     "aisimulate_tpot_error_pct": 186.91,
+     "status": "success"
+    },
+    {
+     "concurrency": 64,
+     "measured_tpot_relative": 3.089133,
+     "aisimulate_tpot_relative": 9.895204,
+     "aisimulate_tpot_error_pct": 220.32,
+     "status": "success"
+    },
+    {
+     "concurrency": 128,
+     "measured_tpot_relative": 4.832506,
+     "aisimulate_tpot_relative": 15.308336,
+     "aisimulate_tpot_error_pct": 216.78,
+     "status": "success"
+    },
+    {
+     "concurrency": 256,
+     "measured_tpot_relative": 8.012657,
+     "aisimulate_tpot_relative": 26.248111,
+     "aisimulate_tpot_error_pct": 227.58,
+     "status": "success"
+    }
+   ]
+  },
+  {
+   "scenario": "gpt-oss-120b-b200-fp4-trt-tp4.yaml",
+   "model": "gpt-oss-120b",
+   "gpu": "b200",
+   "workload": "1024:8192",
+   "label": "1k8k",
+   "framework": "trt",
+   "precision": "fp4",
+   "serving": "aggregated",
+   "spec_method": "none",
+   "parallelism": {
+    "attention_dp_size": 1,
+    "moe_ep_size": 1,
+    "moe_tp_size": 4,
+    "pp_size": 1,
+    "tp_size": 4
+   },
+   "topology_id": "d658ce3c7a321824",
+   "points": [
+    {
+     "concurrency": 4,
+     "measured_tpot_relative": 1.0,
+     "aisimulate_tpot_relative": 1.739245,
+     "aisimulate_tpot_error_pct": 73.92,
+     "status": "success"
+    },
+    {
+     "concurrency": 8,
+     "measured_tpot_relative": 1.116139,
+     "aisimulate_tpot_relative": 2.111268,
+     "aisimulate_tpot_error_pct": 89.16,
+     "status": "success"
+    },
+    {
+     "concurrency": 16,
+     "measured_tpot_relative": 1.278491,
+     "aisimulate_tpot_relative": 2.591148,
+     "aisimulate_tpot_error_pct": 102.67,
+     "status": "success"
+    },
+    {
+     "concurrency": 32,
+     "measured_tpot_relative": 1.534098,
+     "aisimulate_tpot_relative": 3.304561,
+     "aisimulate_tpot_error_pct": 115.41,
+     "status": "success"
+    },
+    {
+     "concurrency": 64,
+     "measured_tpot_relative": 1.867963,
+     "aisimulate_tpot_relative": 4.800859,
+     "aisimulate_tpot_error_pct": 157.01,
+     "status": "success"
+    },
+    {
+     "concurrency": 128,
+     "measured_tpot_relative": 2.376103,
+     "aisimulate_tpot_relative": 6.413675,
+     "aisimulate_tpot_error_pct": 169.92,
+     "status": "success"
+    },
+    {
+     "concurrency": 256,
+     "measured_tpot_relative": 3.226024,
+     "aisimulate_tpot_relative": 9.352846,
+     "aisimulate_tpot_error_pct": 189.92,
+     "status": "success"
+    }
+   ]
+  },
+  {
+   "scenario": "gpt-oss-120b-b200-fp4-trt-tp4.yaml",
+   "model": "gpt-oss-120b",
+   "gpu": "b200",
+   "workload": "8192:1024",
+   "label": "8k1k",
+   "framework": "trt",
+   "precision": "fp4",
+   "serving": "aggregated",
+   "spec_method": "none",
+   "parallelism": {
+    "attention_dp_size": 1,
+    "moe_ep_size": 1,
+    "moe_tp_size": 4,
+    "pp_size": 1,
+    "tp_size": 4
+   },
+   "topology_id": "76f4b2a543a7332d",
+   "points": [
+    {
+     "concurrency": 4,
+     "measured_tpot_relative": 1.0,
+     "aisimulate_tpot_relative": 1.76031,
+     "aisimulate_tpot_error_pct": 76.03,
+     "status": "success"
+    },
+    {
+     "concurrency": 8,
+     "measured_tpot_relative": 1.15674,
+     "aisimulate_tpot_relative": 2.231971,
+     "aisimulate_tpot_error_pct": 92.95,
+     "status": "success"
+    },
+    {
+     "concurrency": 16,
+     "measured_tpot_relative": 1.429267,
+     "aisimulate_tpot_relative": 2.944032,
+     "aisimulate_tpot_error_pct": 105.98,
+     "status": "success"
+    },
+    {
+     "concurrency": 32,
+     "measured_tpot_relative": 1.915408,
+     "aisimulate_tpot_relative": 4.183421,
+     "aisimulate_tpot_error_pct": 118.41,
+     "status": "success"
+    }
+   ]
+  },
+  {
+   "scenario": "gpt-oss-120b-b200-fp4-vllm-tp1.yaml",
+   "model": "gpt-oss-120b",
+   "gpu": "b200",
+   "workload": "1024:1024",
+   "label": "1k1k",
+   "framework": "vllm",
+   "precision": "fp4",
+   "serving": "aggregated",
+   "spec_method": "none",
+   "parallelism": {
+    "attention_dp_size": 1,
+    "moe_ep_size": 1,
+    "moe_tp_size": 1,
+    "pp_size": 1,
+    "tp_size": 1
+   },
+   "topology_id": "62eb0f6c56837400",
+   "points": [
+    {
+     "concurrency": 4,
+     "measured_tpot_relative": 1.0,
+     "aisimulate_tpot_relative": 1.182614,
+     "aisimulate_tpot_error_pct": 18.26,
+     "status": "success"
+    },
+    {
+     "concurrency": 8,
+     "measured_tpot_relative": 1.216268,
+     "aisimulate_tpot_relative": 1.610762,
+     "aisimulate_tpot_error_pct": 32.43,
+     "status": "success"
+    },
+    {
+     "concurrency": 16,
+     "measured_tpot_relative": 1.622026,
+     "aisimulate_tpot_relative": 2.070872,
+     "aisimulate_tpot_error_pct": 27.67,
+     "status": "success"
+    },
+    {
+     "concurrency": 32,
+     "measured_tpot_relative": 2.140254,
+     "aisimulate_tpot_relative": 2.807888,
+     "aisimulate_tpot_error_pct": 31.19,
+     "status": "success"
+    },
+    {
+     "concurrency": 64,
+     "measured_tpot_relative": 2.861162,
+     "aisimulate_tpot_relative": 4.284079,
+     "aisimulate_tpot_error_pct": 49.73,
+     "status": "success"
+    },
+    {
+     "concurrency": 128,
+     "measured_tpot_relative": 3.666801,
+     "aisimulate_tpot_relative": 5.773045,
+     "aisimulate_tpot_error_pct": 57.44,
+     "status": "success"
+    }
+   ]
+  },
+  {
+   "scenario": "gpt-oss-120b-b200-fp4-vllm-tp1.yaml",
+   "model": "gpt-oss-120b",
+   "gpu": "b200",
+   "workload": "1024:8192",
+   "label": "1k8k",
+   "framework": "vllm",
+   "precision": "fp4",
+   "serving": "aggregated",
+   "spec_method": "none",
+   "parallelism": {
+    "attention_dp_size": 1,
+    "moe_ep_size": 1,
+    "moe_tp_size": 1,
+    "pp_size": 1,
+    "tp_size": 1
+   },
+   "topology_id": "a92e6a84ad3ba588",
+   "points": [
+    {
+     "concurrency": 4,
+     "measured_tpot_relative": 1.0,
+     "aisimulate_tpot_relative": 1.155514,
+     "aisimulate_tpot_error_pct": 15.55,
+     "status": "success"
+    },
+    {
+     "concurrency": 8,
+     "measured_tpot_relative": 1.227252,
+     "aisimulate_tpot_relative": 1.568538,
+     "aisimulate_tpot_error_pct": 27.81,
+     "status": "success"
+    },
+    {
+     "concurrency": 16,
+     "measured_tpot_relative": 1.552194,
+     "aisimulate_tpot_relative": 2.015144,
+     "aisimulate_tpot_error_pct": 29.83,
+     "status": "success"
+    },
+    {
+     "concurrency": 32,
+     "measured_tpot_relative": 2.106567,
+     "aisimulate_tpot_relative": 2.693906,
+     "aisimulate_tpot_error_pct": 27.88,
+     "status": "success"
+    },
+    {
+     "concurrency": 64,
+     "measured_tpot_relative": 2.82199,
+     "aisimulate_tpot_relative": 4.038931,
+     "aisimulate_tpot_error_pct": 43.12,
+     "status": "success"
+    },
+    {
+     "concurrency": 128,
+     "measured_tpot_relative": 3.596232,
+     "aisimulate_tpot_relative": 5.375847,
+     "aisimulate_tpot_error_pct": 49.49,
+     "status": "success"
+    }
+   ]
+  },
+  {
+   "scenario": "gpt-oss-120b-b200-fp4-vllm-tp1.yaml",
+   "model": "gpt-oss-120b",
+   "gpu": "b200",
+   "workload": "8192:1024",
+   "label": "8k1k",
+   "framework": "vllm",
+   "precision": "fp4",
+   "serving": "aggregated",
+   "spec_method": "none",
+   "parallelism": {
+    "attention_dp_size": 1,
+    "moe_ep_size": 1,
+    "moe_tp_size": 1,
+    "pp_size": 1,
+    "tp_size": 1
+   },
+   "topology_id": "0447567c7b48c1ae",
+   "points": [
+    {
+     "concurrency": 4,
+     "measured_tpot_relative": 1.0,
+     "aisimulate_tpot_relative": 1.201718,
+     "aisimulate_tpot_error_pct": 20.17,
+     "status": "success"
+    },
+    {
+     "concurrency": 8,
+     "measured_tpot_relative": 1.268433,
+     "aisimulate_tpot_relative": 1.769913,
+     "aisimulate_tpot_error_pct": 39.54,
+     "status": "success"
+    },
+    {
+     "concurrency": 16,
+     "measured_tpot_relative": 1.786263,
+     "aisimulate_tpot_relative": 2.502608,
+     "aisimulate_tpot_error_pct": 40.1,
+     "status": "success"
+    },
+    {
+     "concurrency": 32,
+     "measured_tpot_relative": 2.643217,
+     "aisimulate_tpot_relative": 3.789174,
+     "aisimulate_tpot_error_pct": 43.35,
+     "status": "success"
+    },
+    {
+     "concurrency": 64,
+     "measured_tpot_relative": 3.990374,
+     "aisimulate_tpot_relative": 6.334595,
+     "aisimulate_tpot_error_pct": 58.75,
+     "status": "success"
+    },
+    {
+     "concurrency": 128,
+     "measured_tpot_relative": 6.177773,
+     "aisimulate_tpot_relative": 10.174912,
+     "aisimulate_tpot_error_pct": 64.7,
+     "status": "success"
+    }
+   ]
+  },
+  {
+   "scenario": "gpt-oss-120b-b200-fp4-vllm-tp2.yaml",
+   "model": "gpt-oss-120b",
+   "gpu": "b200",
+   "workload": "1024:1024",
+   "label": "1k1k",
+   "framework": "vllm",
+   "precision": "fp4",
+   "serving": "aggregated",
+   "spec_method": "none",
+   "parallelism": {
+    "attention_dp_size": 1,
+    "moe_ep_size": 1,
+    "moe_tp_size": 2,
+    "pp_size": 1,
+    "tp_size": 2
+   },
+   "topology_id": "1eb841623061ab90",
+   "points": [
+    {
+     "concurrency": 4,
+     "measured_tpot_relative": 1.0,
+     "aisimulate_tpot_relative": 1.194349,
+     "aisimulate_tpot_error_pct": 19.43,
+     "status": "success"
+    },
+    {
+     "concurrency": 8,
+     "measured_tpot_relative": 1.15146,
+     "aisimulate_tpot_relative": 1.448118,
+     "aisimulate_tpot_error_pct": 25.76,
+     "status": "success"
+    },
+    {
+     "concurrency": 16,
+     "measured_tpot_relative": 1.390905,
+     "aisimulate_tpot_relative": 1.772388,
+     "aisimulate_tpot_error_pct": 27.43,
+     "status": "success"
+    },
+    {
+     "concurrency": 32,
+     "measured_tpot_relative": 1.707514,
+     "aisimulate_tpot_relative": 2.230705,
+     "aisimulate_tpot_error_pct": 30.64,
+     "status": "success"
+    },
+    {
+     "concurrency": 64,
+     "measured_tpot_relative": 2.133216,
+     "aisimulate_tpot_relative": 3.125602,
+     "aisimulate_tpot_error_pct": 46.52,
+     "status": "success"
+    },
+    {
+     "concurrency": 128,
+     "measured_tpot_relative": 2.73971,
+     "aisimulate_tpot_relative": 4.302167,
+     "aisimulate_tpot_error_pct": 57.03,
+     "status": "success"
+    }
+   ]
+  },
+  {
+   "scenario": "gpt-oss-120b-b200-fp4-vllm-tp2.yaml",
+   "model": "gpt-oss-120b",
+   "gpu": "b200",
+   "workload": "1024:8192",
+   "label": "1k8k",
+   "framework": "vllm",
+   "precision": "fp4",
+   "serving": "aggregated",
+   "spec_method": "none",
+   "parallelism": {
+    "attention_dp_size": 1,
+    "moe_ep_size": 1,
+    "moe_tp_size": 2,
+    "pp_size": 1,
+    "tp_size": 2
+   },
+   "topology_id": "6ab041925c3396a2",
+   "points": [
+    {
+     "concurrency": 4,
+     "measured_tpot_relative": 1.0,
+     "aisimulate_tpot_relative": 1.012915,
+     "aisimulate_tpot_error_pct": 1.29,
+     "status": "success"
+    },
+    {
+     "concurrency": 8,
+     "measured_tpot_relative": 1.078916,
+     "aisimulate_tpot_relative": 1.213269,
+     "aisimulate_tpot_error_pct": 12.45,
+     "status": "success"
+    },
+    {
+     "concurrency": 16,
+     "measured_tpot_relative": 1.656609,
+     "aisimulate_tpot_relative": 1.469149,
+     "aisimulate_tpot_error_pct": 11.32,
+     "status": "success"
+    },
+    {
+     "concurrency": 32,
+     "measured_tpot_relative": 2.00409,
+     "aisimulate_tpot_relative": 1.847477,
+     "aisimulate_tpot_error_pct": 7.81,
+     "status": "success"
+    },
+    {
+     "concurrency": 64,
+     "measured_tpot_relative": 1.982766,
+     "aisimulate_tpot_relative": 2.528856,
+     "aisimulate_tpot_error_pct": 27.54,
+     "status": "success"
+    },
+    {
+     "concurrency": 128,
+     "measured_tpot_relative": 2.614213,
+     "aisimulate_tpot_relative": 3.377991,
+     "aisimulate_tpot_error_pct": 29.22,
+     "status": "success"
+    }
+   ]
+  },
+  {
+   "scenario": "gpt-oss-120b-b200-fp4-vllm-tp2.yaml",
+   "model": "gpt-oss-120b",
+   "gpu": "b200",
+   "workload": "8192:1024",
+   "label": "8k1k",
+   "framework": "vllm",
+   "precision": "fp4",
+   "serving": "aggregated",
+   "spec_method": "none",
+   "parallelism": {
+    "attention_dp_size": 1,
+    "moe_ep_size": 1,
+    "moe_tp_size": 2,
+    "pp_size": 1,
+    "tp_size": 2
+   },
+   "topology_id": "82c7d3fd3f97a2cb",
+   "points": [
+    {
+     "concurrency": 4,
+     "measured_tpot_relative": 1.0,
+     "aisimulate_tpot_relative": 1.199767,
+     "aisimulate_tpot_error_pct": 19.98,
+     "status": "success"
+    },
+    {
+     "concurrency": 8,
+     "measured_tpot_relative": 1.169025,
+     "aisimulate_tpot_relative": 1.516726,
+     "aisimulate_tpot_error_pct": 29.74,
+     "status": "success"
+    },
+    {
+     "concurrency": 16,
+     "measured_tpot_relative": 1.537291,
+     "aisimulate_tpot_relative": 2.056811,
+     "aisimulate_tpot_error_pct": 33.79,
+     "status": "success"
+    },
+    {
+     "concurrency": 32,
+     "measured_tpot_relative": 2.088727,
+     "aisimulate_tpot_relative": 2.913535,
+     "aisimulate_tpot_error_pct": 39.49,
+     "status": "success"
+    },
+    {
+     "concurrency": 64,
+     "measured_tpot_relative": 3.056317,
+     "aisimulate_tpot_relative": 4.547855,
+     "aisimulate_tpot_error_pct": 48.8,
+     "status": "success"
+    },
+    {
+     "concurrency": 128,
+     "measured_tpot_relative": 4.729896,
+     "aisimulate_tpot_relative": 7.24296,
+     "aisimulate_tpot_error_pct": 53.13,
+     "status": "success"
+    }
+   ]
+  },
+  {
+   "scenario": "gpt-oss-120b-b200-fp4-vllm-tp4.yaml",
+   "model": "gpt-oss-120b",
+   "gpu": "b200",
+   "workload": "1024:1024",
+   "label": "1k1k",
+   "framework": "vllm",
+   "precision": "fp4",
+   "serving": "aggregated",
+   "spec_method": "none",
+   "parallelism": {
+    "attention_dp_size": 1,
+    "moe_ep_size": 1,
+    "moe_tp_size": 4,
+    "pp_size": 1,
+    "tp_size": 4
+   },
+   "topology_id": "f86cdfefccd4af50",
+   "points": [
+    {
+     "concurrency": 4,
+     "measured_tpot_relative": 1.0,
+     "aisimulate_tpot_relative": 1.113573,
+     "aisimulate_tpot_error_pct": 11.36,
+     "status": "success"
+    },
+    {
+     "concurrency": 8,
+     "measured_tpot_relative": 1.105999,
+     "aisimulate_tpot_relative": 1.289608,
+     "aisimulate_tpot_error_pct": 16.6,
+     "status": "success"
+    },
+    {
+     "concurrency": 16,
+     "measured_tpot_relative": 1.257902,
+     "aisimulate_tpot_relative": 1.487226,
+     "aisimulate_tpot_error_pct": 18.23,
+     "status": "success"
+    },
+    {
+     "concurrency": 32,
+     "measured_tpot_relative": 1.551619,
+     "aisimulate_tpot_relative": 1.798782,
+     "aisimulate_tpot_error_pct": 15.93,
+     "status": "success"
+    },
+    {
+     "concurrency": 64,
+     "measured_tpot_relative": 1.895698,
+     "aisimulate_tpot_relative": 2.445926,
+     "aisimulate_tpot_error_pct": 29.03,
+     "status": "success"
+    }
+   ]
+  },
+  {
+   "scenario": "gpt-oss-120b-b200-fp4-vllm-tp4.yaml",
+   "model": "gpt-oss-120b",
+   "gpu": "b200",
+   "workload": "1024:8192",
+   "label": "1k8k",
+   "framework": "vllm",
+   "precision": "fp4",
+   "serving": "aggregated",
+   "spec_method": "none",
+   "parallelism": {
+    "attention_dp_size": 1,
+    "moe_ep_size": 1,
+    "moe_tp_size": 4,
+    "pp_size": 1,
+    "tp_size": 4
+   },
+   "topology_id": "a57aa201c9f5bde8",
+   "points": [
+    {
+     "concurrency": 4,
+     "measured_tpot_relative": 1.0,
+     "aisimulate_tpot_relative": 0.93496,
+     "aisimulate_tpot_error_pct": 6.5,
+     "status": "success"
+    },
+    {
+     "concurrency": 8,
+     "measured_tpot_relative": 1.111307,
+     "aisimulate_tpot_relative": 1.077036,
+     "aisimulate_tpot_error_pct": 3.08,
+     "status": "success"
+    },
+    {
+     "concurrency": 16,
+     "measured_tpot_relative": 1.229112,
+     "aisimulate_tpot_relative": 1.206951,
+     "aisimulate_tpot_error_pct": 1.8,
+     "status": "success"
+    },
+    {
+     "concurrency": 32,
+     "measured_tpot_relative": 1.790042,
+     "aisimulate_tpot_relative": 1.432684,
+     "aisimulate_tpot_error_pct": 19.96,
+     "status": "success"
+    },
+    {
+     "concurrency": 64,
+     "measured_tpot_relative": 2.090445,
+     "aisimulate_tpot_relative": 1.934318,
+     "aisimulate_tpot_error_pct": 7.47,
+     "status": "success"
+    }
+   ]
+  },
+  {
+   "scenario": "gpt-oss-120b-b200-fp4-vllm-tp4.yaml",
+   "model": "gpt-oss-120b",
+   "gpu": "b200",
+   "workload": "8192:1024",
+   "label": "8k1k",
+   "framework": "vllm",
+   "precision": "fp4",
+   "serving": "aggregated",
+   "spec_method": "none",
+   "parallelism": {
+    "attention_dp_size": 1,
+    "moe_ep_size": 1,
+    "moe_tp_size": 4,
+    "pp_size": 1,
+    "tp_size": 4
+   },
+   "topology_id": "1042fb081471eec2",
+   "points": [
+    {
+     "concurrency": 4,
+     "measured_tpot_relative": 1.0,
+     "aisimulate_tpot_relative": 1.102643,
+     "aisimulate_tpot_error_pct": 10.26,
+     "status": "success"
+    },
+    {
+     "concurrency": 8,
+     "measured_tpot_relative": 1.115991,
+     "aisimulate_tpot_relative": 1.337008,
+     "aisimulate_tpot_error_pct": 19.8,
+     "status": "success"
+    },
+    {
+     "concurrency": 16,
+     "measured_tpot_relative": 1.371297,
+     "aisimulate_tpot_relative": 1.631471,
+     "aisimulate_tpot_error_pct": 18.97,
+     "status": "success"
+    },
+    {
+     "concurrency": 32,
+     "measured_tpot_relative": 1.819938,
+     "aisimulate_tpot_relative": 2.238374,
+     "aisimulate_tpot_error_pct": 22.99,
+     "status": "success"
+    },
+    {
+     "concurrency": 64,
+     "measured_tpot_relative": 2.593564,
+     "aisimulate_tpot_relative": 3.414039,
+     "aisimulate_tpot_error_pct": 31.64,
+     "status": "success"
+    }
+   ]
+  },
+  {
+   "scenario": "gpt-oss-120b-h100-fp4-vllm-tp2.yaml",
+   "model": "gpt-oss-120b",
+   "gpu": "h100",
+   "workload": "1024:1024",
+   "label": "1k1k",
+   "framework": "vllm",
+   "precision": "fp4",
+   "serving": "aggregated",
+   "spec_method": "none",
+   "parallelism": {
+    "attention_dp_size": 1,
+    "moe_ep_size": 1,
+    "moe_tp_size": 2,
+    "pp_size": 1,
+    "tp_size": 2
+   },
+   "topology_id": "50ead645a1e32fa0",
+   "points": [
+    {
+     "concurrency": 4,
+     "measured_tpot_relative": 1.0,
+     "aisimulate_tpot_relative": 0.980473,
+     "aisimulate_tpot_error_pct": 1.95,
+     "status": "success"
+    },
+    {
+     "concurrency": 8,
+     "measured_tpot_relative": 1.221871,
+     "aisimulate_tpot_relative": 1.270867,
+     "aisimulate_tpot_error_pct": 4.01,
+     "status": "success"
+    },
+    {
+     "concurrency": 16,
+     "measured_tpot_relative": 1.585781,
+     "aisimulate_tpot_relative": 1.619833,
+     "aisimulate_tpot_error_pct": 2.15,
+     "status": "success"
+    },
+    {
+     "concurrency": 32,
+     "measured_tpot_relative": 2.132347,
+     "aisimulate_tpot_relative": 2.024458,
+     "aisimulate_tpot_error_pct": 5.06,
+     "status": "success"
+    },
+    {
+     "concurrency": 64,
+     "measured_tpot_relative": 2.887008,
+     "aisimulate_tpot_relative": 3.030522,
+     "aisimulate_tpot_error_pct": 4.97,
+     "status": "success"
+    }
+   ]
+  },
+  {
+   "scenario": "gpt-oss-120b-h100-fp4-vllm-tp2.yaml",
+   "model": "gpt-oss-120b",
+   "gpu": "h100",
+   "workload": "1024:8192",
+   "label": "1k8k",
+   "framework": "vllm",
+   "precision": "fp4",
+   "serving": "aggregated",
+   "spec_method": "none",
+   "parallelism": {
+    "attention_dp_size": 1,
+    "moe_ep_size": 1,
+    "moe_tp_size": 2,
+    "pp_size": 1,
+    "tp_size": 2
+   },
+   "topology_id": "8b7117a40ef0aa35",
+   "points": [
+    {
+     "concurrency": 4,
+     "measured_tpot_relative": 1.0,
+     "aisimulate_tpot_relative": 1.012691,
+     "aisimulate_tpot_error_pct": 1.27,
+     "status": "success"
+    },
+    {
+     "concurrency": 8,
+     "measured_tpot_relative": 1.229897,
+     "aisimulate_tpot_relative": 1.306443,
+     "aisimulate_tpot_error_pct": 6.22,
+     "status": "success"
+    },
+    {
+     "concurrency": 16,
+     "measured_tpot_relative": 1.570289,
+     "aisimulate_tpot_relative": 1.669165,
+     "aisimulate_tpot_error_pct": 6.3,
+     "status": "success"
+    },
+    {
+     "concurrency": 32,
+     "measured_tpot_relative": 2.088627,
+     "aisimulate_tpot_relative": 2.063642,
+     "aisimulate_tpot_error_pct": 1.2,
+     "status": "success"
+    },
+    {
+     "concurrency": 64,
+     "measured_tpot_relative": 2.896964,
+     "aisimulate_tpot_relative": 3.041008,
+     "aisimulate_tpot_error_pct": 4.97,
+     "status": "success"
+    }
+   ]
+  },
+  {
+   "scenario": "gpt-oss-120b-h100-fp4-vllm-tp2.yaml",
+   "model": "gpt-oss-120b",
+   "gpu": "h100",
+   "workload": "8192:1024",
+   "label": "8k1k",
+   "framework": "vllm",
+   "precision": "fp4",
+   "serving": "aggregated",
+   "spec_method": "none",
+   "parallelism": {
+    "attention_dp_size": 1,
+    "moe_ep_size": 1,
+    "moe_tp_size": 2,
+    "pp_size": 1,
+    "tp_size": 2
+   },
+   "topology_id": "47e53888324ca2dd",
+   "points": [
+    {
+     "concurrency": 4,
+     "measured_tpot_relative": 1.0,
+     "aisimulate_tpot_relative": 0.959181,
+     "aisimulate_tpot_error_pct": 4.08,
+     "status": "success"
+    },
+    {
+     "concurrency": 8,
+     "measured_tpot_relative": 1.327811,
+     "aisimulate_tpot_relative": 1.321936,
+     "aisimulate_tpot_error_pct": 0.44,
+     "status": "success"
+    },
+    {
+     "concurrency": 16,
+     "measured_tpot_relative": 1.913272,
+     "aisimulate_tpot_relative": 1.821907,
+     "aisimulate_tpot_error_pct": 4.78,
+     "status": "success"
+    },
+    {
+     "concurrency": 32,
+     "measured_tpot_relative": 2.923376,
+     "aisimulate_tpot_relative": 2.534687,
+     "aisimulate_tpot_error_pct": 13.3,
+     "status": "success"
+    },
+    {
+     "concurrency": 64,
+     "measured_tpot_relative": 4.685947,
+     "aisimulate_tpot_relative": 4.133917,
+     "aisimulate_tpot_error_pct": 11.78,
+     "status": "success"
+    }
+   ]
+  },
+  {
+   "scenario": "gpt-oss-120b-h100-fp4-vllm-tp4.yaml",
+   "model": "gpt-oss-120b",
+   "gpu": "h100",
+   "workload": "1024:1024",
+   "label": "1k1k",
+   "framework": "vllm",
+   "precision": "fp4",
+   "serving": "aggregated",
+   "spec_method": "none",
+   "parallelism": {
+    "attention_dp_size": 1,
+    "moe_ep_size": 1,
+    "moe_tp_size": 4,
+    "pp_size": 1,
+    "tp_size": 4
+   },
+   "topology_id": "c58113d6e58a7088",
+   "points": [
+    {
+     "concurrency": 4,
+     "measured_tpot_relative": 1.0,
+     "aisimulate_tpot_relative": 0.918834,
+     "aisimulate_tpot_error_pct": 8.12,
+     "status": "success"
+    },
+    {
+     "concurrency": 8,
+     "measured_tpot_relative": 1.169032,
+     "aisimulate_tpot_relative": 1.134802,
+     "aisimulate_tpot_error_pct": 2.93,
+     "status": "success"
+    },
+    {
+     "concurrency": 16,
+     "measured_tpot_relative": 1.430462,
+     "aisimulate_tpot_relative": 1.37203,
+     "aisimulate_tpot_error_pct": 4.08,
+     "status": "success"
+    },
+    {
+     "concurrency": 32,
+     "measured_tpot_relative": 1.809989,
+     "aisimulate_tpot_relative": 1.730512,
+     "aisimulate_tpot_error_pct": 4.39,
+     "status": "success"
+    },
+    {
+     "concurrency": 64,
+     "measured_tpot_relative": 2.380235,
+     "aisimulate_tpot_relative": 2.32488,
+     "aisimulate_tpot_error_pct": 2.33,
+     "status": "success"
+    }
+   ]
+  },
+  {
+   "scenario": "gpt-oss-120b-h100-fp4-vllm-tp4.yaml",
+   "model": "gpt-oss-120b",
+   "gpu": "h100",
+   "workload": "1024:8192",
+   "label": "1k8k",
+   "framework": "vllm",
+   "precision": "fp4",
+   "serving": "aggregated",
+   "spec_method": "none",
+   "parallelism": {
+    "attention_dp_size": 1,
+    "moe_ep_size": 1,
+    "moe_tp_size": 4,
+    "pp_size": 1,
+    "tp_size": 4
+   },
+   "topology_id": "6c18d2f74fd032bc",
+   "points": [
+    {
+     "concurrency": 4,
+     "measured_tpot_relative": 1.0,
+     "aisimulate_tpot_relative": 0.939002,
+     "aisimulate_tpot_error_pct": 6.1,
+     "status": "success"
+    },
+    {
+     "concurrency": 8,
+     "measured_tpot_relative": 1.148783,
+     "aisimulate_tpot_relative": 1.149015,
+     "aisimulate_tpot_error_pct": 0.02,
+     "status": "success"
+    },
+    {
+     "concurrency": 16,
+     "measured_tpot_relative": 2.128018,
+     "aisimulate_tpot_relative": 1.37354,
+     "aisimulate_tpot_error_pct": 35.45,
+     "status": "success"
+    },
+    {
+     "concurrency": 32,
+     "measured_tpot_relative": 1.774768,
+     "aisimulate_tpot_relative": 1.734119,
+     "aisimulate_tpot_error_pct": 2.29,
+     "status": "success"
+    },
+    {
+     "concurrency": 64,
+     "measured_tpot_relative": 2.380783,
+     "aisimulate_tpot_relative": 2.281294,
+     "aisimulate_tpot_error_pct": 4.18,
+     "status": "success"
+    }
+   ]
+  },
+  {
+   "scenario": "gpt-oss-120b-h100-fp4-vllm-tp4.yaml",
+   "model": "gpt-oss-120b",
+   "gpu": "h100",
+   "workload": "8192:1024",
+   "label": "8k1k",
+   "framework": "vllm",
+   "precision": "fp4",
+   "serving": "aggregated",
+   "spec_method": "none",
+   "parallelism": {
+    "attention_dp_size": 1,
+    "moe_ep_size": 1,
+    "moe_tp_size": 4,
+    "pp_size": 1,
+    "tp_size": 4
+   },
+   "topology_id": "774ea1c1be6f2e30",
+   "points": [
+    {
+     "concurrency": 4,
+     "measured_tpot_relative": 1.0,
+     "aisimulate_tpot_relative": 0.905093,
+     "aisimulate_tpot_error_pct": 9.49,
+     "status": "success"
+    },
+    {
+     "concurrency": 8,
+     "measured_tpot_relative": 1.241865,
+     "aisimulate_tpot_relative": 1.164504,
+     "aisimulate_tpot_error_pct": 6.23,
+     "status": "success"
+    },
+    {
+     "concurrency": 16,
+     "measured_tpot_relative": 1.684823,
+     "aisimulate_tpot_relative": 1.54246,
+     "aisimulate_tpot_error_pct": 8.45,
+     "status": "success"
+    },
+    {
+     "concurrency": 32,
+     "measured_tpot_relative": 2.40933,
+     "aisimulate_tpot_relative": 2.159095,
+     "aisimulate_tpot_error_pct": 10.39,
+     "status": "success"
+    },
+    {
+     "concurrency": 64,
+     "measured_tpot_relative": 3.804559,
+     "aisimulate_tpot_relative": 3.248115,
+     "aisimulate_tpot_error_pct": 14.63,
+     "status": "success"
+    }
+   ]
+  },
+  {
+   "scenario": "gpt-oss-120b-h100-fp4-vllm-tp8.yaml",
+   "model": "gpt-oss-120b",
+   "gpu": "h100",
+   "workload": "1024:1024",
+   "label": "1k1k",
+   "framework": "vllm",
+   "precision": "fp4",
+   "serving": "aggregated",
+   "spec_method": "none",
+   "parallelism": {
+    "attention_dp_size": 1,
+    "moe_ep_size": 1,
+    "moe_tp_size": 8,
+    "pp_size": 1,
+    "tp_size": 8
+   },
+   "topology_id": "b5a22fb43eb96bf7",
+   "points": [
+    {
+     "concurrency": 4,
+     "measured_tpot_relative": 1.0,
+     "aisimulate_tpot_relative": 0.908066,
+     "aisimulate_tpot_error_pct": 9.19,
+     "status": "success"
+    },
+    {
+     "concurrency": 8,
+     "measured_tpot_relative": 1.082973,
+     "aisimulate_tpot_relative": 0.996351,
+     "aisimulate_tpot_error_pct": 8.0,
+     "status": "success"
+    },
+    {
+     "concurrency": 16,
+     "measured_tpot_relative": 1.291595,
+     "aisimulate_tpot_relative": 1.215746,
+     "aisimulate_tpot_error_pct": 5.87,
+     "status": "success"
+    },
+    {
+     "concurrency": 32,
+     "measured_tpot_relative": 1.554482,
+     "aisimulate_tpot_relative": 1.417177,
+     "aisimulate_tpot_error_pct": 8.83,
+     "status": "success"
+    },
+    {
+     "concurrency": 64,
+     "measured_tpot_relative": 1.968363,
+     "aisimulate_tpot_relative": 1.91177,
+     "aisimulate_tpot_error_pct": 2.88,
+     "status": "success"
+    }
+   ]
+  },
+  {
+   "scenario": "gpt-oss-120b-h100-fp4-vllm-tp8.yaml",
+   "model": "gpt-oss-120b",
+   "gpu": "h100",
+   "workload": "1024:8192",
+   "label": "1k8k",
+   "framework": "vllm",
+   "precision": "fp4",
+   "serving": "aggregated",
+   "spec_method": "none",
+   "parallelism": {
+    "attention_dp_size": 1,
+    "moe_ep_size": 1,
+    "moe_tp_size": 8,
+    "pp_size": 1,
+    "tp_size": 8
+   },
+   "topology_id": "8697b7bfe68be8bf",
+   "points": [
+    {
+     "concurrency": 4,
+     "measured_tpot_relative": 1.0,
+     "aisimulate_tpot_relative": 0.931783,
+     "aisimulate_tpot_error_pct": 6.82,
+     "status": "success"
+    },
+    {
+     "concurrency": 8,
+     "measured_tpot_relative": 1.362868,
+     "aisimulate_tpot_relative": 1.014969,
+     "aisimulate_tpot_error_pct": 25.53,
+     "status": "success"
+    },
+    {
+     "concurrency": 16,
+     "measured_tpot_relative": 1.256198,
+     "aisimulate_tpot_relative": 1.219727,
+     "aisimulate_tpot_error_pct": 2.9,
+     "status": "success"
+    },
+    {
+     "concurrency": 32,
+     "measured_tpot_relative": 1.518925,
+     "aisimulate_tpot_relative": 1.396435,
+     "aisimulate_tpot_error_pct": 8.06,
+     "status": "success"
+    },
+    {
+     "concurrency": 64,
+     "measured_tpot_relative": 1.950036,
+     "aisimulate_tpot_relative": 1.87076,
+     "aisimulate_tpot_error_pct": 4.07,
+     "status": "success"
+    }
+   ]
+  },
+  {
+   "scenario": "gpt-oss-120b-h100-fp4-vllm-tp8.yaml",
+   "model": "gpt-oss-120b",
+   "gpu": "h100",
+   "workload": "8192:1024",
+   "label": "8k1k",
+   "framework": "vllm",
+   "precision": "fp4",
+   "serving": "aggregated",
+   "spec_method": "none",
+   "parallelism": {
+    "attention_dp_size": 1,
+    "moe_ep_size": 1,
+    "moe_tp_size": 8,
+    "pp_size": 1,
+    "tp_size": 8
+   },
+   "topology_id": "392ad9f63f58e7ff",
+   "points": [
+    {
+     "concurrency": 4,
+     "measured_tpot_relative": 1.0,
+     "aisimulate_tpot_relative": 0.896127,
+     "aisimulate_tpot_error_pct": 10.39,
+     "status": "success"
+    },
+    {
+     "concurrency": 8,
+     "measured_tpot_relative": 1.144947,
+     "aisimulate_tpot_relative": 1.02423,
+     "aisimulate_tpot_error_pct": 10.54,
+     "status": "success"
+    },
+    {
+     "concurrency": 16,
+     "measured_tpot_relative": 1.471544,
+     "aisimulate_tpot_relative": 1.328495,
+     "aisimulate_tpot_error_pct": 9.72,
+     "status": "success"
+    }
+   ]
+  },
+  {
+   "scenario": "gpt-oss-120b-h200-fp4-trt-tp1.yaml",
+   "model": "gpt-oss-120b",
+   "gpu": "h200",
+   "workload": "1024:1024",
+   "label": "1k1k",
+   "framework": "trt",
+   "precision": "fp4",
+   "serving": "aggregated",
+   "spec_method": "none",
+   "parallelism": {
+    "attention_dp_size": 1,
+    "moe_ep_size": 1,
+    "moe_tp_size": 1,
+    "pp_size": 1,
+    "tp_size": 1
+   },
+   "topology_id": "509e794fd7ed4bfc",
+   "points": [
+    {
+     "concurrency": 4,
+     "measured_tpot_relative": 1.0,
+     "aisimulate_tpot_relative": 0.892567,
+     "aisimulate_tpot_error_pct": 10.74,
+     "status": "success"
+    },
+    {
+     "concurrency": 8,
+     "measured_tpot_relative": 1.328603,
+     "aisimulate_tpot_relative": 1.286129,
+     "aisimulate_tpot_error_pct": 3.2,
+     "status": "success"
+    },
+    {
+     "concurrency": 16,
+     "measured_tpot_relative": 1.764411,
+     "aisimulate_tpot_relative": 1.734801,
+     "aisimulate_tpot_error_pct": 1.68,
+     "status": "success"
+    },
+    {
+     "concurrency": 32,
+     "measured_tpot_relative": 2.339745,
+     "aisimulate_tpot_relative": 2.136479,
+     "aisimulate_tpot_error_pct": 8.69,
+     "status": "success"
+    },
+    {
+     "concurrency": 64,
+     "measured_tpot_relative": 3.199138,
+     "aisimulate_tpot_relative": 3.14483,
+     "aisimulate_tpot_error_pct": 1.7,
+     "status": "success"
+    }
+   ]
+  },
+  {
+   "scenario": "gpt-oss-120b-h200-fp4-trt-tp1.yaml",
+   "model": "gpt-oss-120b",
+   "gpu": "h200",
+   "workload": "1024:8192",
+   "label": "1k8k",
+   "framework": "trt",
+   "precision": "fp4",
+   "serving": "aggregated",
+   "spec_method": "none",
+   "parallelism": {
+    "attention_dp_size": 1,
+    "moe_ep_size": 1,
+    "moe_tp_size": 1,
+    "pp_size": 1,
+    "tp_size": 1
+   },
+   "topology_id": "f08db4f4e7868e64",
+   "points": [
+    {
+     "concurrency": 4,
+     "measured_tpot_relative": 1.0,
+     "aisimulate_tpot_relative": 1.014487,
+     "aisimulate_tpot_error_pct": 1.45,
+     "status": "success"
+    },
+    {
+     "concurrency": 8,
+     "measured_tpot_relative": 1.212798,
+     "aisimulate_tpot_relative": 1.457858,
+     "aisimulate_tpot_error_pct": 20.21,
+     "status": "success"
+    },
+    {
+     "concurrency": 16,
+     "measured_tpot_relative": 1.603496,
+     "aisimulate_tpot_relative": 1.884099,
+     "aisimulate_tpot_error_pct": 17.5,
+     "status": "success"
+    },
+    {
+     "concurrency": 32,
+     "measured_tpot_relative": 1.998281,
+     "aisimulate_tpot_relative": 2.27668,
+     "aisimulate_tpot_error_pct": 13.93,
+     "status": "success"
+    },
+    {
+     "concurrency": 64,
+     "measured_tpot_relative": 2.695905,
+     "aisimulate_tpot_relative": 3.341206,
+     "aisimulate_tpot_error_pct": 23.94,
+     "status": "success"
+    }
+   ]
+  },
+  {
+   "scenario": "gpt-oss-120b-h200-fp4-trt-tp1.yaml",
+   "model": "gpt-oss-120b",
+   "gpu": "h200",
+   "workload": "8192:1024",
+   "label": "8k1k",
+   "framework": "trt",
+   "precision": "fp4",
+   "serving": "aggregated",
+   "spec_method": "none",
+   "parallelism": {
+    "attention_dp_size": 1,
+    "moe_ep_size": 1,
+    "moe_tp_size": 1,
+    "pp_size": 1,
+    "tp_size": 1
+   },
+   "topology_id": "2964c1c3bb9b7ad9",
+   "points": [
+    {
+     "concurrency": 4,
+     "measured_tpot_relative": 1.0,
+     "aisimulate_tpot_relative": 0.80588,
+     "aisimulate_tpot_error_pct": 19.41,
+     "status": "success"
+    },
+    {
+     "concurrency": 8,
+     "measured_tpot_relative": 1.442349,
+     "aisimulate_tpot_relative": 1.211303,
+     "aisimulate_tpot_error_pct": 16.02,
+     "status": "success"
+    },
+    {
+     "concurrency": 16,
+     "measured_tpot_relative": 2.040567,
+     "aisimulate_tpot_relative": 1.72027,
+     "aisimulate_tpot_error_pct": 15.7,
+     "status": "success"
+    },
+    {
+     "concurrency": 32,
+     "measured_tpot_relative": 2.913809,
+     "aisimulate_tpot_relative": 2.438223,
+     "aisimulate_tpot_error_pct": 16.32,
+     "status": "success"
+    },
+    {
+     "concurrency": 64,
+     "measured_tpot_relative": 4.485651,
+     "aisimulate_tpot_relative": 4.093722,
+     "aisimulate_tpot_error_pct": 8.74,
+     "status": "success"
+    }
+   ]
+  },
+  {
+   "scenario": "gpt-oss-120b-h200-fp4-vllm-tp1.yaml",
+   "model": "gpt-oss-120b",
+   "gpu": "h200",
+   "workload": "8192:1024",
+   "label": "8k1k",
+   "framework": "vllm",
+   "precision": "fp4",
+   "serving": "aggregated",
+   "spec_method": "none",
+   "parallelism": {
+    "attention_dp_size": 1,
+    "moe_ep_size": 1,
+    "moe_tp_size": 1,
+    "pp_size": 1,
+    "tp_size": 1
+   },
+   "topology_id": "18fcd36ca74dbdec",
+   "points": [
+    {
+     "concurrency": 4,
+     "measured_tpot_relative": 1.0,
+     "aisimulate_tpot_relative": 0.972269,
+     "aisimulate_tpot_error_pct": 2.77,
+     "status": "success"
+    },
+    {
+     "concurrency": 8,
+     "measured_tpot_relative": 1.456944,
+     "aisimulate_tpot_relative": 1.447303,
+     "aisimulate_tpot_error_pct": 0.66,
+     "status": "success"
+    },
+    {
+     "concurrency": 16,
+     "measured_tpot_relative": 1.702609,
+     "aisimulate_tpot_relative": 2.101007,
+     "aisimulate_tpot_error_pct": 23.4,
+     "status": "success"
+    },
+    {
+     "concurrency": 32,
+     "measured_tpot_relative": 3.482061,
+     "aisimulate_tpot_relative": 3.04088,
+     "aisimulate_tpot_error_pct": 12.67,
+     "status": "success"
+    },
+    {
+     "concurrency": 64,
+     "measured_tpot_relative": 5.852006,
+     "aisimulate_tpot_relative": 5.075062,
+     "aisimulate_tpot_error_pct": 13.28,
+     "status": "success"
+    }
+   ]
+  },
+  {
+   "scenario": "gpt-oss-120b-h200-fp4-vllm-tp2.yaml",
+   "model": "gpt-oss-120b",
+   "gpu": "h200",
+   "workload": "1024:1024",
+   "label": "1k1k",
+   "framework": "vllm",
+   "precision": "fp4",
+   "serving": "aggregated",
+   "spec_method": "none",
+   "parallelism": {
+    "attention_dp_size": 1,
+    "moe_ep_size": 1,
+    "moe_tp_size": 2,
+    "pp_size": 1,
+    "tp_size": 2
+   },
+   "topology_id": "f6955cdfbb5f0dab",
+   "points": [
+    {
+     "concurrency": 4,
+     "measured_tpot_relative": 1.0,
+     "aisimulate_tpot_relative": 0.997141,
+     "aisimulate_tpot_error_pct": 0.29,
+     "status": "success"
+    },
+    {
+     "concurrency": 8,
+     "measured_tpot_relative": 1.232704,
+     "aisimulate_tpot_relative": 1.267834,
+     "aisimulate_tpot_error_pct": 2.85,
+     "status": "success"
+    },
+    {
+     "concurrency": 16,
+     "measured_tpot_relative": 1.630285,
+     "aisimulate_tpot_relative": 1.646304,
+     "aisimulate_tpot_error_pct": 0.98,
+     "status": "success"
+    },
+    {
+     "concurrency": 32,
+     "measured_tpot_relative": 2.182609,
+     "aisimulate_tpot_relative": 2.068339,
+     "aisimulate_tpot_error_pct": 5.24,
+     "status": "success"
+    },
+    {
+     "concurrency": 64,
+     "measured_tpot_relative": 2.981583,
+     "aisimulate_tpot_relative": 3.094787,
+     "aisimulate_tpot_error_pct": 3.8,
+     "status": "success"
+    }
+   ]
+  },
+  {
+   "scenario": "gpt-oss-120b-h200-fp4-vllm-tp2.yaml",
+   "model": "gpt-oss-120b",
+   "gpu": "h200",
+   "workload": "1024:8192",
+   "label": "1k8k",
+   "framework": "vllm",
+   "precision": "fp4",
+   "serving": "aggregated",
+   "spec_method": "none",
+   "parallelism": {
+    "attention_dp_size": 1,
+    "moe_ep_size": 1,
+    "moe_tp_size": 2,
+    "pp_size": 1,
+    "tp_size": 2
+   },
+   "topology_id": "322702cb5f1fdd8f",
+   "points": [
+    {
+     "concurrency": 4,
+     "measured_tpot_relative": 1.0,
+     "aisimulate_tpot_relative": 1.034386,
+     "aisimulate_tpot_error_pct": 3.44,
+     "status": "success"
+    },
+    {
+     "concurrency": 8,
+     "measured_tpot_relative": 1.23761,
+     "aisimulate_tpot_relative": 1.306291,
+     "aisimulate_tpot_error_pct": 5.55,
+     "status": "success"
+    },
+    {
+     "concurrency": 16,
+     "measured_tpot_relative": 1.596926,
+     "aisimulate_tpot_relative": 1.684842,
+     "aisimulate_tpot_error_pct": 5.51,
+     "status": "success"
+    },
+    {
+     "concurrency": 32,
+     "measured_tpot_relative": 2.143923,
+     "aisimulate_tpot_relative": 2.08527,
+     "aisimulate_tpot_error_pct": 2.74,
+     "status": "success"
+    },
+    {
+     "concurrency": 64,
+     "measured_tpot_relative": 2.972403,
+     "aisimulate_tpot_relative": 3.061955,
+     "aisimulate_tpot_error_pct": 3.01,
+     "status": "success"
+    }
+   ]
+  },
+  {
+   "scenario": "gpt-oss-120b-h200-fp4-vllm-tp2.yaml",
+   "model": "gpt-oss-120b",
+   "gpu": "h200",
+   "workload": "8192:1024",
+   "label": "8k1k",
+   "framework": "vllm",
+   "precision": "fp4",
+   "serving": "aggregated",
+   "spec_method": "none",
+   "parallelism": {
+    "attention_dp_size": 1,
+    "moe_ep_size": 1,
+    "moe_tp_size": 2,
+    "pp_size": 1,
+    "tp_size": 2
+   },
+   "topology_id": "b8e251adec606289",
+   "points": [
+    {
+     "concurrency": 4,
+     "measured_tpot_relative": 1.0,
+     "aisimulate_tpot_relative": 0.970855,
+     "aisimulate_tpot_error_pct": 2.91,
+     "status": "success"
+    },
+    {
+     "concurrency": 8,
+     "measured_tpot_relative": 1.215368,
+     "aisimulate_tpot_relative": 1.305553,
+     "aisimulate_tpot_error_pct": 7.42,
+     "status": "success"
+    },
+    {
+     "concurrency": 16,
+     "measured_tpot_relative": 1.919515,
+     "aisimulate_tpot_relative": 1.819312,
+     "aisimulate_tpot_error_pct": 5.22,
+     "status": "success"
+    },
+    {
+     "concurrency": 32,
+     "measured_tpot_relative": 2.313997,
+     "aisimulate_tpot_relative": 2.532328,
+     "aisimulate_tpot_error_pct": 9.44,
+     "status": "success"
+    },
+    {
+     "concurrency": 64,
+     "measured_tpot_relative": 4.658601,
+     "aisimulate_tpot_relative": 4.117918,
+     "aisimulate_tpot_error_pct": 11.61,
+     "status": "success"
+    }
+   ]
+  },
+  {
+   "scenario": "gpt-oss-120b-h200-fp4-vllm-tp4.yaml",
+   "model": "gpt-oss-120b",
+   "gpu": "h200",
+   "workload": "1024:1024",
+   "label": "1k1k",
+   "framework": "vllm",
+   "precision": "fp4",
+   "serving": "aggregated",
+   "spec_method": "none",
+   "parallelism": {
+    "attention_dp_size": 1,
+    "moe_ep_size": 1,
+    "moe_tp_size": 4,
+    "pp_size": 1,
+    "tp_size": 4
+   },
+   "topology_id": "e07ab2250e8c5e4d",
+   "points": [
+    {
+     "concurrency": 4,
+     "measured_tpot_relative": 1.0,
+     "aisimulate_tpot_relative": 0.913705,
+     "aisimulate_tpot_error_pct": 8.63,
+     "status": "success"
+    },
+    {
+     "concurrency": 8,
+     "measured_tpot_relative": 1.156458,
+     "aisimulate_tpot_relative": 1.11004,
+     "aisimulate_tpot_error_pct": 4.01,
+     "status": "success"
+    },
+    {
+     "concurrency": 16,
+     "measured_tpot_relative": 1.327484,
+     "aisimulate_tpot_relative": 1.310995,
+     "aisimulate_tpot_error_pct": 1.24,
+     "status": "success"
+    },
+    {
+     "concurrency": 32,
+     "measured_tpot_relative": 1.800991,
+     "aisimulate_tpot_relative": 1.575636,
+     "aisimulate_tpot_error_pct": 12.51,
+     "status": "success"
+    },
+    {
+     "concurrency": 64,
+     "measured_tpot_relative": 2.364119,
+     "aisimulate_tpot_relative": 2.253794,
+     "aisimulate_tpot_error_pct": 4.67,
+     "status": "success"
+    }
+   ]
+  },
+  {
+   "scenario": "gpt-oss-120b-h200-fp4-vllm-tp4.yaml",
+   "model": "gpt-oss-120b",
+   "gpu": "h200",
+   "workload": "1024:8192",
+   "label": "1k8k",
+   "framework": "vllm",
+   "precision": "fp4",
+   "serving": "aggregated",
+   "spec_method": "none",
+   "parallelism": {
+    "attention_dp_size": 1,
+    "moe_ep_size": 1,
+    "moe_tp_size": 4,
+    "pp_size": 1,
+    "tp_size": 4
+   },
+   "topology_id": "09d2b4b24ee9a9fd",
+   "points": [
+    {
+     "concurrency": 4,
+     "measured_tpot_relative": 1.0,
+     "aisimulate_tpot_relative": 0.935135,
+     "aisimulate_tpot_error_pct": 6.49,
+     "status": "success"
+    },
+    {
+     "concurrency": 8,
+     "measured_tpot_relative": 1.128377,
+     "aisimulate_tpot_relative": 1.125155,
+     "aisimulate_tpot_error_pct": 0.29,
+     "status": "success"
+    },
+    {
+     "concurrency": 16,
+     "measured_tpot_relative": 1.351446,
+     "aisimulate_tpot_relative": 1.307666,
+     "aisimulate_tpot_error_pct": 3.24,
+     "status": "success"
+    },
+    {
+     "concurrency": 32,
+     "measured_tpot_relative": 1.730182,
+     "aisimulate_tpot_relative": 1.550132,
+     "aisimulate_tpot_error_pct": 10.41,
+     "status": "success"
+    },
+    {
+     "concurrency": 64,
+     "measured_tpot_relative": 2.334711,
+     "aisimulate_tpot_relative": 2.168818,
+     "aisimulate_tpot_error_pct": 7.11,
+     "status": "success"
+    }
+   ]
+  },
+  {
+   "scenario": "gpt-oss-120b-h200-fp4-vllm-tp4.yaml",
+   "model": "gpt-oss-120b",
+   "gpu": "h200",
+   "workload": "8192:1024",
+   "label": "8k1k",
+   "framework": "vllm",
+   "precision": "fp4",
+   "serving": "aggregated",
+   "spec_method": "none",
+   "parallelism": {
+    "attention_dp_size": 1,
+    "moe_ep_size": 1,
+    "moe_tp_size": 4,
+    "pp_size": 1,
+    "tp_size": 4
+   },
+   "topology_id": "05ad116f7b115403",
+   "points": [
+    {
+     "concurrency": 4,
+     "measured_tpot_relative": 1.0,
+     "aisimulate_tpot_relative": 0.893138,
+     "aisimulate_tpot_error_pct": 10.69,
+     "status": "success"
+    },
+    {
+     "concurrency": 8,
+     "measured_tpot_relative": 1.199043,
+     "aisimulate_tpot_relative": 1.133314,
+     "aisimulate_tpot_error_pct": 5.48,
+     "status": "success"
+    },
+    {
+     "concurrency": 16,
+     "measured_tpot_relative": 1.62321,
+     "aisimulate_tpot_relative": 1.450201,
+     "aisimulate_tpot_error_pct": 10.66,
+     "status": "success"
+    },
+    {
+     "concurrency": 32,
+     "measured_tpot_relative": 2.345687,
+     "aisimulate_tpot_relative": 1.94716,
+     "aisimulate_tpot_error_pct": 16.99,
+     "status": "success"
+    },
+    {
+     "concurrency": 64,
+     "measured_tpot_relative": 3.702208,
+     "aisimulate_tpot_relative": 3.068656,
+     "aisimulate_tpot_error_pct": 17.11,
+     "status": "success"
+    }
+   ]
+  },
+  {
+   "scenario": "gpt-oss-120b-h200-fp4-vllm-tp8.yaml",
+   "model": "gpt-oss-120b",
+   "gpu": "h200",
+   "workload": "1024:1024",
+   "label": "1k1k",
+   "framework": "vllm",
+   "precision": "fp4",
+   "serving": "aggregated",
+   "spec_method": "none",
+   "parallelism": {
+    "attention_dp_size": 1,
+    "moe_ep_size": 1,
+    "moe_tp_size": 8,
+    "pp_size": 1,
+    "tp_size": 8
+   },
+   "topology_id": "be34520b48ec4a96",
+   "points": [
+    {
+     "concurrency": 4,
+     "measured_tpot_relative": 1.0,
+     "aisimulate_tpot_relative": 0.909552,
+     "aisimulate_tpot_error_pct": 9.04,
+     "status": "success"
+    },
+    {
+     "concurrency": 8,
+     "measured_tpot_relative": 1.090657,
+     "aisimulate_tpot_relative": 0.989019,
+     "aisimulate_tpot_error_pct": 9.32,
+     "status": "success"
+    },
+    {
+     "concurrency": 16,
+     "measured_tpot_relative": 1.273928,
+     "aisimulate_tpot_relative": 1.214257,
+     "aisimulate_tpot_error_pct": 4.68,
+     "status": "success"
+    },
+    {
+     "concurrency": 32,
+     "measured_tpot_relative": 1.521986,
+     "aisimulate_tpot_relative": 1.394515,
+     "aisimulate_tpot_error_pct": 8.38,
+     "status": "success"
+    },
+    {
+     "concurrency": 64,
+     "measured_tpot_relative": 1.916968,
+     "aisimulate_tpot_relative": 1.767593,
+     "aisimulate_tpot_error_pct": 7.79,
+     "status": "success"
+    }
+   ]
+  },
+  {
+   "scenario": "gpt-oss-120b-h200-fp4-vllm-tp8.yaml",
+   "model": "gpt-oss-120b",
+   "gpu": "h200",
+   "workload": "1024:8192",
+   "label": "1k8k",
+   "framework": "vllm",
+   "precision": "fp4",
+   "serving": "aggregated",
+   "spec_method": "none",
+   "parallelism": {
+    "attention_dp_size": 1,
+    "moe_ep_size": 1,
+    "moe_tp_size": 8,
+    "pp_size": 1,
+    "tp_size": 8
+   },
+   "topology_id": "03aa6ea170819006",
+   "points": [
+    {
+     "concurrency": 4,
+     "measured_tpot_relative": 1.0,
+     "aisimulate_tpot_relative": 0.935062,
+     "aisimulate_tpot_error_pct": 6.49,
+     "status": "success"
+    },
+    {
+     "concurrency": 8,
+     "measured_tpot_relative": 1.091714,
+     "aisimulate_tpot_relative": 1.009805,
+     "aisimulate_tpot_error_pct": 7.5,
+     "status": "success"
+    },
+    {
+     "concurrency": 16,
+     "measured_tpot_relative": 1.254214,
+     "aisimulate_tpot_relative": 1.219032,
+     "aisimulate_tpot_error_pct": 2.81,
+     "status": "success"
+    },
+    {
+     "concurrency": 32,
+     "measured_tpot_relative": 1.474278,
+     "aisimulate_tpot_relative": 1.369379,
+     "aisimulate_tpot_error_pct": 7.12,
+     "status": "success"
+    },
+    {
+     "concurrency": 64,
+     "measured_tpot_relative": 1.89817,
+     "aisimulate_tpot_relative": 1.696135,
+     "aisimulate_tpot_error_pct": 10.64,
+     "status": "success"
+    }
+   ]
+  },
+  {
+   "scenario": "gpt-oss-120b-h200-fp4-vllm-tp8.yaml",
+   "model": "gpt-oss-120b",
+   "gpu": "h200",
+   "workload": "8192:1024",
+   "label": "8k1k",
+   "framework": "vllm",
+   "precision": "fp4",
+   "serving": "aggregated",
+   "spec_method": "none",
+   "parallelism": {
+    "attention_dp_size": 1,
+    "moe_ep_size": 1,
+    "moe_tp_size": 8,
+    "pp_size": 1,
+    "tp_size": 8
+   },
+   "topology_id": "87e376a00384d51f",
+   "points": [
+    {
+     "concurrency": 4,
+     "measured_tpot_relative": 1.0,
+     "aisimulate_tpot_relative": 0.902153,
+     "aisimulate_tpot_error_pct": 9.78,
+     "status": "success"
+    },
+    {
+     "concurrency": 8,
+     "measured_tpot_relative": 1.15016,
+     "aisimulate_tpot_relative": 1.021215,
+     "aisimulate_tpot_error_pct": 11.21,
+     "status": "success"
+    },
+    {
+     "concurrency": 16,
+     "measured_tpot_relative": 1.458322,
+     "aisimulate_tpot_relative": 1.324107,
+     "aisimulate_tpot_error_pct": 9.2,
+     "status": "success"
+    },
+    {
+     "concurrency": 32,
+     "measured_tpot_relative": 1.964323,
+     "aisimulate_tpot_relative": 1.69468,
+     "aisimulate_tpot_error_pct": 13.73,
+     "status": "success"
+    }
+   ]
+  },
+  {
+   "scenario": "minimax-m2.5-b200-fp4-trt-tp1.yaml",
+   "model": "minimax-m2.5",
+   "gpu": "b200",
+   "workload": "8192:1024",
+   "label": "8k1k",
+   "framework": "trt",
+   "precision": "fp4",
+   "serving": "aggregated",
+   "spec_method": "none",
+   "parallelism": {
+    "attention_dp_size": 1,
+    "moe_ep_size": 1,
+    "moe_tp_size": 1,
+    "pp_size": 1,
+    "tp_size": 1
+   },
+   "topology_id": "386e59b3d398583d",
+   "points": [
+    {
+     "concurrency": 4,
+     "measured_tpot_relative": 1.0,
+     "aisimulate_tpot_relative": 1.114367,
+     "aisimulate_tpot_error_pct": 11.44,
+     "status": "success"
+    },
+    {
+     "concurrency": 8,
+     "measured_tpot_relative": 1.304452,
+     "aisimulate_tpot_relative": 1.467082,
+     "aisimulate_tpot_error_pct": 12.47,
+     "status": "success"
+    },
+    {
+     "concurrency": 16,
+     "measured_tpot_relative": 1.857024,
+     "aisimulate_tpot_relative": 1.987466,
+     "aisimulate_tpot_error_pct": 7.02,
+     "status": "success"
+    },
+    {
+     "concurrency": 32,
+     "measured_tpot_relative": 2.813798,
+     "aisimulate_tpot_relative": 2.788378,
+     "aisimulate_tpot_error_pct": 0.9,
+     "status": "success"
+    }
+   ]
+  },
+  {
+   "scenario": "minimax-m2.5-b200-fp4-vllm-tp1.yaml",
+   "model": "minimax-m2.5",
+   "gpu": "b200",
+   "workload": "1024:1024",
+   "label": "1k1k",
+   "framework": "vllm",
+   "precision": "fp4",
+   "serving": "aggregated",
+   "spec_method": "none",
+   "parallelism": {
+    "attention_dp_size": 1,
+    "moe_ep_size": 1,
+    "moe_tp_size": 1,
+    "pp_size": 1,
+    "tp_size": 1
+   },
+   "topology_id": "dbd23a23404ed591",
+   "points": [
+    {
+     "concurrency": 4,
+     "measured_tpot_relative": 1.0,
+     "aisimulate_tpot_relative": 1.140695,
+     "aisimulate_tpot_error_pct": 14.07,
+     "status": "success"
+    },
+    {
+     "concurrency": 8,
+     "measured_tpot_relative": 1.246342,
+     "aisimulate_tpot_relative": 1.43057,
+     "aisimulate_tpot_error_pct": 14.78,
+     "status": "success"
+    },
+    {
+     "concurrency": 16,
+     "measured_tpot_relative": 1.593367,
+     "aisimulate_tpot_relative": 1.797938,
+     "aisimulate_tpot_error_pct": 12.84,
+     "status": "success"
+    }
+   ]
+  },
+  {
+   "scenario": "minimax-m2.5-b200-fp4-vllm-tp1.yaml",
+   "model": "minimax-m2.5",
+   "gpu": "b200",
+   "workload": "8192:1024",
+   "label": "8k1k",
+   "framework": "vllm",
+   "precision": "fp4",
+   "serving": "aggregated",
+   "spec_method": "none",
+   "parallelism": {
+    "attention_dp_size": 1,
+    "moe_ep_size": 1,
+    "moe_tp_size": 1,
+    "pp_size": 1,
+    "tp_size": 1
+   },
+   "topology_id": "fdab4dab9a7d721f",
+   "points": [
+    {
+     "concurrency": 4,
+     "measured_tpot_relative": 1.0,
+     "aisimulate_tpot_relative": 1.087011,
+     "aisimulate_tpot_error_pct": 8.7,
+     "status": "success"
+    },
+    {
+     "concurrency": 8,
+     "measured_tpot_relative": 1.307049,
+     "aisimulate_tpot_relative": 1.500194,
+     "aisimulate_tpot_error_pct": 14.78,
+     "status": "success"
+    },
+    {
+     "concurrency": 16,
+     "measured_tpot_relative": 1.838808,
+     "aisimulate_tpot_relative": 2.041057,
+     "aisimulate_tpot_error_pct": 11.0,
+     "status": "success"
+    },
+    {
+     "concurrency": 32,
+     "measured_tpot_relative": 2.844526,
+     "aisimulate_tpot_relative": 2.862063,
+     "aisimulate_tpot_error_pct": 0.62,
+     "status": "success"
+    }
+   ]
+  },
+  {
+   "scenario": "minimax-m2.5-b200-fp4-vllm-tp2-ep4-dp2.yaml",
+   "model": "minimax-m2.5",
+   "gpu": "b200",
+   "workload": "1024:1024",
+   "label": "1k1k",
+   "framework": "vllm",
+   "precision": "fp4",
+   "serving": "aggregated",
+   "spec_method": "none",
+   "parallelism": {
+    "attention_dp_size": 2,
+    "moe_ep_size": 4,
+    "moe_tp_size": 1,
+    "pp_size": 1,
+    "tp_size": 2
+   },
+   "topology_id": "6d3b4a73b0515f2b",
+   "points": [
+    {
+     "concurrency": 256,
+     "measured_tpot_relative": 1.0,
+     "aisimulate_tpot_relative": 0.889864,
+     "aisimulate_tpot_error_pct": 11.01,
+     "status": "success"
+    },
+    {
+     "concurrency": 512,
+     "measured_tpot_relative": 1.441401,
+     "aisimulate_tpot_relative": 1.193869,
+     "aisimulate_tpot_error_pct": 17.17,
+     "status": "success"
+    },
+    {
+     "concurrency": 1024,
+     "measured_tpot_relative": 1.442712,
+     "aisimulate_tpot_relative": 1.696355,
+     "aisimulate_tpot_error_pct": 17.58,
+     "status": "success"
+    }
+   ]
+  },
+  {
+   "scenario": "minimax-m2.5-b200-fp4-vllm-tp2-ep4-dp2.yaml",
+   "model": "minimax-m2.5",
+   "gpu": "b200",
+   "workload": "8192:1024",
+   "label": "8k1k",
+   "framework": "vllm",
+   "precision": "fp4",
+   "serving": "aggregated",
+   "spec_method": "none",
+   "parallelism": {
+    "attention_dp_size": 2,
+    "moe_ep_size": 4,
+    "moe_tp_size": 1,
+    "pp_size": 1,
+    "tp_size": 2
+   },
+   "topology_id": "f9d5ca8808b2d0c0",
+   "points": [
+    {
+     "concurrency": 128,
+     "measured_tpot_relative": 1.0,
+     "aisimulate_tpot_relative": 0.875052,
+     "aisimulate_tpot_error_pct": 12.49,
+     "status": "success"
+    },
+    {
+     "concurrency": 256,
+     "measured_tpot_relative": 1.414341,
+     "aisimulate_tpot_relative": 1.35203,
+     "aisimulate_tpot_error_pct": 4.41,
+     "status": "success"
+    },
+    {
+     "concurrency": 512,
+     "measured_tpot_relative": 1.43067,
+     "aisimulate_tpot_relative": 2.19232,
+     "aisimulate_tpot_error_pct": 53.24,
+     "status": "success"
+    }
+   ]
+  },
+  {
+   "scenario": "minimax-m2.5-b200-fp4-vllm-tp4.yaml",
+   "model": "minimax-m2.5",
+   "gpu": "b200",
+   "workload": "1024:1024",
+   "label": "1k1k",
+   "framework": "vllm",
+   "precision": "fp4",
+   "serving": "aggregated",
+   "spec_method": "none",
+   "parallelism": {
+    "attention_dp_size": 1,
+    "moe_ep_size": 1,
+    "moe_tp_size": 4,
+    "pp_size": 1,
+    "tp_size": 4
+   },
+   "topology_id": "0e631649a5510aaf",
+   "points": [
+    {
+     "concurrency": 4,
+     "measured_tpot_relative": 1.0,
+     "aisimulate_tpot_relative": 1.262967,
+     "aisimulate_tpot_error_pct": 26.3,
+     "status": "success"
+    },
+    {
+     "concurrency": 8,
+     "measured_tpot_relative": 1.142213,
+     "aisimulate_tpot_relative": 1.384337,
+     "aisimulate_tpot_error_pct": 21.2,
+     "status": "success"
+    },
+    {
+     "concurrency": 16,
+     "measured_tpot_relative": 1.309907,
+     "aisimulate_tpot_relative": 1.560284,
+     "aisimulate_tpot_error_pct": 19.11,
+     "status": "success"
+    }
+   ]
+  },
+  {
+   "scenario": "minimax-m2.5-b200-fp8-vllm-tp2.yaml",
+   "model": "minimax-m2.5",
+   "gpu": "b200",
+   "workload": "1024:8192",
+   "label": "1k8k",
+   "framework": "vllm",
+   "precision": "fp8",
+   "serving": "aggregated",
+   "spec_method": "none",
+   "parallelism": {
+    "attention_dp_size": 1,
+    "moe_ep_size": 1,
+    "moe_tp_size": 2,
+    "pp_size": 1,
+    "tp_size": 2
+   },
+   "topology_id": "bad0705359d2c9a2",
+   "points": [
+    {
+     "concurrency": 4,
+     "measured_tpot_relative": 1.0,
+     "aisimulate_tpot_relative": 0.917592,
+     "aisimulate_tpot_error_pct": 8.24,
+     "status": "success"
+    },
+    {
+     "concurrency": 8,
+     "measured_tpot_relative": 1.20676,
+     "aisimulate_tpot_relative": 1.075417,
+     "aisimulate_tpot_error_pct": 10.88,
+     "status": "success"
+    },
+    {
+     "concurrency": 16,
+     "measured_tpot_relative": 1.488052,
+     "aisimulate_tpot_relative": 1.32873,
+     "aisimulate_tpot_error_pct": 10.71,
+     "status": "success"
+    },
+    {
+     "concurrency": 32,
+     "measured_tpot_relative": 2.081263,
+     "aisimulate_tpot_relative": 1.636369,
+     "aisimulate_tpot_error_pct": 21.38,
+     "status": "success"
+    },
+    {
+     "concurrency": 64,
+     "measured_tpot_relative": 2.769786,
+     "aisimulate_tpot_relative": 2.548436,
+     "aisimulate_tpot_error_pct": 7.99,
+     "status": "success"
+    }
+   ]
+  },
+  {
+   "scenario": "minimax-m2.5-b200-fp8-vllm-tp2.yaml",
+   "model": "minimax-m2.5",
+   "gpu": "b200",
+   "workload": "8192:1024",
+   "label": "8k1k",
+   "framework": "vllm",
+   "precision": "fp8",
+   "serving": "aggregated",
+   "spec_method": "none",
+   "parallelism": {
+    "attention_dp_size": 1,
+    "moe_ep_size": 1,
+    "moe_tp_size": 2,
+    "pp_size": 1,
+    "tp_size": 2
+   },
+   "topology_id": "10e2272bfb254487",
+   "points": [
+    {
+     "concurrency": 4,
+     "measured_tpot_relative": 1.0,
+     "aisimulate_tpot_relative": 1.103274,
+     "aisimulate_tpot_error_pct": 10.33,
+     "status": "success"
+    },
+    {
+     "concurrency": 8,
+     "measured_tpot_relative": 1.215543,
+     "aisimulate_tpot_relative": 1.347814,
+     "aisimulate_tpot_error_pct": 10.88,
+     "status": "success"
+    },
+    {
+     "concurrency": 16,
+     "measured_tpot_relative": 1.642742,
+     "aisimulate_tpot_relative": 1.825662,
+     "aisimulate_tpot_error_pct": 11.14,
+     "status": "success"
+    },
+    {
+     "concurrency": 32,
+     "measured_tpot_relative": 2.282316,
+     "aisimulate_tpot_relative": 2.451988,
+     "aisimulate_tpot_error_pct": 7.43,
+     "status": "success"
+    },
+    {
+     "concurrency": 64,
+     "measured_tpot_relative": 3.365675,
+     "aisimulate_tpot_relative": 4.06727,
+     "aisimulate_tpot_error_pct": 20.85,
+     "status": "success"
+    }
+   ]
+  },
+  {
+   "scenario": "minimax-m2.5-b200-fp8-vllm-tp4.yaml",
+   "model": "minimax-m2.5",
+   "gpu": "b200",
+   "workload": "1024:1024",
+   "label": "1k1k",
+   "framework": "vllm",
+   "precision": "fp8",
+   "serving": "aggregated",
+   "spec_method": "none",
+   "parallelism": {
+    "attention_dp_size": 1,
+    "moe_ep_size": 1,
+    "moe_tp_size": 4,
+    "pp_size": 1,
+    "tp_size": 4
+   },
+   "topology_id": "967a9cad1973a913",
+   "points": [
+    {
+     "concurrency": 4,
+     "measured_tpot_relative": 1.0,
+     "aisimulate_tpot_relative": 1.072392,
+     "aisimulate_tpot_error_pct": 7.24,
+     "status": "success"
+    },
+    {
+     "concurrency": 8,
+     "measured_tpot_relative": 1.120446,
+     "aisimulate_tpot_relative": 1.257347,
+     "aisimulate_tpot_error_pct": 12.22,
+     "status": "success"
+    },
+    {
+     "concurrency": 16,
+     "measured_tpot_relative": 1.318341,
+     "aisimulate_tpot_relative": 1.531784,
+     "aisimulate_tpot_error_pct": 16.19,
+     "status": "success"
+    },
+    {
+     "concurrency": 32,
+     "measured_tpot_relative": 1.631287,
+     "aisimulate_tpot_relative": 1.822302,
+     "aisimulate_tpot_error_pct": 11.71,
+     "status": "success"
+    },
+    {
+     "concurrency": 64,
+     "measured_tpot_relative": 1.912921,
+     "aisimulate_tpot_relative": 2.683142,
+     "aisimulate_tpot_error_pct": 40.26,
+     "status": "success"
+    },
+    {
+     "concurrency": 128,
+     "measured_tpot_relative": 2.444732,
+     "aisimulate_tpot_relative": 3.155334,
+     "aisimulate_tpot_error_pct": 29.07,
+     "status": "success"
+    }
+   ]
+  },
+  {
+   "scenario": "minimax-m2.5-b200-fp8-vllm-tp4.yaml",
+   "model": "minimax-m2.5",
+   "gpu": "b200",
+   "workload": "1024:8192",
+   "label": "1k8k",
+   "framework": "vllm",
+   "precision": "fp8",
+   "serving": "aggregated",
+   "spec_method": "none",
+   "parallelism": {
+    "attention_dp_size": 1,
+    "moe_ep_size": 1,
+    "moe_tp_size": 4,
+    "pp_size": 1,
+    "tp_size": 4
+   },
+   "topology_id": "1f244b2b051f1b48",
+   "points": [
+    {
+     "concurrency": 4,
+     "measured_tpot_relative": 1.0,
+     "aisimulate_tpot_relative": 0.791508,
+     "aisimulate_tpot_error_pct": 20.85,
+     "status": "success"
+    },
+    {
+     "concurrency": 8,
+     "measured_tpot_relative": 1.051272,
+     "aisimulate_tpot_relative": 0.929189,
+     "aisimulate_tpot_error_pct": 11.61,
+     "status": "success"
+    },
+    {
+     "concurrency": 16,
+     "measured_tpot_relative": 1.232989,
+     "aisimulate_tpot_relative": 1.11032,
+     "aisimulate_tpot_error_pct": 9.95,
+     "status": "success"
+    },
+    {
+     "concurrency": 32,
+     "measured_tpot_relative": 1.669274,
+     "aisimulate_tpot_relative": 1.310242,
+     "aisimulate_tpot_error_pct": 21.51,
+     "status": "success"
+    },
+    {
+     "concurrency": 64,
+     "measured_tpot_relative": 2.058884,
+     "aisimulate_tpot_relative": 1.943391,
+     "aisimulate_tpot_error_pct": 5.61,
+     "status": "success"
+    }
+   ]
+  },
+  {
+   "scenario": "minimax-m2.5-b200-fp8-vllm-tp4.yaml",
+   "model": "minimax-m2.5",
+   "gpu": "b200",
+   "workload": "8192:1024",
+   "label": "8k1k",
+   "framework": "vllm",
+   "precision": "fp8",
+   "serving": "aggregated",
+   "spec_method": "none",
+   "parallelism": {
+    "attention_dp_size": 1,
+    "moe_ep_size": 1,
+    "moe_tp_size": 4,
+    "pp_size": 1,
+    "tp_size": 4
+   },
+   "topology_id": "1d6ce7f735e14c9d",
+   "points": [
+    {
+     "concurrency": 4,
+     "measured_tpot_relative": 1.0,
+     "aisimulate_tpot_relative": 1.046007,
+     "aisimulate_tpot_error_pct": 4.6,
+     "status": "success"
+    },
+    {
+     "concurrency": 8,
+     "measured_tpot_relative": 1.156411,
+     "aisimulate_tpot_relative": 1.275138,
+     "aisimulate_tpot_error_pct": 10.27,
+     "status": "success"
+    },
+    {
+     "concurrency": 16,
+     "measured_tpot_relative": 1.430696,
+     "aisimulate_tpot_relative": 1.608822,
+     "aisimulate_tpot_error_pct": 12.45,
+     "status": "success"
+    },
+    {
+     "concurrency": 32,
+     "measured_tpot_relative": 1.924732,
+     "aisimulate_tpot_relative": 2.15224,
+     "aisimulate_tpot_error_pct": 11.82,
+     "status": "success"
+    },
+    {
+     "concurrency": 64,
+     "measured_tpot_relative": 2.71928,
+     "aisimulate_tpot_relative": 3.40809,
+     "aisimulate_tpot_error_pct": 25.33,
+     "status": "success"
+    },
+    {
+     "concurrency": 128,
+     "measured_tpot_relative": 3.942507,
+     "aisimulate_tpot_relative": 4.741293,
+     "aisimulate_tpot_error_pct": 20.26,
+     "status": "success"
+    },
+    {
+     "concurrency": 256,
+     "measured_tpot_relative": 6.31132,
+     "aisimulate_tpot_relative": 7.378948,
+     "aisimulate_tpot_error_pct": 16.92,
+     "status": "success"
+    }
+   ]
+  },
+  {
+   "scenario": "minimax-m2.5-b300-fp4-trt-tp1.yaml",
+   "model": "minimax-m2.5",
+   "gpu": "b300",
+   "workload": "8192:1024",
+   "label": "8k1k",
+   "framework": "trt",
+   "precision": "fp4",
+   "serving": "aggregated",
+   "spec_method": "none",
+   "parallelism": {
+    "attention_dp_size": 1,
+    "moe_ep_size": 1,
+    "moe_tp_size": 1,
+    "pp_size": 1,
+    "tp_size": 1
+   },
+   "topology_id": "ccd90e641e818819",
+   "points": [
+    {
+     "concurrency": 4,
+     "measured_tpot_relative": 1.0,
+     "aisimulate_tpot_relative": 1.405075,
+     "aisimulate_tpot_error_pct": 40.51,
+     "status": "success"
+    },
+    {
+     "concurrency": 8,
+     "measured_tpot_relative": 1.323259,
+     "aisimulate_tpot_relative": 1.841151,
+     "aisimulate_tpot_error_pct": 39.14,
+     "status": "success"
+    },
+    {
+     "concurrency": 16,
+     "measured_tpot_relative": 1.848822,
+     "aisimulate_tpot_relative": 2.423242,
+     "aisimulate_tpot_error_pct": 31.07,
+     "status": "success"
+    }
+   ]
+  },
+  {
+   "scenario": "minimax-m2.5-b300-fp4-vllm-tp1.yaml",
+   "model": "minimax-m2.5",
+   "gpu": "b300",
+   "workload": "8192:1024",
+   "label": "8k1k",
+   "framework": "vllm",
+   "precision": "fp4",
+   "serving": "aggregated",
+   "spec_method": "none",
+   "parallelism": {
+    "attention_dp_size": 1,
+    "moe_ep_size": 1,
+    "moe_tp_size": 1,
+    "pp_size": 1,
+    "tp_size": 1
+   },
+   "topology_id": "1a4e4fb7745623fe",
+   "points": [
+    {
+     "concurrency": 4,
+     "measured_tpot_relative": 1.0,
+     "aisimulate_tpot_relative": 1.088015,
+     "aisimulate_tpot_error_pct": 8.8,
+     "status": "success"
+    },
+    {
+     "concurrency": 8,
+     "measured_tpot_relative": 1.326325,
+     "aisimulate_tpot_relative": 1.491899,
+     "aisimulate_tpot_error_pct": 12.48,
+     "status": "success"
+    },
+    {
+     "concurrency": 16,
+     "measured_tpot_relative": 1.868198,
+     "aisimulate_tpot_relative": 1.988546,
+     "aisimulate_tpot_error_pct": 6.44,
+     "status": "success"
+    },
+    {
+     "concurrency": 32,
+     "measured_tpot_relative": 2.819229,
+     "aisimulate_tpot_relative": 2.822216,
+     "aisimulate_tpot_error_pct": 0.11,
+     "status": "success"
+    },
+    {
+     "concurrency": 64,
+     "measured_tpot_relative": 4.313807,
+     "aisimulate_tpot_relative": 4.457124,
+     "aisimulate_tpot_error_pct": 3.32,
+     "status": "success"
+    },
+    {
+     "concurrency": 128,
+     "measured_tpot_relative": 6.730383,
+     "aisimulate_tpot_relative": 6.790323,
+     "aisimulate_tpot_error_pct": 0.89,
+     "status": "success"
+    }
+   ]
+  },
+  {
+   "scenario": "minimax-m2.5-b300-fp4-vllm-tp2-ep4-dp2.yaml",
+   "model": "minimax-m2.5",
+   "gpu": "b300",
+   "workload": "1024:1024",
+   "label": "1k1k",
+   "framework": "vllm",
+   "precision": "fp4",
+   "serving": "aggregated",
+   "spec_method": "none",
+   "parallelism": {
+    "attention_dp_size": 2,
+    "moe_ep_size": 4,
+    "moe_tp_size": 1,
+    "pp_size": 1,
+    "tp_size": 2
+   },
+   "topology_id": "ab9e1ad71c61e7b7",
+   "points": [
+    {
+     "concurrency": 256,
+     "measured_tpot_relative": 1.0,
+     "aisimulate_tpot_relative": 0.910211,
+     "aisimulate_tpot_error_pct": 8.98,
+     "status": "success"
+    },
+    {
+     "concurrency": 512,
+     "measured_tpot_relative": 1.310883,
+     "aisimulate_tpot_relative": 1.220149,
+     "aisimulate_tpot_error_pct": 6.92,
+     "status": "success"
+    },
+    {
+     "concurrency": 1024,
+     "measured_tpot_relative": 1.920469,
+     "aisimulate_tpot_relative": 1.730099,
+     "aisimulate_tpot_error_pct": 9.91,
+     "status": "success"
+    },
+    {
+     "concurrency": 2048,
+     "measured_tpot_relative": 2.474939,
+     "aisimulate_tpot_relative": 2.611156,
+     "aisimulate_tpot_error_pct": 5.5,
+     "status": "success"
+    }
+   ]
+  },
+  {
+   "scenario": "minimax-m2.5-h200-fp8-vllm-tp4.yaml",
+   "model": "minimax-m2.5",
+   "gpu": "h200",
+   "workload": "1024:1024",
+   "label": "1k1k",
+   "framework": "vllm",
+   "precision": "fp8",
+   "serving": "aggregated",
+   "spec_method": "none",
+   "parallelism": {
+    "attention_dp_size": 1,
+    "moe_ep_size": 1,
+    "moe_tp_size": 4,
+    "pp_size": 1,
+    "tp_size": 4
+   },
+   "topology_id": "27ed2205abf1f24c",
+   "points": [
+    {
+     "concurrency": 1,
+     "measured_tpot_relative": 1.0,
+     "aisimulate_tpot_relative": 0.861254,
+     "aisimulate_tpot_error_pct": 13.87,
+     "status": "success"
+    },
+    {
+     "concurrency": 2,
+     "measured_tpot_relative": 1.064126,
+     "aisimulate_tpot_relative": 0.967281,
+     "aisimulate_tpot_error_pct": 9.1,
+     "status": "success"
+    },
+    {
+     "concurrency": 4,
+     "measured_tpot_relative": 1.153549,
+     "aisimulate_tpot_relative": 1.090505,
+     "aisimulate_tpot_error_pct": 5.47,
+     "status": "success"
+    },
+    {
+     "concurrency": 8,
+     "measured_tpot_relative": 1.369595,
+     "aisimulate_tpot_relative": 1.313497,
+     "aisimulate_tpot_error_pct": 4.1,
+     "status": "success"
+    },
+    {
+     "concurrency": 16,
+     "measured_tpot_relative": 3.184798,
+     "aisimulate_tpot_relative": 1.65999,
+     "aisimulate_tpot_error_pct": 47.88,
+     "status": "success"
+    },
+    {
+     "concurrency": 32,
+     "measured_tpot_relative": 2.267701,
+     "aisimulate_tpot_relative": 2.036656,
+     "aisimulate_tpot_error_pct": 10.19,
+     "status": "success"
+    },
+    {
+     "concurrency": 64,
+     "measured_tpot_relative": 2.902703,
+     "aisimulate_tpot_relative": 2.916069,
+     "aisimulate_tpot_error_pct": 0.46,
+     "status": "success"
+    },
+    {
+     "concurrency": 128,
+     "measured_tpot_relative": 3.199982,
+     "aisimulate_tpot_relative": 3.629042,
+     "aisimulate_tpot_error_pct": 13.41,
+     "status": "success"
+    },
+    {
+     "concurrency": 256,
+     "measured_tpot_relative": 5.365777,
+     "aisimulate_tpot_relative": 4.719551,
+     "aisimulate_tpot_error_pct": 12.04,
+     "status": "success"
+    }
+   ]
+  },
+  {
+   "scenario": "minimax-m2.5-h200-fp8-vllm-tp4.yaml",
+   "model": "minimax-m2.5",
+   "gpu": "h200",
+   "workload": "1024:8192",
+   "label": "1k8k",
+   "framework": "vllm",
+   "precision": "fp8",
+   "serving": "aggregated",
+   "spec_method": "none",
+   "parallelism": {
+    "attention_dp_size": 1,
+    "moe_ep_size": 1,
+    "moe_tp_size": 4,
+    "pp_size": 1,
+    "tp_size": 4
+   },
+   "topology_id": "efa81117006f1d94",
+   "points": [
+    {
+     "concurrency": 4,
+     "measured_tpot_relative": 1.0,
+     "aisimulate_tpot_relative": 0.654795,
+     "aisimulate_tpot_error_pct": 34.52,
+     "status": "success"
+    },
+    {
+     "concurrency": 8,
+     "measured_tpot_relative": 1.095748,
+     "aisimulate_tpot_relative": 0.789205,
+     "aisimulate_tpot_error_pct": 27.98,
+     "status": "success"
+    },
+    {
+     "concurrency": 16,
+     "measured_tpot_relative": 1.282636,
+     "aisimulate_tpot_relative": 0.997889,
+     "aisimulate_tpot_error_pct": 22.2,
+     "status": "success"
+    },
+    {
+     "concurrency": 32,
+     "measured_tpot_relative": 1.707158,
+     "aisimulate_tpot_relative": 1.236981,
+     "aisimulate_tpot_error_pct": 27.54,
+     "status": "success"
+    },
+    {
+     "concurrency": 64,
+     "measured_tpot_relative": 2.171836,
+     "aisimulate_tpot_relative": 1.762968,
+     "aisimulate_tpot_error_pct": 18.83,
+     "status": "success"
+    }
+   ]
+  },
+  {
+   "scenario": "minimax-m2.5-h200-fp8-vllm-tp4.yaml",
+   "model": "minimax-m2.5",
+   "gpu": "h200",
+   "workload": "8192:1024",
+   "label": "8k1k",
+   "framework": "vllm",
+   "precision": "fp8",
+   "serving": "aggregated",
+   "spec_method": "none",
+   "parallelism": {
+    "attention_dp_size": 1,
+    "moe_ep_size": 1,
+    "moe_tp_size": 4,
+    "pp_size": 1,
+    "tp_size": 4
+   },
+   "topology_id": "fc47a7ac7a372845",
+   "points": [
+    {
+     "concurrency": 1,
+     "measured_tpot_relative": 1.0,
+     "aisimulate_tpot_relative": 0.866772,
+     "aisimulate_tpot_error_pct": 13.32,
+     "status": "success"
+    },
+    {
+     "concurrency": 2,
+     "measured_tpot_relative": 1.109617,
+     "aisimulate_tpot_relative": 0.981722,
+     "aisimulate_tpot_error_pct": 11.53,
+     "status": "success"
+    },
+    {
+     "concurrency": 4,
+     "measured_tpot_relative": 1.238464,
+     "aisimulate_tpot_relative": 1.141151,
+     "aisimulate_tpot_error_pct": 7.86,
+     "status": "success"
+    },
+    {
+     "concurrency": 8,
+     "measured_tpot_relative": 1.527145,
+     "aisimulate_tpot_relative": 1.449837,
+     "aisimulate_tpot_error_pct": 5.06,
+     "status": "success"
+    },
+    {
+     "concurrency": 16,
+     "measured_tpot_relative": 2.075616,
+     "aisimulate_tpot_relative": 1.994303,
+     "aisimulate_tpot_error_pct": 3.92,
+     "status": "success"
+    },
+    {
+     "concurrency": 32,
+     "measured_tpot_relative": 3.098489,
+     "aisimulate_tpot_relative": 2.730567,
+     "aisimulate_tpot_error_pct": 11.87,
+     "status": "success"
+    },
+    {
+     "concurrency": 64,
+     "measured_tpot_relative": 4.656488,
+     "aisimulate_tpot_relative": 4.279119,
+     "aisimulate_tpot_error_pct": 8.1,
+     "status": "success"
+    },
+    {
+     "concurrency": 128,
+     "measured_tpot_relative": 7.167284,
+     "aisimulate_tpot_relative": 6.378462,
+     "aisimulate_tpot_error_pct": 11.01,
+     "status": "success"
+    },
+    {
+     "concurrency": 256,
+     "measured_tpot_relative": 11.903195,
+     "aisimulate_tpot_relative": 10.491558,
+     "aisimulate_tpot_error_pct": 11.86,
+     "status": "success"
+    }
+   ]
+  },
+  {
+   "scenario": "minimax-m2.5-h200-fp8-vllm-tp8.yaml",
+   "model": "minimax-m2.5",
+   "gpu": "h200",
+   "workload": "1024:1024",
+   "label": "1k1k",
+   "framework": "vllm",
+   "precision": "fp8",
+   "serving": "aggregated",
+   "spec_method": "none",
+   "parallelism": {
+    "attention_dp_size": 1,
+    "moe_ep_size": 1,
+    "moe_tp_size": 8,
+    "pp_size": 1,
+    "tp_size": 8
+   },
+   "topology_id": "c45d7679d109cab2",
+   "points": [
+    {
+     "concurrency": 4,
+     "measured_tpot_relative": 1.0,
+     "aisimulate_tpot_relative": 0.92293,
+     "aisimulate_tpot_error_pct": 7.71,
+     "status": "success"
+    },
+    {
+     "concurrency": 8,
+     "measured_tpot_relative": 1.168386,
+     "aisimulate_tpot_relative": 1.061572,
+     "aisimulate_tpot_error_pct": 9.14,
+     "status": "success"
+    },
+    {
+     "concurrency": 16,
+     "measured_tpot_relative": 1.403721,
+     "aisimulate_tpot_relative": 1.27974,
+     "aisimulate_tpot_error_pct": 8.83,
+     "status": "success"
+    },
+    {
+     "concurrency": 32,
+     "measured_tpot_relative": 1.7531,
+     "aisimulate_tpot_relative": 1.574194,
+     "aisimulate_tpot_error_pct": 10.21,
+     "status": "success"
+    },
+    {
+     "concurrency": 64,
+     "measured_tpot_relative": 2.086233,
+     "aisimulate_tpot_relative": 2.144667,
+     "aisimulate_tpot_error_pct": 2.8,
+     "status": "success"
+    },
+    {
+     "concurrency": 128,
+     "measured_tpot_relative": 2.717468,
+     "aisimulate_tpot_relative": 2.485594,
+     "aisimulate_tpot_error_pct": 8.53,
+     "status": "success"
+    }
+   ]
+  },
+  {
+   "scenario": "minimax-m2.5-h200-fp8-vllm-tp8.yaml",
+   "model": "minimax-m2.5",
+   "gpu": "h200",
+   "workload": "1024:8192",
+   "label": "1k8k",
+   "framework": "vllm",
+   "precision": "fp8",
+   "serving": "aggregated",
+   "spec_method": "none",
+   "parallelism": {
+    "attention_dp_size": 1,
+    "moe_ep_size": 1,
+    "moe_tp_size": 8,
+    "pp_size": 1,
+    "tp_size": 8
+   },
+   "topology_id": "091dfb5e21566792",
+   "points": [
+    {
+     "concurrency": 4,
+     "measured_tpot_relative": 1.0,
+     "aisimulate_tpot_relative": 0.927903,
+     "aisimulate_tpot_error_pct": 7.21,
+     "status": "success"
+    },
+    {
+     "concurrency": 8,
+     "measured_tpot_relative": 1.131704,
+     "aisimulate_tpot_relative": 1.05752,
+     "aisimulate_tpot_error_pct": 6.56,
+     "status": "success"
+    },
+    {
+     "concurrency": 16,
+     "measured_tpot_relative": 1.337777,
+     "aisimulate_tpot_relative": 1.261515,
+     "aisimulate_tpot_error_pct": 5.7,
+     "status": "success"
+    },
+    {
+     "concurrency": 32,
+     "measured_tpot_relative": 1.642465,
+     "aisimulate_tpot_relative": 1.54764,
+     "aisimulate_tpot_error_pct": 5.77,
+     "status": "success"
+    },
+    {
+     "concurrency": 64,
+     "measured_tpot_relative": 2.11981,
+     "aisimulate_tpot_relative": 2.098989,
+     "aisimulate_tpot_error_pct": 0.98,
+     "status": "success"
+    },
+    {
+     "concurrency": 128,
+     "measured_tpot_relative": 2.838374,
+     "aisimulate_tpot_relative": 2.381662,
+     "aisimulate_tpot_error_pct": 16.09,
+     "status": "success"
+    }
+   ]
+  },
+  {
+   "scenario": "minimax-m2.5-h200-fp8-vllm-tp8.yaml",
+   "model": "minimax-m2.5",
+   "gpu": "h200",
+   "workload": "8192:1024",
+   "label": "8k1k",
+   "framework": "vllm",
+   "precision": "fp8",
+   "serving": "aggregated",
+   "spec_method": "none",
+   "parallelism": {
+    "attention_dp_size": 1,
+    "moe_ep_size": 1,
+    "moe_tp_size": 8,
+    "pp_size": 1,
+    "tp_size": 8
+   },
+   "topology_id": "7d4c90a99281d3fc",
+   "points": [
+    {
+     "concurrency": 4,
+     "measured_tpot_relative": 1.0,
+     "aisimulate_tpot_relative": 0.920551,
+     "aisimulate_tpot_error_pct": 7.94,
+     "status": "success"
+    },
+    {
+     "concurrency": 8,
+     "measured_tpot_relative": 1.18468,
+     "aisimulate_tpot_relative": 1.098653,
+     "aisimulate_tpot_error_pct": 7.26,
+     "status": "success"
+    },
+    {
+     "concurrency": 16,
+     "measured_tpot_relative": 1.513055,
+     "aisimulate_tpot_relative": 1.409796,
+     "aisimulate_tpot_error_pct": 6.82,
+     "status": "success"
+    },
+    {
+     "concurrency": 32,
+     "measured_tpot_relative": 2.060149,
+     "aisimulate_tpot_relative": 1.939246,
+     "aisimulate_tpot_error_pct": 5.87,
+     "status": "success"
+    },
+    {
+     "concurrency": 64,
+     "measured_tpot_relative": 3.044726,
+     "aisimulate_tpot_relative": 2.914395,
+     "aisimulate_tpot_error_pct": 4.28,
+     "status": "success"
+    },
+    {
+     "concurrency": 128,
+     "measured_tpot_relative": 4.820115,
+     "aisimulate_tpot_relative": 4.11923,
+     "aisimulate_tpot_error_pct": 14.54,
+     "status": "success"
+    }
+   ]
+  },
+  {
+   "scenario": "qwen3.5-397b-a17b-b200-bf16-sglang-tp8.yaml",
+   "model": "qwen3.5-397b-a17b",
+   "gpu": "b200",
+   "workload": "1024:1024",
+   "label": "1k1k",
+   "framework": "sglang",
+   "precision": "bf16",
+   "serving": "aggregated",
+   "spec_method": "none",
+   "parallelism": {
+    "attention_dp_size": 1,
+    "moe_ep_size": 1,
+    "moe_tp_size": 8,
+    "pp_size": 1,
+    "tp_size": 8
+   },
+   "topology_id": "c34d6c974bf30716",
+   "points": [
+    {
+     "concurrency": 4,
+     "measured_tpot_relative": 1.0,
+     "aisimulate_tpot_relative": 0.968112,
+     "aisimulate_tpot_error_pct": 3.19,
+     "status": "success"
+    },
+    {
+     "concurrency": 8,
+     "measured_tpot_relative": 1.324522,
+     "aisimulate_tpot_relative": 1.235151,
+     "aisimulate_tpot_error_pct": 6.75,
+     "status": "success"
+    },
+    {
+     "concurrency": 16,
+     "measured_tpot_relative": 1.681274,
+     "aisimulate_tpot_relative": 1.517076,
+     "aisimulate_tpot_error_pct": 9.77,
+     "status": "success"
+    },
+    {
+     "concurrency": 32,
+     "measured_tpot_relative": 2.176436,
+     "aisimulate_tpot_relative": 1.938669,
+     "aisimulate_tpot_error_pct": 10.92,
+     "status": "success"
+    },
+    {
+     "concurrency": 64,
+     "measured_tpot_relative": 2.812213,
+     "aisimulate_tpot_relative": 2.845325,
+     "aisimulate_tpot_error_pct": 1.18,
+     "status": "success"
+    }
+   ]
+  },
+  {
+   "scenario": "qwen3.5-397b-a17b-b200-bf16-sglang-tp8.yaml",
+   "model": "qwen3.5-397b-a17b",
+   "gpu": "b200",
+   "workload": "1024:8192",
+   "label": "1k8k",
+   "framework": "sglang",
+   "precision": "bf16",
+   "serving": "aggregated",
+   "spec_method": "none",
+   "parallelism": {
+    "attention_dp_size": 1,
+    "moe_ep_size": 1,
+    "moe_tp_size": 8,
+    "pp_size": 1,
+    "tp_size": 8
+   },
+   "topology_id": "66a05d2d7c1f55ae",
+   "points": [
+    {
+     "concurrency": 4,
+     "measured_tpot_relative": 1.0,
+     "aisimulate_tpot_relative": 0.787756,
+     "aisimulate_tpot_error_pct": 21.22,
+     "status": "success"
+    },
+    {
+     "concurrency": 8,
+     "measured_tpot_relative": 1.150438,
+     "aisimulate_tpot_relative": 0.980392,
+     "aisimulate_tpot_error_pct": 14.78,
+     "status": "success"
+    },
+    {
+     "concurrency": 16,
+     "measured_tpot_relative": 1.418061,
+     "aisimulate_tpot_relative": 1.191279,
+     "aisimulate_tpot_error_pct": 15.99,
+     "status": "success"
+    },
+    {
+     "concurrency": 32,
+     "measured_tpot_relative": 2.085406,
+     "aisimulate_tpot_relative": 1.502265,
+     "aisimulate_tpot_error_pct": 27.96,
+     "status": "success"
+    },
+    {
+     "concurrency": 64,
+     "measured_tpot_relative": 2.575477,
+     "aisimulate_tpot_relative": 2.092551,
+     "aisimulate_tpot_error_pct": 18.75,
+     "status": "success"
+    }
+   ]
+  },
+  {
+   "scenario": "qwen3.5-397b-a17b-b200-bf16-sglang-tp8.yaml",
+   "model": "qwen3.5-397b-a17b",
+   "gpu": "b200",
+   "workload": "8192:1024",
+   "label": "8k1k",
+   "framework": "sglang",
+   "precision": "bf16",
+   "serving": "aggregated",
+   "spec_method": "none",
+   "parallelism": {
+    "attention_dp_size": 1,
+    "moe_ep_size": 1,
+    "moe_tp_size": 8,
+    "pp_size": 1,
+    "tp_size": 8
+   },
+   "topology_id": "d03c6494f83a08a7",
+   "points": [
+    {
+     "concurrency": 4,
+     "measured_tpot_relative": 1.0,
+     "aisimulate_tpot_relative": 1.154466,
+     "aisimulate_tpot_error_pct": 15.45,
+     "status": "success"
+    },
+    {
+     "concurrency": 8,
+     "measured_tpot_relative": 1.317713,
+     "aisimulate_tpot_relative": 1.492542,
+     "aisimulate_tpot_error_pct": 13.27,
+     "status": "success"
+    },
+    {
+     "concurrency": 16,
+     "measured_tpot_relative": 1.763323,
+     "aisimulate_tpot_relative": 2.016651,
+     "aisimulate_tpot_error_pct": 14.37,
+     "status": "success"
+    },
+    {
+     "concurrency": 32,
+     "measured_tpot_relative": 2.433156,
+     "aisimulate_tpot_relative": 2.694355,
+     "aisimulate_tpot_error_pct": 10.73,
+     "status": "success"
+    },
+    {
+     "concurrency": 64,
+     "measured_tpot_relative": 3.55923,
+     "aisimulate_tpot_relative": 4.080841,
+     "aisimulate_tpot_error_pct": 14.66,
+     "status": "success"
+    }
+   ]
+  },
+  {
+   "scenario": "qwen3.5-397b-a17b-b200-fp4-sglang-tp2.yaml",
+   "model": "qwen3.5-397b-a17b",
+   "gpu": "b200",
+   "workload": "1024:1024",
+   "label": "1k1k",
+   "framework": "sglang",
+   "precision": "fp4",
+   "serving": "aggregated",
+   "spec_method": "none",
+   "parallelism": {
+    "attention_dp_size": 1,
+    "moe_ep_size": 1,
+    "moe_tp_size": 2,
+    "pp_size": 1,
+    "tp_size": 2
+   },
+   "topology_id": "54161c41faac55ba",
+   "points": [
+    {
+     "concurrency": 4,
+     "measured_tpot_relative": 1.0,
+     "aisimulate_tpot_relative": 0.916951,
+     "aisimulate_tpot_error_pct": 8.3,
+     "status": "success"
+    },
+    {
+     "concurrency": 8,
+     "measured_tpot_relative": 1.231256,
+     "aisimulate_tpot_relative": 1.117041,
+     "aisimulate_tpot_error_pct": 9.28,
+     "status": "success"
+    },
+    {
+     "concurrency": 16,
+     "measured_tpot_relative": 1.625654,
+     "aisimulate_tpot_relative": 1.479996,
+     "aisimulate_tpot_error_pct": 8.96,
+     "status": "success"
+    },
+    {
+     "concurrency": 32,
+     "measured_tpot_relative": 2.108551,
+     "aisimulate_tpot_relative": 1.923984,
+     "aisimulate_tpot_error_pct": 8.75,
+     "status": "success"
+    },
+    {
+     "concurrency": 64,
+     "measured_tpot_relative": 2.736114,
+     "aisimulate_tpot_relative": 2.891133,
+     "aisimulate_tpot_error_pct": 5.67,
+     "status": "success"
+    },
+    {
+     "concurrency": 128,
+     "measured_tpot_relative": 3.660448,
+     "aisimulate_tpot_relative": 3.873414,
+     "aisimulate_tpot_error_pct": 5.82,
+     "status": "success"
+    }
+   ]
+  },
+  {
+   "scenario": "qwen3.5-397b-a17b-b200-fp8-sglang-tp4.yaml",
+   "model": "qwen3.5-397b-a17b",
+   "gpu": "b200",
+   "workload": "1024:1024",
+   "label": "1k1k",
+   "framework": "sglang",
+   "precision": "fp8",
+   "serving": "aggregated",
+   "spec_method": "none",
+   "parallelism": {
+    "attention_dp_size": 1,
+    "moe_ep_size": 1,
+    "moe_tp_size": 4,
+    "pp_size": 1,
+    "tp_size": 4
+   },
+   "topology_id": "1dc6a0f4e4633850",
+   "points": [
+    {
+     "concurrency": 4,
+     "measured_tpot_relative": 1.0,
+     "aisimulate_tpot_relative": 1.04263,
+     "aisimulate_tpot_error_pct": 4.26,
+     "status": "success"
+    },
+    {
+     "concurrency": 8,
+     "measured_tpot_relative": 1.25506,
+     "aisimulate_tpot_relative": 1.260368,
+     "aisimulate_tpot_error_pct": 0.42,
+     "status": "success"
+    },
+    {
+     "concurrency": 16,
+     "measured_tpot_relative": 1.655099,
+     "aisimulate_tpot_relative": 1.525791,
+     "aisimulate_tpot_error_pct": 7.81,
+     "status": "success"
+    },
+    {
+     "concurrency": 32,
+     "measured_tpot_relative": 2.096307,
+     "aisimulate_tpot_relative": 1.946767,
+     "aisimulate_tpot_error_pct": 7.13,
+     "status": "success"
+    },
+    {
+     "concurrency": 64,
+     "measured_tpot_relative": 2.672744,
+     "aisimulate_tpot_relative": 2.726985,
+     "aisimulate_tpot_error_pct": 2.03,
+     "status": "success"
+    },
+    {
+     "concurrency": 128,
+     "measured_tpot_relative": 3.574419,
+     "aisimulate_tpot_relative": 3.631114,
+     "aisimulate_tpot_error_pct": 1.59,
+     "status": "success"
+    },
+    {
+     "concurrency": 256,
+     "measured_tpot_relative": 4.634409,
+     "aisimulate_tpot_relative": 5.167929,
+     "aisimulate_tpot_error_pct": 11.51,
+     "status": "success"
+    }
+   ]
+  },
+  {
+   "scenario": "qwen3.5-397b-a17b-b200-fp8-sglang-tp8.yaml",
+   "model": "qwen3.5-397b-a17b",
+   "gpu": "b200",
+   "workload": "1024:8192",
+   "label": "1k8k",
+   "framework": "sglang",
+   "precision": "fp8",
+   "serving": "aggregated",
+   "spec_method": "none",
+   "parallelism": {
+    "attention_dp_size": 1,
+    "moe_ep_size": 1,
+    "moe_tp_size": 8,
+    "pp_size": 1,
+    "tp_size": 8
+   },
+   "topology_id": "938aaf3ae7416421",
+   "points": [
+    {
+     "concurrency": 4,
+     "measured_tpot_relative": 1.0,
+     "aisimulate_tpot_relative": 0.783404,
+     "aisimulate_tpot_error_pct": 21.66,
+     "status": "success"
+    },
+    {
+     "concurrency": 8,
+     "measured_tpot_relative": 1.135579,
+     "aisimulate_tpot_relative": 0.943528,
+     "aisimulate_tpot_error_pct": 16.91,
+     "status": "success"
+    },
+    {
+     "concurrency": 16,
+     "measured_tpot_relative": 1.350743,
+     "aisimulate_tpot_relative": 1.115364,
+     "aisimulate_tpot_error_pct": 17.43,
+     "status": "success"
+    }
+   ]
+  },
+  {
+   "scenario": "qwen3.5-397b-a17b-b300-bf16-sglang-tp4.yaml",
+   "model": "qwen3.5-397b-a17b",
+   "gpu": "b300",
+   "workload": "1024:1024",
+   "label": "1k1k",
+   "framework": "sglang",
+   "precision": "bf16",
+   "serving": "aggregated",
+   "spec_method": "none",
+   "parallelism": {
+    "attention_dp_size": 1,
+    "moe_ep_size": 1,
+    "moe_tp_size": 4,
+    "pp_size": 1,
+    "tp_size": 4
+   },
+   "topology_id": "efae091b7b68dc90",
+   "points": [
+    {
+     "concurrency": 4,
+     "measured_tpot_relative": 1.0,
+     "aisimulate_tpot_relative": 1.045176,
+     "aisimulate_tpot_error_pct": 4.52,
+     "status": "success"
+    },
+    {
+     "concurrency": 8,
+     "measured_tpot_relative": 1.271574,
+     "aisimulate_tpot_relative": 1.364591,
+     "aisimulate_tpot_error_pct": 7.32,
+     "status": "success"
+    },
+    {
+     "concurrency": 16,
+     "measured_tpot_relative": 1.747938,
+     "aisimulate_tpot_relative": 1.82956,
+     "aisimulate_tpot_error_pct": 4.67,
+     "status": "success"
+    },
+    {
+     "concurrency": 32,
+     "measured_tpot_relative": 2.424672,
+     "aisimulate_tpot_relative": 2.42565,
+     "aisimulate_tpot_error_pct": 0.04,
+     "status": "success"
+    },
+    {
+     "concurrency": 64,
+     "measured_tpot_relative": 3.23033,
+     "aisimulate_tpot_relative": 3.708282,
+     "aisimulate_tpot_error_pct": 14.8,
+     "status": "success"
+    }
+   ]
+  },
+  {
+   "scenario": "qwen3.5-397b-a17b-b300-bf16-sglang-tp4.yaml",
+   "model": "qwen3.5-397b-a17b",
+   "gpu": "b300",
+   "workload": "8192:1024",
+   "label": "8k1k",
+   "framework": "sglang",
+   "precision": "bf16",
+   "serving": "aggregated",
+   "spec_method": "none",
+   "parallelism": {
+    "attention_dp_size": 1,
+    "moe_ep_size": 1,
+    "moe_tp_size": 4,
+    "pp_size": 1,
+    "tp_size": 4
+   },
+   "topology_id": "32d4e2a8d88918e9",
+   "points": [
+    {
+     "concurrency": 4,
+     "measured_tpot_relative": 1.0,
+     "aisimulate_tpot_relative": 1.172791,
+     "aisimulate_tpot_error_pct": 17.28,
+     "status": "success"
+    },
+    {
+     "concurrency": 8,
+     "measured_tpot_relative": 1.303479,
+     "aisimulate_tpot_relative": 1.547085,
+     "aisimulate_tpot_error_pct": 18.69,
+     "status": "success"
+    },
+    {
+     "concurrency": 16,
+     "measured_tpot_relative": 1.809208,
+     "aisimulate_tpot_relative": 2.211114,
+     "aisimulate_tpot_error_pct": 22.21,
+     "status": "success"
+    },
+    {
+     "concurrency": 32,
+     "measured_tpot_relative": 2.688426,
+     "aisimulate_tpot_relative": 3.041251,
+     "aisimulate_tpot_error_pct": 13.12,
+     "status": "success"
+    },
+    {
+     "concurrency": 64,
+     "measured_tpot_relative": 3.922141,
+     "aisimulate_tpot_relative": 4.757484,
+     "aisimulate_tpot_error_pct": 21.3,
+     "status": "success"
+    }
+   ]
+  },
+  {
+   "scenario": "qwen3.5-397b-a17b-b300-bf16-sglang-tp8.yaml",
+   "model": "qwen3.5-397b-a17b",
+   "gpu": "b300",
+   "workload": "1024:1024",
+   "label": "1k1k",
+   "framework": "sglang",
+   "precision": "bf16",
+   "serving": "aggregated",
+   "spec_method": "none",
+   "parallelism": {
+    "attention_dp_size": 1,
+    "moe_ep_size": 1,
+    "moe_tp_size": 8,
+    "pp_size": 1,
+    "tp_size": 8
+   },
+   "topology_id": "d0ba960699a7a974",
+   "points": [
+    {
+     "concurrency": 4,
+     "measured_tpot_relative": 1.0,
+     "aisimulate_tpot_relative": 0.960978,
+     "aisimulate_tpot_error_pct": 3.9,
+     "status": "success"
+    },
+    {
+     "concurrency": 8,
+     "measured_tpot_relative": 1.280009,
+     "aisimulate_tpot_relative": 1.236521,
+     "aisimulate_tpot_error_pct": 3.4,
+     "status": "success"
+    },
+    {
+     "concurrency": 16,
+     "measured_tpot_relative": 1.632008,
+     "aisimulate_tpot_relative": 1.551799,
+     "aisimulate_tpot_error_pct": 4.91,
+     "status": "success"
+    },
+    {
+     "concurrency": 32,
+     "measured_tpot_relative": 2.118107,
+     "aisimulate_tpot_relative": 1.974337,
+     "aisimulate_tpot_error_pct": 6.79,
+     "status": "success"
+    },
+    {
+     "concurrency": 64,
+     "measured_tpot_relative": 2.773401,
+     "aisimulate_tpot_relative": 2.884147,
+     "aisimulate_tpot_error_pct": 3.99,
+     "status": "success"
+    }
+   ]
+  },
+  {
+   "scenario": "qwen3.5-397b-a17b-b300-bf16-sglang-tp8.yaml",
+   "model": "qwen3.5-397b-a17b",
+   "gpu": "b300",
+   "workload": "8192:1024",
+   "label": "8k1k",
+   "framework": "sglang",
+   "precision": "bf16",
+   "serving": "aggregated",
+   "spec_method": "none",
+   "parallelism": {
+    "attention_dp_size": 1,
+    "moe_ep_size": 1,
+    "moe_tp_size": 8,
+    "pp_size": 1,
+    "tp_size": 8
+   },
+   "topology_id": "74b7b8a8bd6b07d1",
+   "points": [
+    {
+     "concurrency": 4,
+     "measured_tpot_relative": 1.0,
+     "aisimulate_tpot_relative": 1.113417,
+     "aisimulate_tpot_error_pct": 11.34,
+     "status": "success"
+    },
+    {
+     "concurrency": 8,
+     "measured_tpot_relative": 1.309727,
+     "aisimulate_tpot_relative": 1.439548,
+     "aisimulate_tpot_error_pct": 9.91,
+     "status": "success"
+    },
+    {
+     "concurrency": 16,
+     "measured_tpot_relative": 1.725157,
+     "aisimulate_tpot_relative": 1.984914,
+     "aisimulate_tpot_error_pct": 15.06,
+     "status": "success"
+    },
+    {
+     "concurrency": 32,
+     "measured_tpot_relative": 2.388437,
+     "aisimulate_tpot_relative": 2.640017,
+     "aisimulate_tpot_error_pct": 10.53,
+     "status": "success"
+    },
+    {
+     "concurrency": 64,
+     "measured_tpot_relative": 3.432823,
+     "aisimulate_tpot_relative": 3.985213,
+     "aisimulate_tpot_error_pct": 16.09,
+     "status": "success"
+    }
+   ]
+  },
+  {
+   "scenario": "qwen3.5-397b-a17b-b300-fp4-sglang-tp4.yaml",
+   "model": "qwen3.5-397b-a17b",
+   "gpu": "b300",
+   "workload": "1024:1024",
+   "label": "1k1k",
+   "framework": "sglang",
+   "precision": "fp4",
+   "serving": "aggregated",
+   "spec_method": "none",
+   "parallelism": {
+    "attention_dp_size": 1,
+    "moe_ep_size": 1,
+    "moe_tp_size": 4,
+    "pp_size": 1,
+    "tp_size": 4
+   },
+   "topology_id": "58922e229a16f4ec",
+   "points": [
+    {
+     "concurrency": 4,
+     "measured_tpot_relative": 1.0,
+     "aisimulate_tpot_relative": 0.927688,
+     "aisimulate_tpot_error_pct": 7.23,
+     "status": "success"
+    },
+    {
+     "concurrency": 8,
+     "measured_tpot_relative": 1.18139,
+     "aisimulate_tpot_relative": 1.170817,
+     "aisimulate_tpot_error_pct": 0.89,
+     "status": "success"
+    },
+    {
+     "concurrency": 16,
+     "measured_tpot_relative": 1.485901,
+     "aisimulate_tpot_relative": 1.440425,
+     "aisimulate_tpot_error_pct": 3.06,
+     "status": "success"
+    },
+    {
+     "concurrency": 32,
+     "measured_tpot_relative": 1.910271,
+     "aisimulate_tpot_relative": 1.821184,
+     "aisimulate_tpot_error_pct": 4.66,
+     "status": "success"
+    },
+    {
+     "concurrency": 64,
+     "measured_tpot_relative": 2.440398,
+     "aisimulate_tpot_relative": 2.57209,
+     "aisimulate_tpot_error_pct": 5.4,
+     "status": "success"
+    },
+    {
+     "concurrency": 128,
+     "measured_tpot_relative": 3.184843,
+     "aisimulate_tpot_relative": 3.593551,
+     "aisimulate_tpot_error_pct": 12.83,
+     "status": "success"
+    }
+   ]
+  },
+  {
+   "scenario": "qwen3.5-397b-a17b-b300-fp4-sglang-tp4.yaml",
+   "model": "qwen3.5-397b-a17b",
+   "gpu": "b300",
+   "workload": "8192:1024",
+   "label": "8k1k",
+   "framework": "sglang",
+   "precision": "fp4",
+   "serving": "aggregated",
+   "spec_method": "none",
+   "parallelism": {
+    "attention_dp_size": 1,
+    "moe_ep_size": 1,
+    "moe_tp_size": 4,
+    "pp_size": 1,
+    "tp_size": 4
+   },
+   "topology_id": "ed7b36ebd59969ee",
+   "points": [
+    {
+     "concurrency": 4,
+     "measured_tpot_relative": 1.0,
+     "aisimulate_tpot_relative": 1.134146,
+     "aisimulate_tpot_error_pct": 13.41,
+     "status": "success"
+    },
+    {
+     "concurrency": 8,
+     "measured_tpot_relative": 1.249605,
+     "aisimulate_tpot_relative": 1.450454,
+     "aisimulate_tpot_error_pct": 16.07,
+     "status": "success"
+    },
+    {
+     "concurrency": 16,
+     "measured_tpot_relative": 1.636163,
+     "aisimulate_tpot_relative": 1.981082,
+     "aisimulate_tpot_error_pct": 21.08,
+     "status": "success"
+    },
+    {
+     "concurrency": 32,
+     "measured_tpot_relative": 2.204362,
+     "aisimulate_tpot_relative": 2.645443,
+     "aisimulate_tpot_error_pct": 20.01,
+     "status": "success"
+    },
+    {
+     "concurrency": 64,
+     "measured_tpot_relative": 3.284993,
+     "aisimulate_tpot_relative": 3.920625,
+     "aisimulate_tpot_error_pct": 19.35,
+     "status": "success"
+    },
+    {
+     "concurrency": 128,
+     "measured_tpot_relative": 5.126955,
+     "aisimulate_tpot_relative": 6.260211,
+     "aisimulate_tpot_error_pct": 22.1,
+     "status": "success"
+    }
+   ]
+  },
+  {
+   "scenario": "qwen3.5-397b-a17b-b300-fp8-sglang-tp4.yaml",
+   "model": "qwen3.5-397b-a17b",
+   "gpu": "b300",
+   "workload": "1024:1024",
+   "label": "1k1k",
+   "framework": "sglang",
+   "precision": "fp8",
+   "serving": "aggregated",
+   "spec_method": "none",
+   "parallelism": {
+    "attention_dp_size": 1,
+    "moe_ep_size": 1,
+    "moe_tp_size": 4,
+    "pp_size": 1,
+    "tp_size": 4
+   },
+   "topology_id": "71859b6d4117a107",
+   "points": [
+    {
+     "concurrency": 4,
+     "measured_tpot_relative": 1.0,
+     "aisimulate_tpot_relative": 1.070176,
+     "aisimulate_tpot_error_pct": 7.02,
+     "status": "success"
+    },
+    {
+     "concurrency": 8,
+     "measured_tpot_relative": 1.205017,
+     "aisimulate_tpot_relative": 1.269911,
+     "aisimulate_tpot_error_pct": 5.39,
+     "status": "success"
+    },
+    {
+     "concurrency": 16,
+     "measured_tpot_relative": 1.562534,
+     "aisimulate_tpot_relative": 1.578179,
+     "aisimulate_tpot_error_pct": 1.0,
+     "status": "success"
+    },
+    {
+     "concurrency": 32,
+     "measured_tpot_relative": 2.071574,
+     "aisimulate_tpot_relative": 2.014475,
+     "aisimulate_tpot_error_pct": 2.76,
+     "status": "success"
+    },
+    {
+     "concurrency": 64,
+     "measured_tpot_relative": 2.761934,
+     "aisimulate_tpot_relative": 2.815541,
+     "aisimulate_tpot_error_pct": 1.94,
+     "status": "success"
+    },
+    {
+     "concurrency": 128,
+     "measured_tpot_relative": 3.68468,
+     "aisimulate_tpot_relative": 3.77471,
+     "aisimulate_tpot_error_pct": 2.44,
+     "status": "success"
+    },
+    {
+     "concurrency": 256,
+     "measured_tpot_relative": 4.948638,
+     "aisimulate_tpot_relative": 5.250873,
+     "aisimulate_tpot_error_pct": 6.11,
+     "status": "success"
+    }
+   ]
+  },
+  {
+   "scenario": "qwen3.5-397b-a17b-b300-fp8-sglang-tp4.yaml",
+   "model": "qwen3.5-397b-a17b",
+   "gpu": "b300",
+   "workload": "8192:1024",
+   "label": "8k1k",
+   "framework": "sglang",
+   "precision": "fp8",
+   "serving": "aggregated",
+   "spec_method": "none",
+   "parallelism": {
+    "attention_dp_size": 1,
+    "moe_ep_size": 1,
+    "moe_tp_size": 4,
+    "pp_size": 1,
+    "tp_size": 4
+   },
+   "topology_id": "4c0380df4059a175",
+   "points": [
+    {
+     "concurrency": 4,
+     "measured_tpot_relative": 1.0,
+     "aisimulate_tpot_relative": 1.21225,
+     "aisimulate_tpot_error_pct": 21.22,
+     "status": "success"
+    },
+    {
+     "concurrency": 8,
+     "measured_tpot_relative": 1.254606,
+     "aisimulate_tpot_relative": 1.476798,
+     "aisimulate_tpot_error_pct": 17.71,
+     "status": "success"
+    },
+    {
+     "concurrency": 16,
+     "measured_tpot_relative": 1.689124,
+     "aisimulate_tpot_relative": 2.007532,
+     "aisimulate_tpot_error_pct": 18.85,
+     "status": "success"
+    },
+    {
+     "concurrency": 32,
+     "measured_tpot_relative": 2.423418,
+     "aisimulate_tpot_relative": 2.707704,
+     "aisimulate_tpot_error_pct": 11.73,
+     "status": "success"
+    },
+    {
+     "concurrency": 64,
+     "measured_tpot_relative": 3.557293,
+     "aisimulate_tpot_relative": 4.006632,
+     "aisimulate_tpot_error_pct": 12.63,
+     "status": "success"
+    },
+    {
+     "concurrency": 128,
+     "measured_tpot_relative": 5.377204,
+     "aisimulate_tpot_relative": 6.193101,
+     "aisimulate_tpot_error_pct": 15.17,
+     "status": "success"
+    },
+    {
+     "concurrency": 256,
+     "measured_tpot_relative": 8.764593,
+     "aisimulate_tpot_relative": 10.236595,
+     "aisimulate_tpot_error_pct": 16.79,
+     "status": "success"
+    }
+   ]
+  },
+  {
+   "scenario": "qwen3.5-397b-a17b-h100-fp8-sglang-tp8.yaml",
+   "model": "qwen3.5-397b-a17b",
+   "gpu": "h100",
+   "workload": "1024:1024",
+   "label": "1k1k",
+   "framework": "sglang",
+   "precision": "fp8",
+   "serving": "aggregated",
+   "spec_method": "none",
+   "parallelism": {
+    "attention_dp_size": 1,
+    "moe_ep_size": 1,
+    "moe_tp_size": 8,
+    "pp_size": 1,
+    "tp_size": 8
+   },
+   "topology_id": "b02eeec8bef39db1",
+   "points": [
+    {
+     "concurrency": 1,
+     "measured_tpot_relative": 1.0,
+     "aisimulate_tpot_relative": 0.793135,
+     "aisimulate_tpot_error_pct": 20.69,
+     "status": "success"
+    },
+    {
+     "concurrency": 2,
+     "measured_tpot_relative": 1.046517,
+     "aisimulate_tpot_relative": 0.862502,
+     "aisimulate_tpot_error_pct": 17.58,
+     "status": "success"
+    },
+    {
+     "concurrency": 4,
+     "measured_tpot_relative": 1.270272,
+     "aisimulate_tpot_relative": 1.025334,
+     "aisimulate_tpot_error_pct": 19.28,
+     "status": "success"
+    },
+    {
+     "concurrency": 8,
+     "measured_tpot_relative": 1.570719,
+     "aisimulate_tpot_relative": 1.28899,
+     "aisimulate_tpot_error_pct": 17.94,
+     "status": "success"
+    }
+   ]
+  }
+ ]
+}

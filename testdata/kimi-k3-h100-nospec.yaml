@@ -1,0 +1,43 @@
+# The "no spec, 256k context, fixed build" arm of the published Kimi-K3 agentic sweep.
+#
+# Chosen from that report's eleven arms because it is the least confounded: speculation off,
+# so a step is one token per resident request; and the arm's own label states the context
+# bound, which the report does not state anywhere else.
+#
+# The report states 32 GPUs on H100. It does NOT state the tensor-parallel width per
+# replica, the input or output lengths, or the memory settings. The layout below is the one
+# the GPU count and a 1T-class MXFP4 model together imply — four 8-GPU replicas — and the
+# scorer reports that this is inferred rather than stated.
+kind: Scenario
+name: kimi-k3-h100-nospec
+engine_version: "0.29.0"
+
+model: kimi-k3
+hardware: h100
+fabric: ib-400g
+coefficients: [cost-model-primitives, cost-model-collectives, cost-model-host-overheads, cost-model-attention, cost-model-recurrent]
+
+cluster:
+  nodes: 4
+  gpus_per_node: 8
+
+pools:
+  - role: colocated
+    nodes: 4
+    parallel:
+      tp: 8
+      pp: 1
+      dp: 4
+      enable_expert_parallel: false
+    engine:
+      cache_dtype: fp8
+      # KDA layers carry recurrent state. The mode is not stated; this is the default,
+      # which sizes state per sequence rather than per position.
+      mamba_cache_mode: none
+      block_size: 16
+      max_num_batched_tokens: 8192
+      max_num_seqs: 256
+      # 256k, which this arm's label states explicitly.
+      max_model_len: 262144
+      cudagraph_mode: PIECEWISE
+      gpu_memory_utilization: 0.9

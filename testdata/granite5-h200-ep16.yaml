@@ -1,0 +1,41 @@
+# The deployment the latency-kernel design's §2.1 works through: Granite-5 served fp8
+# on an H200 node, tensor-parallel 8 with expert parallelism across 16 ranks.
+#
+# Committed as a test fixture rather than generated, because it is the reference the
+# implementation is checked against. Every name here resolves into blis-catalog and
+# blis-registry; a rename in either breaks this file, which is the intent.
+kind: Scenario
+name: granite5-h200-ep16
+engine_version: "0.29.0"
+
+model: granite-5.0-230b-rl-preview
+hardware: h200
+fabric: ib-400g
+coefficients: [cost-model-primitives, cost-model-collectives, cost-model-host-overheads, cost-model-attention, cost-model-recurrent]
+
+cluster:
+  nodes: 2
+  gpus_per_node: 8
+
+pools:
+  - role: colocated
+    nodes: 2
+    parallel:
+      tp: 8
+      pp: 1
+      dp: 2
+      enable_expert_parallel: true
+    engine:
+      # The checkpoint is bfloat16; this deployment serves fp8. That is what puts the
+      # step on the fp8 efficiency envelope rather than the bf16 one.
+      quantization: fp8
+      cache_dtype: fp8
+      block_size: 16
+      max_num_batched_tokens: 8192
+      max_num_seqs: 256
+      max_model_len: 32768
+      cudagraph_mode: PIECEWISE
+      gpu_memory_utilization: 0.9
+      speculative:
+        method: mtp
+        num_spec_tokens: 1
