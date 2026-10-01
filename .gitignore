@@ -1,0 +1,12 @@
+# Compiled command binaries. `go build ./cmd/...` drops them in the repo root, and two were
+# committed by accident at 4 MB each; they are rebuildable from source and platform-specific.
+/baseline
+/shape
+/score
+/worked-table
+/kernelscore
+/overlap-probe
+
+# Go test and coverage output
+*.test
+*.out

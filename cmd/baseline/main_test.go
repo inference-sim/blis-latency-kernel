@@ -1,3 +1,5 @@
+//go:build baseline
+
 package main
 
 import "testing"

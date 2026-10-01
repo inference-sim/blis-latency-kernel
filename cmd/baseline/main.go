@@ -1,3 +1,5 @@
+//go:build baseline
+
 // Command baseline scores the EXISTING inference-sim latency models against the same report
 // corpus this repository's kernel is scored against.
 //
@@ -258,8 +260,8 @@ func predict(m sim.LatencyModel, batch, context int, acceptPct *float64) float64
 			ID:            fmt.Sprintf("r%d", i),
 			NumNewTokens:  1,
 			ProgressIndex: int64(context - 1),
-			InputTokens:   make([]int, context-1),
-			OutputTokens:  make([]int, 1),
+			InputTokens:   make([]sim.TokenID, context-1),
+			OutputTokens:  make([]sim.TokenID, 1),
 		}
 	}
 	step := float64(m.StepTime(reqs)) / 1000 // microseconds to milliseconds
@@ -286,7 +288,11 @@ func build(catalog string, d deployment, backend string) (sim.LatencyModel, erro
 	if err != nil {
 		return nil, err
 	}
-	cfg := sim.NewModelHardwareConfig(mc, hw, d.model, d.hardware, d.tp, backend, 0)
+	// dp=1, expert parallelism off, no MoE comm backend: this comparison drives the legacy
+	// models at the same single-pool deployment the kernel is scored at, and those two axes
+	// are what the legacy models do not represent anyway.
+	cfg := sim.NewModelHardwareConfig(mc, hw, d.model, d.hardware, d.tp, 1, false, "",
+		backend, 0)
 	return sim.MustNewLatencyModel(sim.NewLatencyCoeffs(betaCoeffs, alphaCoeffs), cfg)
 }
 
