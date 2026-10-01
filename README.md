@@ -36,7 +36,6 @@ against an interpolating model on shapes that were.
 | `internal/harness` | What the scoring commands share |
 | `cmd/score` | Absolute inter-token latency against published benchmark runs |
 | `cmd/shape` | Concurrency-response shape against NVIDIA's AISimulate accuracy snapshot |
-| `cmd/baseline` | The same points under BLIS's earlier roofline and trained-physics models |
 | `cmd/worked-table` | Generates the worked step-time table in the design document |
 
 ## Accuracy
@@ -60,6 +59,14 @@ go run ./cmd/shape -testdata testdata/aisimulate
 
 Both need `blis-catalog`, `blis-registry` and `blis-schemas` checked out alongside this
 repository; the commands take their paths as flags.
+
+## Dependencies run one way
+
+This module depends on `blis-schemas` and nothing else of substance. It does NOT depend on the
+simulator: the simulator consumes this kernel, so an import in this direction would close a cycle
+between the two repositories. The command that compares this kernel against the simulator'''s
+earlier roofline and trained-physics models therefore lives in the simulator, as
+`cmd/blisbaseline`, where the dependency runs the correct way.
 
 ## Licence
 
