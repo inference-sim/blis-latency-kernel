@@ -93,17 +93,8 @@ def extract(summary: dict) -> dict:
                     if par["pp_size"] != 1:
                         skipped["pp_size>1"] += 1
                         continue
-                    points = [
-                        {
-                            "concurrency": p["concurrency"],
-                            "measured_tpot_relative": p["measured"]["tpot_relative"],
-                            "aisimulate_tpot_relative": p["aisimulate"]["tpot_relative"],
-                            "aisimulate_tpot_error_pct": p["aisimulate"]["tpot_error_pct"],
-                            "status": p["status"],
-                        }
-                        for p in topology["points"]
-                        if p.get("status") == "success"
-                    ]
+                    points = [point_record(p) for p in topology["points"]
+                              if p.get("status") == "success"]
                     if len(points) < MIN_POINTS:
                         skipped["fewer than three successful points"] += 1
                         continue
@@ -134,9 +125,11 @@ def extract(summary: dict) -> dict:
         "measurement_source_url": summary["snapshot"].get("measurement_source_url"),
         "snapshot": summary["snapshot"],
         "scope": summary["scope"],
-        # Carries both tpot figures. tpot_shape_error_pct is the one comparable to a
-        # normalised-curve score; tpot_mape_pct is absolute.
+        # Carries all four published figures per estimator. The *_shape_error_pct ones are
+        # comparable to a normalised-curve score; the *_mape_pct ones are absolute and cannot be
+        # recomputed from this corpus, which ships no absolute latencies.
         "aisimulate_totals": summary["totals"].get("aisimulate", {}),
+        "aic_totals": summary["totals"].get("aic", {}),
         "selection": {
             "models": sorted(set(MODELS.values())),
             "min_points_per_sweep": MIN_POINTS,
@@ -146,6 +139,47 @@ def extract(summary: dict) -> dict:
         },
         "sweeps": sweeps,
     }
+
+
+# The artifact's own field names, kept verbatim so a reader can trace a value back.
+#
+# TTFT is carried alongside TPOT, and AIC alongside AISIMULATE, because the snapshot publishes
+# four accuracy figures and an earlier revision of this extractor kept one. TTFT is where the
+# baseline is weakest -- 22.82% shape against 10.05% for TPOT over the whole snapshot -- so
+# discarding it discarded the interesting half of the comparison.
+#
+# AIC and AISIMULATE are the same repository (snapshot.aic_source names ai-dynamo/aisimulate at a
+# pinned commit): AIC is the analytic configurator path, AISimulate the full simulator. Both are
+# kept so a score can be read against either.
+#
+# Only RELATIVES exist. Every point in the artifact carries exactly tpot_relative and
+# ttft_relative per estimator, and no absolute latency field appears anywhere in it -- verified by
+# enumerating every key of every point. So a mean ABSOLUTE percentage error cannot be computed
+# against this corpus at all; the mape figures the snapshot publishes come from rows it does not
+# ship. Shape error is the only per-point metric this file can support, which is a property of
+# the data rather than a choice.
+ESTIMATORS = ("aisimulate", "aic")
+METRICS = ("tpot", "ttft")
+
+
+def point_record(p: dict) -> dict:
+    """One concurrency point: the measured relatives and every estimator's prediction."""
+    rec = {"concurrency": p["concurrency"], "status": p["status"]}
+    for metric in METRICS:
+        rec[f"measured_{metric}_relative"] = p["measured"][f"{metric}_relative"]
+    for est in ESTIMATORS:
+        block = p.get(est)
+        if not isinstance(block, dict):
+            continue
+        for metric in METRICS:
+            rel = block.get(f"{metric}_relative")
+            if rel is None:
+                continue
+            rec[f"{est}_{metric}_relative"] = rel
+            err = block.get(f"{metric}_error_pct")
+            if err is not None:
+                rec[f"{est}_{metric}_error_pct"] = err
+    return rec
 
 
 def main() -> int:
