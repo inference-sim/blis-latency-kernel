@@ -203,7 +203,7 @@
      "resolved": {
       "engine_version": "0.22.0",
       "resolved_gpu_kv_tokens": 2543846,
-      "resolved_max_concurrency": "1230.10"
+      "resolved_max_concurrency": 1230.1
      }
     },
     "16": {
@@ -218,7 +218,7 @@
      "resolved": {
       "engine_version": "0.22.0",
       "resolved_gpu_kv_tokens": 2543846,
-      "resolved_max_concurrency": "1230.10"
+      "resolved_max_concurrency": 1230.1
      }
     },
     "32": {
@@ -233,7 +233,7 @@
      "resolved": {
       "engine_version": "0.22.0",
       "resolved_gpu_kv_tokens": 2543846,
-      "resolved_max_concurrency": "1230.10"
+      "resolved_max_concurrency": 1230.1
      }
     },
     "4": {
@@ -248,7 +248,7 @@
      "resolved": {
       "engine_version": "0.22.0",
       "resolved_gpu_kv_tokens": 2543846,
-      "resolved_max_concurrency": "1230.10"
+      "resolved_max_concurrency": 1230.1
      }
     },
     "64": {
@@ -263,7 +263,7 @@
      "resolved": {
       "engine_version": "0.22.0",
       "resolved_gpu_kv_tokens": 2543846,
-      "resolved_max_concurrency": "1230.10"
+      "resolved_max_concurrency": 1230.1
      }
     },
     "8": {
@@ -278,7 +278,7 @@
      "resolved": {
       "engine_version": "0.22.0",
       "resolved_gpu_kv_tokens": 2543846,
-      "resolved_max_concurrency": "1230.10"
+      "resolved_max_concurrency": 1230.1
      }
     }
    },
@@ -302,7 +302,7 @@
      "resolved": {
       "engine_version": "0.15.1",
       "resolved_gpu_kv_tokens": 2562160,
-      "resolved_max_concurrency": "288.53"
+      "resolved_max_concurrency": 288.53
      }
     },
     "16": {
@@ -316,7 +316,7 @@
      "resolved": {
       "engine_version": "0.15.1",
       "resolved_gpu_kv_tokens": 2562160,
-      "resolved_max_concurrency": "288.53"
+      "resolved_max_concurrency": 288.53
      }
     },
     "32": {
@@ -330,7 +330,7 @@
      "resolved": {
       "engine_version": "0.15.1",
       "resolved_gpu_kv_tokens": 2562160,
-      "resolved_max_concurrency": "288.53"
+      "resolved_max_concurrency": 288.53
      }
     },
     "4": {
@@ -344,7 +344,7 @@
      "resolved": {
       "engine_version": "0.15.1",
       "resolved_gpu_kv_tokens": 2562160,
-      "resolved_max_concurrency": "288.53"
+      "resolved_max_concurrency": 288.53
      }
     },
     "64": {
@@ -358,7 +358,7 @@
      "resolved": {
       "engine_version": "0.15.1",
       "resolved_gpu_kv_tokens": 2562160,
-      "resolved_max_concurrency": "288.53"
+      "resolved_max_concurrency": 288.53
      }
     },
     "8": {
@@ -372,7 +372,7 @@
      "resolved": {
       "engine_version": "0.15.1",
       "resolved_gpu_kv_tokens": 2562160,
-      "resolved_max_concurrency": "288.53"
+      "resolved_max_concurrency": 288.53
      }
     }
    },
@@ -397,7 +397,7 @@
      "resolved": {
       "engine_version": "0.22.0",
       "resolved_gpu_kv_tokens": 2732480,
-      "resolved_max_concurrency": "288.48"
+      "resolved_max_concurrency": 288.48
      }
     },
     "16": {
@@ -412,7 +412,7 @@
      "resolved": {
       "engine_version": "0.22.0",
       "resolved_gpu_kv_tokens": 2732480,
-      "resolved_max_concurrency": "288.48"
+      "resolved_max_concurrency": 288.48
      }
     },
     "32": {
@@ -427,7 +427,7 @@
      "resolved": {
       "engine_version": "0.22.0",
       "resolved_gpu_kv_tokens": 2732480,
-      "resolved_max_concurrency": "288.48"
+      "resolved_max_concurrency": 288.48
      }
     },
     "4": {
@@ -442,7 +442,7 @@
      "resolved": {
       "engine_version": "0.22.0",
       "resolved_gpu_kv_tokens": 2732480,
-      "resolved_max_concurrency": "288.48"
+      "resolved_max_concurrency": 288.48
      }
     },
     "64": {
@@ -457,7 +457,7 @@
      "resolved": {
       "engine_version": "0.22.0",
       "resolved_gpu_kv_tokens": 2732480,
-      "resolved_max_concurrency": "288.48"
+      "resolved_max_concurrency": 288.48
      }
     },
     "8": {
@@ -472,7 +472,7 @@
      "resolved": {
       "engine_version": "0.22.0",
       "resolved_gpu_kv_tokens": 2732480,
-      "resolved_max_concurrency": "288.48"
+      "resolved_max_concurrency": 288.48
      }
     }
    },
@@ -497,7 +497,7 @@
      "resolved": {
       "engine_version": "0.22.0",
       "resolved_gpu_kv_tokens": 7008119,
-      "resolved_max_concurrency": "3388.84"
+      "resolved_max_concurrency": 3388.84
      }
     },
     "16": {
@@ -512,7 +512,7 @@
      "resolved": {
       "engine_version": "0.22.0",
       "resolved_gpu_kv_tokens": 7008119,
-      "resolved_max_concurrency": "3388.84"
+      "resolved_max_concurrency": 3388.84
      }
     },
     "32": {
@@ -527,7 +527,7 @@
      "resolved": {
       "engine_version": "0.22.0",
       "resolved_gpu_kv_tokens": 7008119,
-      "resolved_max_concurrency": "3388.84"
+      "resolved_max_concurrency": 3388.84
      }
     },
     "4": {
@@ -542,7 +542,7 @@
      "resolved": {
       "engine_version": "0.22.0",
       "resolved_gpu_kv_tokens": 7008119,
-      "resolved_max_concurrency": "3388.84"
+      "resolved_max_concurrency": 3388.84
      }
     },
     "64": {
@@ -557,7 +557,7 @@
      "resolved": {
       "engine_version": "0.22.0",
       "resolved_gpu_kv_tokens": 7008119,
-      "resolved_max_concurrency": "3388.84"
+      "resolved_max_concurrency": 3388.84
      }
     },
     "8": {
@@ -572,7 +572,7 @@
      "resolved": {
       "engine_version": "0.22.0",
       "resolved_gpu_kv_tokens": 7008119,
-      "resolved_max_concurrency": "3388.84"
+      "resolved_max_concurrency": 3388.84
      }
     }
    },
@@ -596,7 +596,7 @@
      "resolved": {
       "engine_version": "0.15.1",
       "resolved_gpu_kv_tokens": 7070096,
-      "resolved_max_concurrency": "796.18"
+      "resolved_max_concurrency": 796.18
      }
     },
     "16": {
@@ -610,7 +610,7 @@
      "resolved": {
       "engine_version": "0.15.1",
       "resolved_gpu_kv_tokens": 7070736,
-      "resolved_max_concurrency": "796.25"
+      "resolved_max_concurrency": 796.25
      }
     },
     "32": {
@@ -624,7 +624,7 @@
      "resolved": {
       "engine_version": "0.15.1",
       "resolved_gpu_kv_tokens": 7070736,
-      "resolved_max_concurrency": "796.25"
+      "resolved_max_concurrency": 796.25
      }
     },
     "4": {
@@ -638,7 +638,7 @@
      "resolved": {
       "engine_version": "0.15.1",
       "resolved_gpu_kv_tokens": 7070096,
-      "resolved_max_concurrency": "796.18"
+      "resolved_max_concurrency": 796.18
      }
     },
     "64": {
@@ -652,7 +652,7 @@
      "resolved": {
       "engine_version": "0.15.1",
       "resolved_gpu_kv_tokens": 7070096,
-      "resolved_max_concurrency": "796.18"
+      "resolved_max_concurrency": 796.18
      }
     },
     "8": {
@@ -666,7 +666,7 @@
      "resolved": {
       "engine_version": "0.15.1",
       "resolved_gpu_kv_tokens": 7070096,
-      "resolved_max_concurrency": "796.18"
+      "resolved_max_concurrency": 796.18
      }
     }
    },
@@ -691,7 +691,7 @@
      "resolved": {
       "engine_version": "0.22.0",
       "resolved_gpu_kv_tokens": 7527423,
-      "resolved_max_concurrency": "794.70"
+      "resolved_max_concurrency": 794.7
      }
     },
     "16": {
@@ -706,7 +706,7 @@
      "resolved": {
       "engine_version": "0.22.0",
       "resolved_gpu_kv_tokens": 7527423,
-      "resolved_max_concurrency": "794.70"
+      "resolved_max_concurrency": 794.7
      }
     },
     "32": {
@@ -721,7 +721,7 @@
      "resolved": {
       "engine_version": "0.22.0",
       "resolved_gpu_kv_tokens": 7527423,
-      "resolved_max_concurrency": "794.70"
+      "resolved_max_concurrency": 794.7
      }
     },
     "4": {
@@ -736,7 +736,7 @@
      "resolved": {
       "engine_version": "0.22.0",
       "resolved_gpu_kv_tokens": 7527423,
-      "resolved_max_concurrency": "794.70"
+      "resolved_max_concurrency": 794.7
      }
     },
     "64": {
@@ -751,7 +751,7 @@
      "resolved": {
       "engine_version": "0.22.0",
       "resolved_gpu_kv_tokens": 7527423,
-      "resolved_max_concurrency": "794.70"
+      "resolved_max_concurrency": 794.7
      }
     },
     "8": {
@@ -766,7 +766,7 @@
      "resolved": {
       "engine_version": "0.22.0",
       "resolved_gpu_kv_tokens": 7527423,
-      "resolved_max_concurrency": "794.70"
+      "resolved_max_concurrency": 794.7
      }
     }
    },
@@ -791,7 +791,7 @@
      "resolved": {
       "engine_version": "0.22.0",
       "resolved_gpu_kv_tokens": 16014647,
-      "resolved_max_concurrency": "7744.03"
+      "resolved_max_concurrency": 7744.03
      }
     },
     "32": {
@@ -806,7 +806,7 @@
      "resolved": {
       "engine_version": "0.22.0",
       "resolved_gpu_kv_tokens": 16014647,
-      "resolved_max_concurrency": "7744.03"
+      "resolved_max_concurrency": 7744.03
      }
     },
     "4": {
@@ -821,7 +821,7 @@
      "resolved": {
       "engine_version": "0.22.0",
       "resolved_gpu_kv_tokens": 16014647,
-      "resolved_max_concurrency": "7744.03"
+      "resolved_max_concurrency": 7744.03
      }
     },
     "64": {
@@ -836,7 +836,7 @@
      "resolved": {
       "engine_version": "0.22.0",
       "resolved_gpu_kv_tokens": 16014647,
-      "resolved_max_concurrency": "7744.03"
+      "resolved_max_concurrency": 7744.03
      }
     },
     "8": {
@@ -851,7 +851,7 @@
      "resolved": {
       "engine_version": "0.22.0",
       "resolved_gpu_kv_tokens": 16014647,
-      "resolved_max_concurrency": "7744.03"
+      "resolved_max_concurrency": 7744.03
      }
     }
    },
@@ -875,7 +875,7 @@
      "resolved": {
       "engine_version": "0.15.1",
       "resolved_gpu_kv_tokens": 16117392,
-      "resolved_max_concurrency": "1815.02"
+      "resolved_max_concurrency": 1815.02
      }
     },
     "32": {
@@ -889,7 +889,7 @@
      "resolved": {
       "engine_version": "0.15.1",
       "resolved_gpu_kv_tokens": 16118448,
-      "resolved_max_concurrency": "1815.14"
+      "resolved_max_concurrency": 1815.14
      }
     },
     "4": {
@@ -903,7 +903,7 @@
      "resolved": {
       "engine_version": "0.15.1",
       "resolved_gpu_kv_tokens": 16117392,
-      "resolved_max_concurrency": "1815.02"
+      "resolved_max_concurrency": 1815.02
      }
     },
     "64": {
@@ -917,7 +917,7 @@
      "resolved": {
       "engine_version": "0.15.1",
       "resolved_gpu_kv_tokens": 16118448,
-      "resolved_max_concurrency": "1815.14"
+      "resolved_max_concurrency": 1815.14
      }
     },
     "8": {
@@ -931,7 +931,7 @@
      "resolved": {
       "engine_version": "0.15.1",
       "resolved_gpu_kv_tokens": 16117392,
-      "resolved_max_concurrency": "1815.02"
+      "resolved_max_concurrency": 1815.02
      }
     }
    },
@@ -956,7 +956,7 @@
      "resolved": {
       "engine_version": "0.22.0",
       "resolved_gpu_kv_tokens": 17201186,
-      "resolved_max_concurrency": "1816.00"
+      "resolved_max_concurrency": 1816.0
      }
     },
     "32": {
@@ -971,7 +971,7 @@
      "resolved": {
       "engine_version": "0.22.0",
       "resolved_gpu_kv_tokens": 17201186,
-      "resolved_max_concurrency": "1816.00"
+      "resolved_max_concurrency": 1816.0
      }
     },
     "4": {
@@ -986,7 +986,7 @@
      "resolved": {
       "engine_version": "0.22.0",
       "resolved_gpu_kv_tokens": 17201186,
-      "resolved_max_concurrency": "1816.00"
+      "resolved_max_concurrency": 1816.0
      }
     },
     "64": {
@@ -1001,7 +1001,7 @@
      "resolved": {
       "engine_version": "0.22.0",
       "resolved_gpu_kv_tokens": 17201186,
-      "resolved_max_concurrency": "1816.00"
+      "resolved_max_concurrency": 1816.0
      }
     },
     "8": {
@@ -1016,7 +1016,7 @@
      "resolved": {
       "engine_version": "0.22.0",
       "resolved_gpu_kv_tokens": 17201186,
-      "resolved_max_concurrency": "1816.00"
+      "resolved_max_concurrency": 1816.0
      }
     }
    },
@@ -1041,7 +1041,7 @@
      "resolved": {
       "engine_version": "0.21.0",
       "resolved_gpu_kv_tokens": 1050989,
-      "resolved_max_concurrency": "102.64"
+      "resolved_max_concurrency": 102.64
      }
     },
     "32": {
@@ -1056,7 +1056,7 @@
      "resolved": {
       "engine_version": "0.21.0",
       "resolved_gpu_kv_tokens": 1053379,
-      "resolved_max_concurrency": "102.87"
+      "resolved_max_concurrency": 102.87
      }
     },
     "4": {
@@ -1071,7 +1071,7 @@
      "resolved": {
       "engine_version": "0.21.0",
       "resolved_gpu_kv_tokens": 1051112,
-      "resolved_max_concurrency": "102.65"
+      "resolved_max_concurrency": 102.65
      }
     },
     "64": {
@@ -1086,7 +1086,7 @@
      "resolved": {
       "engine_version": "0.21.0",
       "resolved_gpu_kv_tokens": 1050548,
-      "resolved_max_concurrency": "102.59"
+      "resolved_max_concurrency": 102.59
      }
     },
     "8": {
@@ -1101,7 +1101,7 @@
      "resolved": {
       "engine_version": "0.21.0",
       "resolved_gpu_kv_tokens": 1051050,
-      "resolved_max_concurrency": "102.64"
+      "resolved_max_concurrency": 102.64
      }
     }
    },
@@ -1125,7 +1125,7 @@
      "resolved": {
       "engine_version": "0.18.0",
       "resolved_gpu_kv_tokens": 992992,
-      "resolved_max_concurrency": "106.91"
+      "resolved_max_concurrency": 106.91
      }
     },
     "32": {
@@ -1139,7 +1139,7 @@
      "resolved": {
       "engine_version": "0.18.0",
       "resolved_gpu_kv_tokens": 992992,
-      "resolved_max_concurrency": "106.91"
+      "resolved_max_concurrency": 106.91
      }
     },
     "4": {
@@ -1153,7 +1153,7 @@
      "resolved": {
       "engine_version": "0.18.0",
       "resolved_gpu_kv_tokens": 992944,
-      "resolved_max_concurrency": "106.91"
+      "resolved_max_concurrency": 106.91
      }
     },
     "64": {
@@ -1167,7 +1167,7 @@
      "resolved": {
       "engine_version": "0.18.0",
       "resolved_gpu_kv_tokens": 992944,
-      "resolved_max_concurrency": "106.91"
+      "resolved_max_concurrency": 106.91
      }
     },
     "8": {
@@ -1181,7 +1181,7 @@
      "resolved": {
       "engine_version": "0.18.0",
       "resolved_gpu_kv_tokens": 992992,
-      "resolved_max_concurrency": "106.91"
+      "resolved_max_concurrency": 106.91
      }
     }
    },
@@ -1206,7 +1206,7 @@
      "resolved": {
       "engine_version": "0.21.0",
       "resolved_gpu_kv_tokens": 1050989,
-      "resolved_max_concurrency": "102.64"
+      "resolved_max_concurrency": 102.64
      }
     },
     "32": {
@@ -1221,7 +1221,7 @@
      "resolved": {
       "engine_version": "0.21.0",
       "resolved_gpu_kv_tokens": 1050865,
-      "resolved_max_concurrency": "102.62"
+      "resolved_max_concurrency": 102.62
      }
     },
     "4": {
@@ -1236,7 +1236,7 @@
      "resolved": {
       "engine_version": "0.21.0",
       "resolved_gpu_kv_tokens": 1051112,
-      "resolved_max_concurrency": "102.65"
+      "resolved_max_concurrency": 102.65
      }
     },
     "64": {
@@ -1251,7 +1251,7 @@
      "resolved": {
       "engine_version": "0.21.0",
       "resolved_gpu_kv_tokens": 1050548,
-      "resolved_max_concurrency": "102.59"
+      "resolved_max_concurrency": 102.59
      }
     },
     "8": {
@@ -1266,7 +1266,7 @@
      "resolved": {
       "engine_version": "0.21.0",
       "resolved_gpu_kv_tokens": 1051050,
-      "resolved_max_concurrency": "102.64"
+      "resolved_max_concurrency": 102.64
      }
     }
    },
@@ -1291,7 +1291,7 @@
      "resolved": {
       "engine_version": "0.21.0",
       "resolved_gpu_kv_tokens": 3199872,
-      "resolved_max_concurrency": "312.49"
+      "resolved_max_concurrency": 312.49
      }
     },
     "32": {
@@ -1306,7 +1306,7 @@
      "resolved": {
       "engine_version": "0.21.0",
       "resolved_gpu_kv_tokens": 3199616,
-      "resolved_max_concurrency": "312.46"
+      "resolved_max_concurrency": 312.46
      }
     },
     "4": {
@@ -1321,7 +1321,7 @@
      "resolved": {
       "engine_version": "0.21.0",
       "resolved_gpu_kv_tokens": 3200119,
-      "resolved_max_concurrency": "312.51"
+      "resolved_max_concurrency": 312.51
      }
     },
     "64": {
@@ -1336,7 +1336,7 @@
      "resolved": {
       "engine_version": "0.21.0",
       "resolved_gpu_kv_tokens": 3198990,
-      "resolved_max_concurrency": "312.40"
+      "resolved_max_concurrency": 312.4
      }
     },
     "8": {
@@ -1351,7 +1351,7 @@
      "resolved": {
       "engine_version": "0.21.0",
       "resolved_gpu_kv_tokens": 3199995,
-      "resolved_max_concurrency": "312.50"
+      "resolved_max_concurrency": 312.5
      }
     }
    },
@@ -1375,7 +1375,7 @@
      "resolved": {
       "engine_version": "0.18.0",
       "resolved_gpu_kv_tokens": 2960512,
-      "resolved_max_concurrency": "318.75"
+      "resolved_max_concurrency": 318.75
      }
     },
     "32": {
@@ -1389,7 +1389,7 @@
      "resolved": {
       "engine_version": "0.18.0",
       "resolved_gpu_kv_tokens": 2960512,
-      "resolved_max_concurrency": "318.75"
+      "resolved_max_concurrency": 318.75
      }
     },
     "4": {
@@ -1403,7 +1403,7 @@
      "resolved": {
       "engine_version": "0.18.0",
       "resolved_gpu_kv_tokens": 2960400,
-      "resolved_max_concurrency": "318.73"
+      "resolved_max_concurrency": 318.73
      }
     },
     "64": {
@@ -1417,7 +1417,7 @@
      "resolved": {
       "engine_version": "0.18.0",
       "resolved_gpu_kv_tokens": 2984880,
-      "resolved_max_concurrency": "321.37"
+      "resolved_max_concurrency": 321.37
      }
     },
     "8": {
@@ -1431,7 +1431,7 @@
      "resolved": {
       "engine_version": "0.18.0",
       "resolved_gpu_kv_tokens": 2960512,
-      "resolved_max_concurrency": "318.75"
+      "resolved_max_concurrency": 318.75
      }
     }
    },
@@ -1456,7 +1456,7 @@
      "resolved": {
       "engine_version": "0.21.0",
       "resolved_gpu_kv_tokens": 3199872,
-      "resolved_max_concurrency": "312.49"
+      "resolved_max_concurrency": 312.49
      }
     },
     "32": {
@@ -1471,7 +1471,7 @@
      "resolved": {
       "engine_version": "0.21.0",
       "resolved_gpu_kv_tokens": 3199616,
-      "resolved_max_concurrency": "312.46"
+      "resolved_max_concurrency": 312.46
      }
     },
     "4": {
@@ -1486,7 +1486,7 @@
      "resolved": {
       "engine_version": "0.21.0",
       "resolved_gpu_kv_tokens": 3227222,
-      "resolved_max_concurrency": "315.16"
+      "resolved_max_concurrency": 315.16
      }
     },
     "64": {
@@ -1501,7 +1501,7 @@
      "resolved": {
       "engine_version": "0.21.0",
       "resolved_gpu_kv_tokens": 3198990,
-      "resolved_max_concurrency": "312.40"
+      "resolved_max_concurrency": 312.4
      }
     },
     "8": {
@@ -1516,7 +1516,7 @@
      "resolved": {
       "engine_version": "0.21.0",
       "resolved_gpu_kv_tokens": 3230115,
-      "resolved_max_concurrency": "315.44"
+      "resolved_max_concurrency": 315.44
      }
     }
    },
@@ -1541,7 +1541,7 @@
      "resolved": {
       "engine_version": "0.21.0",
       "resolved_gpu_kv_tokens": 7484469,
-      "resolved_max_concurrency": "730.91"
+      "resolved_max_concurrency": 730.91
      }
     },
     "32": {
@@ -1556,7 +1556,7 @@
      "resolved": {
       "engine_version": "0.21.0",
       "resolved_gpu_kv_tokens": 7554491,
-      "resolved_max_concurrency": "737.74"
+      "resolved_max_concurrency": 737.74
      }
     },
     "4": {
@@ -1571,7 +1571,7 @@
      "resolved": {
       "engine_version": "0.21.0",
       "resolved_gpu_kv_tokens": 7484972,
-      "resolved_max_concurrency": "730.95"
+      "resolved_max_concurrency": 730.95
      }
     },
     "64": {
@@ -1586,7 +1586,7 @@
      "resolved": {
       "engine_version": "0.21.0",
       "resolved_gpu_kv_tokens": 7483217,
-      "resolved_max_concurrency": "730.78"
+      "resolved_max_concurrency": 730.78
      }
     },
     "8": {
@@ -1601,7 +1601,7 @@
      "resolved": {
       "engine_version": "0.21.0",
       "resolved_gpu_kv_tokens": 7484716,
-      "resolved_max_concurrency": "730.93"
+      "resolved_max_concurrency": 730.93
      }
     }
    },
@@ -1625,7 +1625,7 @@
      "resolved": {
       "engine_version": "0.18.0",
       "resolved_gpu_kv_tokens": 6905040,
-      "resolved_max_concurrency": "743.44"
+      "resolved_max_concurrency": 743.44
      }
     },
     "32": {
@@ -1639,7 +1639,7 @@
      "resolved": {
       "engine_version": "0.18.0",
       "resolved_gpu_kv_tokens": 6971456,
-      "resolved_max_concurrency": "750.59"
+      "resolved_max_concurrency": 750.59
      }
     },
     "4": {
@@ -1653,7 +1653,7 @@
      "resolved": {
       "engine_version": "0.18.0",
       "resolved_gpu_kv_tokens": 6904800,
-      "resolved_max_concurrency": "743.41"
+      "resolved_max_concurrency": 743.41
      }
     },
     "64": {
@@ -1667,7 +1667,7 @@
      "resolved": {
       "engine_version": "0.18.0",
       "resolved_gpu_kv_tokens": 6905264,
-      "resolved_max_concurrency": "743.46"
+      "resolved_max_concurrency": 743.46
      }
     },
     "8": {
@@ -1681,7 +1681,7 @@
      "resolved": {
       "engine_version": "0.18.0",
       "resolved_gpu_kv_tokens": 6905040,
-      "resolved_max_concurrency": "743.44"
+      "resolved_max_concurrency": 743.44
      }
     }
    },
@@ -1706,7 +1706,7 @@
      "resolved": {
       "engine_version": "0.21.0",
       "resolved_gpu_kv_tokens": 7561009,
-      "resolved_max_concurrency": "738.38"
+      "resolved_max_concurrency": 738.38
      }
     },
     "4": {
@@ -1721,7 +1721,7 @@
      "resolved": {
       "engine_version": "0.21.0",
       "resolved_gpu_kv_tokens": 7484972,
-      "resolved_max_concurrency": "730.95"
+      "resolved_max_concurrency": 730.95
      }
     },
     "8": {
@@ -1736,7 +1736,7 @@
      "resolved": {
       "engine_version": "0.21.0",
       "resolved_gpu_kv_tokens": 7561265,
-      "resolved_max_concurrency": "738.40"
+      "resolved_max_concurrency": 738.4
      }
     }
    },
@@ -1761,7 +1761,7 @@
      "resolved": {
       "engine_version": "0.22.0",
       "resolved_gpu_kv_tokens": 886555,
-      "resolved_max_concurrency": "93.60"
+      "resolved_max_concurrency": 93.6
      }
     },
     "32": {
@@ -1776,7 +1776,7 @@
      "resolved": {
       "engine_version": "0.22.0",
       "resolved_gpu_kv_tokens": 886572,
-      "resolved_max_concurrency": "93.60"
+      "resolved_max_concurrency": 93.6
      }
     },
     "4": {
@@ -1791,7 +1791,7 @@
      "resolved": {
       "engine_version": "0.22.0",
       "resolved_gpu_kv_tokens": 886904,
-      "resolved_max_concurrency": "93.63"
+      "resolved_max_concurrency": 93.63
      }
     },
     "64": {
@@ -1806,7 +1806,7 @@
      "resolved": {
       "engine_version": "0.22.0",
       "resolved_gpu_kv_tokens": 886666,
-      "resolved_max_concurrency": "93.61"
+      "resolved_max_concurrency": 93.61
      }
     },
     "8": {
@@ -1821,7 +1821,7 @@
      "resolved": {
       "engine_version": "0.22.0",
       "resolved_gpu_kv_tokens": 886878,
-      "resolved_max_concurrency": "93.63"
+      "resolved_max_concurrency": 93.63
      }
     }
    },
@@ -1846,7 +1846,7 @@
      "resolved": {
       "engine_version": "0.22.0",
       "resolved_gpu_kv_tokens": 2553409,
-      "resolved_max_concurrency": "1234.72"
+      "resolved_max_concurrency": 1234.72
      }
     },
     "32": {
@@ -1861,7 +1861,7 @@
      "resolved": {
       "engine_version": "0.22.0",
       "resolved_gpu_kv_tokens": 2553298,
-      "resolved_max_concurrency": "1234.67"
+      "resolved_max_concurrency": 1234.67
      }
     },
     "4": {
@@ -1876,7 +1876,7 @@
      "resolved": {
       "engine_version": "0.22.0",
       "resolved_gpu_kv_tokens": 2553520,
-      "resolved_max_concurrency": "1234.78"
+      "resolved_max_concurrency": 1234.78
      }
     },
     "64": {
@@ -1891,7 +1891,7 @@
      "resolved": {
       "engine_version": "0.22.0",
       "resolved_gpu_kv_tokens": 2552751,
-      "resolved_max_concurrency": "1234.41"
+      "resolved_max_concurrency": 1234.41
      }
     },
     "8": {
@@ -1906,7 +1906,7 @@
      "resolved": {
       "engine_version": "0.22.0",
       "resolved_gpu_kv_tokens": 2553464,
-      "resolved_max_concurrency": "1234.75"
+      "resolved_max_concurrency": 1234.75
      }
     }
    },
@@ -1930,7 +1930,7 @@
      "resolved": {
       "engine_version": "0.18.0",
       "resolved_gpu_kv_tokens": 2583008,
-      "resolved_max_concurrency": "290.88"
+      "resolved_max_concurrency": 290.88
      }
     },
     "32": {
@@ -1944,7 +1944,7 @@
      "resolved": {
       "engine_version": "0.18.0",
       "resolved_gpu_kv_tokens": 2583008,
-      "resolved_max_concurrency": "290.88"
+      "resolved_max_concurrency": 290.88
      }
     },
     "4": {
@@ -1958,7 +1958,7 @@
      "resolved": {
       "engine_version": "0.18.0",
       "resolved_gpu_kv_tokens": 2582944,
-      "resolved_max_concurrency": "290.87"
+      "resolved_max_concurrency": 290.87
      }
     },
     "64": {
@@ -1972,7 +1972,7 @@
      "resolved": {
       "engine_version": "0.18.0",
       "resolved_gpu_kv_tokens": 2582944,
-      "resolved_max_concurrency": "290.87"
+      "resolved_max_concurrency": 290.87
      }
     },
     "8": {
@@ -1986,7 +1986,7 @@
      "resolved": {
       "engine_version": "0.18.0",
       "resolved_gpu_kv_tokens": 2583008,
-      "resolved_max_concurrency": "290.88"
+      "resolved_max_concurrency": 290.88
      }
     }
    },
@@ -2011,7 +2011,7 @@
      "resolved": {
       "engine_version": "0.22.0",
       "resolved_gpu_kv_tokens": 2742565,
-      "resolved_max_concurrency": "289.54"
+      "resolved_max_concurrency": 289.54
      }
     },
     "32": {
@@ -2026,7 +2026,7 @@
      "resolved": {
       "engine_version": "0.22.0",
       "resolved_gpu_kv_tokens": 2742165,
-      "resolved_max_concurrency": "289.50"
+      "resolved_max_concurrency": 289.5
      }
     },
     "4": {
@@ -2041,7 +2041,7 @@
      "resolved": {
       "engine_version": "0.22.0",
       "resolved_gpu_kv_tokens": 2742684,
-      "resolved_max_concurrency": "289.56"
+      "resolved_max_concurrency": 289.56
      }
     },
     "64": {
@@ -2056,7 +2056,7 @@
      "resolved": {
       "engine_version": "0.22.0",
       "resolved_gpu_kv_tokens": 2742139,
-      "resolved_max_concurrency": "289.50"
+      "resolved_max_concurrency": 289.5
      }
     },
     "8": {
@@ -2071,7 +2071,7 @@
      "resolved": {
       "engine_version": "0.22.0",
       "resolved_gpu_kv_tokens": 2744029,
-      "resolved_max_concurrency": "289.70"
+      "resolved_max_concurrency": 289.7
      }
     }
    },
@@ -2096,7 +2096,7 @@
      "resolved": {
       "engine_version": "0.22.0",
       "resolved_gpu_kv_tokens": 6130891,
-      "resolved_max_concurrency": "2964.65"
+      "resolved_max_concurrency": 2964.65
      }
     },
     "32": {
@@ -2111,7 +2111,7 @@
      "resolved": {
       "engine_version": "0.22.0",
       "resolved_gpu_kv_tokens": 6131192,
-      "resolved_max_concurrency": "2964.79"
+      "resolved_max_concurrency": 2964.79
      }
     },
     "4": {
@@ -2126,7 +2126,7 @@
      "resolved": {
       "engine_version": "0.22.0",
       "resolved_gpu_kv_tokens": 6134797,
-      "resolved_max_concurrency": "2966.54"
+      "resolved_max_concurrency": 2966.54
      }
     },
     "64": {
@@ -2141,7 +2141,7 @@
      "resolved": {
       "engine_version": "0.22.0",
       "resolved_gpu_kv_tokens": 6130629,
-      "resolved_max_concurrency": "2964.52"
+      "resolved_max_concurrency": 2964.52
      }
     },
     "8": {
@@ -2156,7 +2156,7 @@
      "resolved": {
       "engine_version": "0.22.0",
       "resolved_gpu_kv_tokens": 6131532,
-      "resolved_max_concurrency": "2964.96"
+      "resolved_max_concurrency": 2964.96
      }
     }
    },
@@ -2180,7 +2180,7 @@
      "resolved": {
       "engine_version": "0.18.0",
       "resolved_gpu_kv_tokens": 6164720,
-      "resolved_max_concurrency": "694.23"
+      "resolved_max_concurrency": 694.23
      }
     },
     "32": {
@@ -2194,7 +2194,7 @@
      "resolved": {
       "engine_version": "0.18.0",
       "resolved_gpu_kv_tokens": 6161456,
-      "resolved_max_concurrency": "693.86"
+      "resolved_max_concurrency": 693.86
      }
     },
     "4": {
@@ -2208,7 +2208,7 @@
      "resolved": {
       "engine_version": "0.18.0",
       "resolved_gpu_kv_tokens": 6161344,
-      "resolved_max_concurrency": "693.85"
+      "resolved_max_concurrency": 693.85
      }
     },
     "64": {
@@ -2222,7 +2222,7 @@
      "resolved": {
       "engine_version": "0.18.0",
       "resolved_gpu_kv_tokens": 6161344,
-      "resolved_max_concurrency": "693.85"
+      "resolved_max_concurrency": 693.85
      }
     },
     "8": {
@@ -2236,7 +2236,7 @@
      "resolved": {
       "engine_version": "0.18.0",
       "resolved_gpu_kv_tokens": 6161456,
-      "resolved_max_concurrency": "693.86"
+      "resolved_max_concurrency": 693.86
      }
     }
    },
@@ -2261,7 +2261,7 @@
      "resolved": {
       "engine_version": "0.22.0",
       "resolved_gpu_kv_tokens": 6585635,
-      "resolved_max_concurrency": "695.27"
+      "resolved_max_concurrency": 695.27
      }
     },
     "32": {
@@ -2276,7 +2276,7 @@
      "resolved": {
       "engine_version": "0.22.0",
       "resolved_gpu_kv_tokens": 6585388,
-      "resolved_max_concurrency": "695.25"
+      "resolved_max_concurrency": 695.25
      }
     },
     "4": {
@@ -2291,7 +2291,7 @@
      "resolved": {
       "engine_version": "0.22.0",
       "resolved_gpu_kv_tokens": 6585873,
-      "resolved_max_concurrency": "695.30"
+      "resolved_max_concurrency": 695.3
      }
     },
     "64": {
@@ -2306,7 +2306,7 @@
      "resolved": {
       "engine_version": "0.22.0",
       "resolved_gpu_kv_tokens": 6584784,
-      "resolved_max_concurrency": "695.18"
+      "resolved_max_concurrency": 695.18
      }
     },
     "8": {
@@ -2321,7 +2321,7 @@
      "resolved": {
       "engine_version": "0.22.0",
       "resolved_gpu_kv_tokens": 6585754,
-      "resolved_max_concurrency": "695.29"
+      "resolved_max_concurrency": 695.29
      }
     }
    },
@@ -2346,7 +2346,7 @@
      "resolved": {
       "engine_version": "0.22.0",
       "resolved_gpu_kv_tokens": 13252813,
-      "resolved_max_concurrency": "6408.52"
+      "resolved_max_concurrency": 6408.52
      }
     },
     "32": {
@@ -2361,7 +2361,7 @@
      "resolved": {
       "engine_version": "0.22.0",
       "resolved_gpu_kv_tokens": 13253415,
-      "resolved_max_concurrency": "6408.81"
+      "resolved_max_concurrency": 6408.81
      }
     },
     "4": {
@@ -2376,7 +2376,7 @@
      "resolved": {
       "engine_version": "0.22.0",
       "resolved_gpu_kv_tokens": 13254311,
-      "resolved_max_concurrency": "6409.24"
+      "resolved_max_concurrency": 6409.24
      }
     },
     "64": {
@@ -2391,7 +2391,7 @@
      "resolved": {
       "engine_version": "0.22.0",
       "resolved_gpu_kv_tokens": 13252734,
-      "resolved_max_concurrency": "6408.48"
+      "resolved_max_concurrency": 6408.48
      }
     },
     "8": {
@@ -2406,7 +2406,7 @@
      "resolved": {
       "engine_version": "0.22.0",
       "resolved_gpu_kv_tokens": 13254089,
-      "resolved_max_concurrency": "6409.13"
+      "resolved_max_concurrency": 6409.13
      }
     }
    },
@@ -2430,7 +2430,7 @@
      "resolved": {
       "engine_version": "0.18.0",
       "resolved_gpu_kv_tokens": 13328128,
-      "resolved_max_concurrency": "1500.92"
+      "resolved_max_concurrency": 1500.92
      }
     },
     "32": {
@@ -2444,7 +2444,7 @@
      "resolved": {
       "engine_version": "0.18.0",
       "resolved_gpu_kv_tokens": 13321712,
-      "resolved_max_concurrency": "1500.19"
+      "resolved_max_concurrency": 1500.19
      }
     },
     "4": {
@@ -2458,7 +2458,7 @@
      "resolved": {
       "engine_version": "0.18.0",
       "resolved_gpu_kv_tokens": 13321488,
-      "resolved_max_concurrency": "1500.17"
+      "resolved_max_concurrency": 1500.17
      }
     },
     "64": {
@@ -2472,7 +2472,7 @@
      "resolved": {
       "engine_version": "0.18.0",
       "resolved_gpu_kv_tokens": 13321936,
-      "resolved_max_concurrency": "1500.22"
+      "resolved_max_concurrency": 1500.22
      }
     },
     "8": {
@@ -2486,7 +2486,7 @@
      "resolved": {
       "engine_version": "0.18.0",
       "resolved_gpu_kv_tokens": 13321712,
-      "resolved_max_concurrency": "1500.19"
+      "resolved_max_concurrency": 1500.19
      }
     }
    },
@@ -2511,7 +2511,7 @@
      "resolved": {
       "engine_version": "0.22.0",
       "resolved_gpu_kv_tokens": 14235709,
-      "resolved_max_concurrency": "1502.93"
+      "resolved_max_concurrency": 1502.93
      }
     },
     "32": {
@@ -2526,7 +2526,7 @@
      "resolved": {
       "engine_version": "0.22.0",
       "resolved_gpu_kv_tokens": 14235224,
-      "resolved_max_concurrency": "1502.87"
+      "resolved_max_concurrency": 1502.87
      }
     },
     "4": {
@@ -2541,7 +2541,7 @@
      "resolved": {
       "engine_version": "0.22.0",
       "resolved_gpu_kv_tokens": 14236186,
-      "resolved_max_concurrency": "1502.98"
+      "resolved_max_concurrency": 1502.98
      }
     },
     "8": {
@@ -2556,7 +2556,7 @@
      "resolved": {
       "engine_version": "0.22.0",
       "resolved_gpu_kv_tokens": 14235947,
-      "resolved_max_concurrency": "1502.95"
+      "resolved_max_concurrency": 1502.95
      }
     }
    },
@@ -2580,7 +2580,7 @@
      "resolved": {
       "engine_version": "0.22.0",
       "resolved_gpu_kv_tokens": 242192,
-      "resolved_max_concurrency": "105.12"
+      "resolved_max_concurrency": 105.12
      }
     },
     "4": {
@@ -2594,7 +2594,7 @@
      "resolved": {
       "engine_version": "0.22.0",
       "resolved_gpu_kv_tokens": 242192,
-      "resolved_max_concurrency": "105.12"
+      "resolved_max_concurrency": 105.12
      }
     },
     "8": {
@@ -2608,7 +2608,7 @@
      "resolved": {
       "engine_version": "0.22.0",
       "resolved_gpu_kv_tokens": 242192,
-      "resolved_max_concurrency": "105.12"
+      "resolved_max_concurrency": 105.12
      }
     }
    },
@@ -2632,7 +2632,7 @@
      "resolved": {
       "engine_version": "0.22.0",
       "resolved_gpu_kv_tokens": 241472,
-      "resolved_max_concurrency": "25.49"
+      "resolved_max_concurrency": 25.49
      }
     },
     "32": {
@@ -2646,7 +2646,7 @@
      "resolved": {
       "engine_version": "0.22.0",
       "resolved_gpu_kv_tokens": 241472,
-      "resolved_max_concurrency": "25.49"
+      "resolved_max_concurrency": 25.49
      }
     },
     "4": {
@@ -2660,7 +2660,7 @@
      "resolved": {
       "engine_version": "0.22.0",
       "resolved_gpu_kv_tokens": 241472,
-      "resolved_max_concurrency": "25.49"
+      "resolved_max_concurrency": 25.49
      }
     },
     "8": {
@@ -2674,7 +2674,7 @@
      "resolved": {
       "engine_version": "0.22.0",
       "resolved_gpu_kv_tokens": 241472,
-      "resolved_max_concurrency": "25.49"
+      "resolved_max_concurrency": 25.49
      }
     }
    },
@@ -2698,7 +2698,7 @@
      "resolved": {
       "engine_version": "0.22.0",
       "resolved_gpu_kv_tokens": 245840,
-      "resolved_max_concurrency": "106.70"
+      "resolved_max_concurrency": 106.7
      }
     },
     "256": {
@@ -2712,7 +2712,7 @@
      "resolved": {
       "engine_version": "0.22.0",
       "resolved_gpu_kv_tokens": 245840,
-      "resolved_max_concurrency": "106.70"
+      "resolved_max_concurrency": 106.7
      }
     },
     "512": {
@@ -2726,7 +2726,7 @@
      "resolved": {
       "engine_version": "0.22.0",
       "resolved_gpu_kv_tokens": 245840,
-      "resolved_max_concurrency": "106.70"
+      "resolved_max_concurrency": 106.7
      }
     }
    },
@@ -2750,7 +2750,7 @@
      "resolved": {
       "engine_version": "0.22.0",
       "resolved_gpu_kv_tokens": 1524544,
-      "resolved_max_concurrency": "160.95"
+      "resolved_max_concurrency": 160.95
      }
     },
     "256": {
@@ -2764,7 +2764,7 @@
      "resolved": {
       "engine_version": "0.22.0",
       "resolved_gpu_kv_tokens": 1524544,
-      "resolved_max_concurrency": "160.95"
+      "resolved_max_concurrency": 160.95
      }
     },
     "512": {
@@ -2778,7 +2778,7 @@
      "resolved": {
       "engine_version": "0.22.0",
       "resolved_gpu_kv_tokens": 1524544,
-      "resolved_max_concurrency": "160.95"
+      "resolved_max_concurrency": 160.95
      }
     }
    },
@@ -2802,7 +2802,7 @@
      "resolved": {
       "engine_version": "0.22.0",
       "resolved_gpu_kv_tokens": 4120176,
-      "resolved_max_concurrency": "1788.27"
+      "resolved_max_concurrency": 1788.27
      }
     },
     "4": {
@@ -2816,7 +2816,7 @@
      "resolved": {
       "engine_version": "0.22.0",
       "resolved_gpu_kv_tokens": 4120176,
-      "resolved_max_concurrency": "1788.27"
+      "resolved_max_concurrency": 1788.27
      }
     },
     "8": {
@@ -2830,7 +2830,7 @@
      "resolved": {
       "engine_version": "0.22.0",
       "resolved_gpu_kv_tokens": 4120176,
-      "resolved_max_concurrency": "1788.27"
+      "resolved_max_concurrency": 1788.27
      }
     }
    },
@@ -2853,7 +2853,7 @@
      "resolved": {
       "engine_version": "0.17.0",
       "resolved_gpu_kv_tokens": 476352,
-      "resolved_max_concurrency": "50.46"
+      "resolved_max_concurrency": 50.46
      }
     },
     "32": {
@@ -2866,7 +2866,7 @@
      "resolved": {
       "engine_version": "0.17.0",
       "resolved_gpu_kv_tokens": 476352,
-      "resolved_max_concurrency": "50.46"
+      "resolved_max_concurrency": 50.46
      }
     },
     "4": {
@@ -2879,7 +2879,7 @@
      "resolved": {
       "engine_version": "0.17.0",
       "resolved_gpu_kv_tokens": 476352,
-      "resolved_max_concurrency": "50.46"
+      "resolved_max_concurrency": 50.46
      }
     },
     "64": {
@@ -2892,7 +2892,7 @@
      "resolved": {
       "engine_version": "0.17.0",
       "resolved_gpu_kv_tokens": 476352,
-      "resolved_max_concurrency": "50.46"
+      "resolved_max_concurrency": 50.46
      }
     },
     "8": {
@@ -2905,7 +2905,7 @@
      "resolved": {
       "engine_version": "0.17.0",
       "resolved_gpu_kv_tokens": 476352,
-      "resolved_max_concurrency": "50.46"
+      "resolved_max_concurrency": 50.46
      }
     }
    },
@@ -2930,7 +2930,7 @@
      "resolved": {
       "engine_version": "0.22.0",
       "resolved_gpu_kv_tokens": 765152,
-      "resolved_max_concurrency": "80.78"
+      "resolved_max_concurrency": 80.78
      }
     },
     "32": {
@@ -2945,7 +2945,7 @@
      "resolved": {
       "engine_version": "0.22.0",
       "resolved_gpu_kv_tokens": 765152,
-      "resolved_max_concurrency": "80.78"
+      "resolved_max_concurrency": 80.78
      }
     },
     "4": {
@@ -2960,7 +2960,7 @@
      "resolved": {
       "engine_version": "0.22.0",
       "resolved_gpu_kv_tokens": 765152,
-      "resolved_max_concurrency": "80.78"
+      "resolved_max_concurrency": 80.78
      }
     },
     "64": {
@@ -2975,7 +2975,7 @@
      "resolved": {
       "engine_version": "0.22.0",
       "resolved_gpu_kv_tokens": 765152,
-      "resolved_max_concurrency": "80.78"
+      "resolved_max_concurrency": 80.78
      }
     },
     "8": {
@@ -2990,7 +2990,7 @@
      "resolved": {
       "engine_version": "0.22.0",
       "resolved_gpu_kv_tokens": 765152,
-      "resolved_max_concurrency": "80.78"
+      "resolved_max_concurrency": 80.78
      }
     }
    },
@@ -3015,7 +3015,7 @@
      "resolved": {
       "engine_version": "0.22.0",
       "resolved_gpu_kv_tokens": 3362656,
-      "resolved_max_concurrency": "1459.49"
+      "resolved_max_concurrency": 1459.49
      }
     },
     "16": {
@@ -3030,7 +3030,7 @@
      "resolved": {
       "engine_version": "0.22.0",
       "resolved_gpu_kv_tokens": 3362656,
-      "resolved_max_concurrency": "1459.49"
+      "resolved_max_concurrency": 1459.49
      }
     },
     "32": {
@@ -3045,7 +3045,7 @@
      "resolved": {
       "engine_version": "0.22.0",
       "resolved_gpu_kv_tokens": 3362656,
-      "resolved_max_concurrency": "1459.49"
+      "resolved_max_concurrency": 1459.49
      }
     },
     "4": {
@@ -3060,7 +3060,7 @@
      "resolved": {
       "engine_version": "0.22.0",
       "resolved_gpu_kv_tokens": 3362656,
-      "resolved_max_concurrency": "1459.49"
+      "resolved_max_concurrency": 1459.49
      }
     },
     "64": {
@@ -3075,7 +3075,7 @@
      "resolved": {
       "engine_version": "0.22.0",
       "resolved_gpu_kv_tokens": 3362656,
-      "resolved_max_concurrency": "1459.49"
+      "resolved_max_concurrency": 1459.49
      }
     },
     "8": {
@@ -3090,7 +3090,7 @@
      "resolved": {
       "engine_version": "0.22.0",
       "resolved_gpu_kv_tokens": 3362656,
-      "resolved_max_concurrency": "1459.49"
+      "resolved_max_concurrency": 1459.49
      }
     }
    },
@@ -3113,7 +3113,7 @@
      "resolved": {
       "engine_version": "0.17.0",
       "resolved_gpu_kv_tokens": 1857920,
-      "resolved_max_concurrency": "196.81"
+      "resolved_max_concurrency": 196.81
      }
     },
     "32": {
@@ -3126,7 +3126,7 @@
      "resolved": {
       "engine_version": "0.17.0",
       "resolved_gpu_kv_tokens": 1857920,
-      "resolved_max_concurrency": "196.81"
+      "resolved_max_concurrency": 196.81
      }
     },
     "4": {
@@ -3139,7 +3139,7 @@
      "resolved": {
       "engine_version": "0.17.0",
       "resolved_gpu_kv_tokens": 1857920,
-      "resolved_max_concurrency": "196.81"
+      "resolved_max_concurrency": 196.81
      }
     },
     "64": {
@@ -3152,7 +3152,7 @@
      "resolved": {
       "engine_version": "0.17.0",
       "resolved_gpu_kv_tokens": 1857920,
-      "resolved_max_concurrency": "196.81"
+      "resolved_max_concurrency": 196.81
      }
     },
     "8": {
@@ -3165,7 +3165,7 @@
      "resolved": {
       "engine_version": "0.17.0",
       "resolved_gpu_kv_tokens": 1857920,
-      "resolved_max_concurrency": "196.81"
+      "resolved_max_concurrency": 196.81
      }
     }
    },
@@ -3190,7 +3190,7 @@
      "resolved": {
       "engine_version": "0.22.0",
       "resolved_gpu_kv_tokens": 3345984,
-      "resolved_max_concurrency": "353.25"
+      "resolved_max_concurrency": 353.25
      }
     },
     "16": {
@@ -3205,7 +3205,7 @@
      "resolved": {
       "engine_version": "0.22.0",
       "resolved_gpu_kv_tokens": 3345984,
-      "resolved_max_concurrency": "353.25"
+      "resolved_max_concurrency": 353.25
      }
     },
     "256": {
@@ -3220,7 +3220,7 @@
      "resolved": {
       "engine_version": "0.22.0",
       "resolved_gpu_kv_tokens": 3345984,
-      "resolved_max_concurrency": "353.25"
+      "resolved_max_concurrency": 353.25
      }
     },
     "32": {
@@ -3235,7 +3235,7 @@
      "resolved": {
       "engine_version": "0.22.0",
       "resolved_gpu_kv_tokens": 3345984,
-      "resolved_max_concurrency": "353.25"
+      "resolved_max_concurrency": 353.25
      }
     },
     "4": {
@@ -3250,7 +3250,7 @@
      "resolved": {
       "engine_version": "0.22.0",
       "resolved_gpu_kv_tokens": 3345984,
-      "resolved_max_concurrency": "353.25"
+      "resolved_max_concurrency": 353.25
      }
     },
     "64": {
@@ -3265,7 +3265,7 @@
      "resolved": {
       "engine_version": "0.22.0",
       "resolved_gpu_kv_tokens": 3345984,
-      "resolved_max_concurrency": "353.25"
+      "resolved_max_concurrency": 353.25
      }
     },
     "8": {
@@ -3280,7 +3280,7 @@
      "resolved": {
       "engine_version": "0.22.0",
       "resolved_gpu_kv_tokens": 3345984,
-      "resolved_max_concurrency": "353.25"
+      "resolved_max_concurrency": 353.25
      }
     }
    },
@@ -3304,7 +3304,7 @@
      "resolved": {
       "engine_version": "0.21.0",
       "resolved_gpu_kv_tokens": 921392,
-      "resolved_max_concurrency": "97.28"
+      "resolved_max_concurrency": 97.28
      }
     },
     "16": {
@@ -3318,7 +3318,7 @@
      "resolved": {
       "engine_version": "0.21.0",
       "resolved_gpu_kv_tokens": 921392,
-      "resolved_max_concurrency": "97.28"
+      "resolved_max_concurrency": 97.28
      }
     },
     "32": {
@@ -3332,7 +3332,7 @@
      "resolved": {
       "engine_version": "0.21.0",
       "resolved_gpu_kv_tokens": 921392,
-      "resolved_max_concurrency": "97.28"
+      "resolved_max_concurrency": 97.28
      }
     },
     "4": {
@@ -3346,7 +3346,7 @@
      "resolved": {
       "engine_version": "0.21.0",
       "resolved_gpu_kv_tokens": 921392,
-      "resolved_max_concurrency": "97.28"
+      "resolved_max_concurrency": 97.28
      }
     },
     "64": {
@@ -3360,7 +3360,7 @@
      "resolved": {
       "engine_version": "0.21.0",
       "resolved_gpu_kv_tokens": 921392,
-      "resolved_max_concurrency": "97.28"
+      "resolved_max_concurrency": 97.28
      }
     },
     "8": {
@@ -3374,7 +3374,7 @@
      "resolved": {
       "engine_version": "0.21.0",
       "resolved_gpu_kv_tokens": 921392,
-      "resolved_max_concurrency": "97.28"
+      "resolved_max_concurrency": 97.28
      }
     }
    },
@@ -3398,7 +3398,7 @@
      "resolved": {
       "engine_version": "0.21.0",
       "resolved_gpu_kv_tokens": 925760,
-      "resolved_max_concurrency": "401.81"
+      "resolved_max_concurrency": 401.81
      }
     },
     "2048": {
@@ -3412,7 +3412,7 @@
      "resolved": {
       "engine_version": "0.21.0",
       "resolved_gpu_kv_tokens": 925760,
-      "resolved_max_concurrency": "401.81"
+      "resolved_max_concurrency": 401.81
      }
     },
     "256": {
@@ -3426,7 +3426,7 @@
      "resolved": {
       "engine_version": "0.21.0",
       "resolved_gpu_kv_tokens": 925760,
-      "resolved_max_concurrency": "401.81"
+      "resolved_max_concurrency": 401.81
      }
     },
     "512": {
@@ -3440,7 +3440,7 @@
      "resolved": {
       "engine_version": "0.21.0",
       "resolved_gpu_kv_tokens": 925760,
-      "resolved_max_concurrency": "401.81"
+      "resolved_max_concurrency": 401.81
      }
     }
    },
@@ -3464,7 +3464,7 @@
      "resolved": {
       "engine_version": "0.22.0",
       "resolved_gpu_kv_tokens": 2473760,
-      "resolved_max_concurrency": "1073.68"
+      "resolved_max_concurrency": 1073.68
      }
     },
     "128": {
@@ -3478,7 +3478,7 @@
      "resolved": {
       "engine_version": "0.22.0",
       "resolved_gpu_kv_tokens": 2473744,
-      "resolved_max_concurrency": "1073.67"
+      "resolved_max_concurrency": 1073.67
      }
     },
     "16": {
@@ -3492,7 +3492,7 @@
      "resolved": {
       "engine_version": "0.22.0",
       "resolved_gpu_kv_tokens": 2473744,
-      "resolved_max_concurrency": "1073.67"
+      "resolved_max_concurrency": 1073.67
      }
     },
     "2": {
@@ -3506,7 +3506,7 @@
      "resolved": {
       "engine_version": "0.22.0",
       "resolved_gpu_kv_tokens": 2473744,
-      "resolved_max_concurrency": "1073.67"
+      "resolved_max_concurrency": 1073.67
      }
     },
     "256": {
@@ -3520,7 +3520,7 @@
      "resolved": {
       "engine_version": "0.22.0",
       "resolved_gpu_kv_tokens": 2473760,
-      "resolved_max_concurrency": "1073.68"
+      "resolved_max_concurrency": 1073.68
      }
     },
     "32": {
@@ -3534,7 +3534,7 @@
      "resolved": {
       "engine_version": "0.22.0",
       "resolved_gpu_kv_tokens": 2473760,
-      "resolved_max_concurrency": "1073.68"
+      "resolved_max_concurrency": 1073.68
      }
     },
     "4": {
@@ -3548,7 +3548,7 @@
      "resolved": {
       "engine_version": "0.22.0",
       "resolved_gpu_kv_tokens": 2473760,
-      "resolved_max_concurrency": "1073.68"
+      "resolved_max_concurrency": 1073.68
      }
     },
     "64": {
@@ -3562,7 +3562,7 @@
      "resolved": {
       "engine_version": "0.22.0",
       "resolved_gpu_kv_tokens": 2473760,
-      "resolved_max_concurrency": "1073.68"
+      "resolved_max_concurrency": 1073.68
      }
     },
     "8": {
@@ -3576,7 +3576,7 @@
      "resolved": {
       "engine_version": "0.22.0",
       "resolved_gpu_kv_tokens": 2473760,
-      "resolved_max_concurrency": "1073.68"
+      "resolved_max_concurrency": 1073.68
      }
     }
    },
@@ -3597,7 +3597,7 @@
      "resolved": {
       "engine_version": "0.16.0",
       "resolved_gpu_kv_tokens": 1201696,
-      "resolved_max_concurrency": "127.51"
+      "resolved_max_concurrency": 127.51
      }
     },
     "32": {
@@ -3608,7 +3608,7 @@
      "resolved": {
       "engine_version": "0.16.0",
       "resolved_gpu_kv_tokens": 1201712,
-      "resolved_max_concurrency": "127.52"
+      "resolved_max_concurrency": 127.52
      }
     },
     "4": {
@@ -3619,7 +3619,7 @@
      "resolved": {
       "engine_version": "0.16.0",
       "resolved_gpu_kv_tokens": 1201696,
-      "resolved_max_concurrency": "127.51"
+      "resolved_max_concurrency": 127.51
      }
     },
     "64": {
@@ -3630,7 +3630,7 @@
      "resolved": {
       "engine_version": "0.16.0",
       "resolved_gpu_kv_tokens": 1201696,
-      "resolved_max_concurrency": "127.51"
+      "resolved_max_concurrency": 127.51
      }
     },
     "8": {
@@ -3641,7 +3641,7 @@
      "resolved": {
       "engine_version": "0.16.0",
       "resolved_gpu_kv_tokens": 1201696,
-      "resolved_max_concurrency": "127.51"
+      "resolved_max_concurrency": 127.51
      }
     }
    },
@@ -3665,7 +3665,7 @@
      "resolved": {
       "engine_version": "0.22.0",
       "resolved_gpu_kv_tokens": 2473760,
-      "resolved_max_concurrency": "261.17"
+      "resolved_max_concurrency": 261.17
      }
     },
     "128": {
@@ -3679,7 +3679,7 @@
      "resolved": {
       "engine_version": "0.22.0",
       "resolved_gpu_kv_tokens": 2473760,
-      "resolved_max_concurrency": "261.17"
+      "resolved_max_concurrency": 261.17
      }
     },
     "16": {
@@ -3693,7 +3693,7 @@
      "resolved": {
       "engine_version": "0.22.0",
       "resolved_gpu_kv_tokens": 2473760,
-      "resolved_max_concurrency": "261.17"
+      "resolved_max_concurrency": 261.17
      }
     },
     "2": {
@@ -3707,7 +3707,7 @@
      "resolved": {
       "engine_version": "0.22.0",
       "resolved_gpu_kv_tokens": 2473760,
-      "resolved_max_concurrency": "261.17"
+      "resolved_max_concurrency": 261.17
      }
     },
     "256": {
@@ -3721,7 +3721,7 @@
      "resolved": {
       "engine_version": "0.22.0",
       "resolved_gpu_kv_tokens": 2473760,
-      "resolved_max_concurrency": "261.17"
+      "resolved_max_concurrency": 261.17
      }
     },
     "32": {
@@ -3735,7 +3735,7 @@
      "resolved": {
       "engine_version": "0.22.0",
       "resolved_gpu_kv_tokens": 2473760,
-      "resolved_max_concurrency": "261.17"
+      "resolved_max_concurrency": 261.17
      }
     },
     "4": {
@@ -3749,7 +3749,7 @@
      "resolved": {
       "engine_version": "0.22.0",
       "resolved_gpu_kv_tokens": 2473760,
-      "resolved_max_concurrency": "261.17"
+      "resolved_max_concurrency": 261.17
      }
     },
     "64": {
@@ -3763,7 +3763,7 @@
      "resolved": {
       "engine_version": "0.22.0",
       "resolved_gpu_kv_tokens": 2473760,
-      "resolved_max_concurrency": "261.17"
+      "resolved_max_concurrency": 261.17
      }
     },
     "8": {
@@ -3777,7 +3777,7 @@
      "resolved": {
       "engine_version": "0.22.0",
       "resolved_gpu_kv_tokens": 2473760,
-      "resolved_max_concurrency": "261.17"
+      "resolved_max_concurrency": 261.17
      }
     }
    },
@@ -3799,7 +3799,7 @@
      "resolved": {
       "engine_version": "0.21.0",
       "resolved_gpu_kv_tokens": 3364240,
-      "resolved_max_concurrency": "1460.17"
+      "resolved_max_concurrency": 1460.17
      }
     },
     "16": {
@@ -3811,7 +3811,7 @@
      "resolved": {
       "engine_version": "0.21.0",
       "resolved_gpu_kv_tokens": 3364560,
-      "resolved_max_concurrency": "1460.31"
+      "resolved_max_concurrency": 1460.31
      }
     },
     "32": {
@@ -3823,7 +3823,7 @@
      "resolved": {
       "engine_version": "0.21.0",
       "resolved_gpu_kv_tokens": 3364576,
-      "resolved_max_concurrency": "1460.32"
+      "resolved_max_concurrency": 1460.32
      }
     },
     "4": {
@@ -3835,7 +3835,7 @@
      "resolved": {
       "engine_version": "0.21.0",
       "resolved_gpu_kv_tokens": 3364224,
-      "resolved_max_concurrency": "1460.17"
+      "resolved_max_concurrency": 1460.17
      }
     },
     "64": {
@@ -3847,7 +3847,7 @@
      "resolved": {
       "engine_version": "0.21.0",
       "resolved_gpu_kv_tokens": 3364240,
-      "resolved_max_concurrency": "1460.17"
+      "resolved_max_concurrency": 1460.17
      }
     },
     "8": {
@@ -3859,7 +3859,7 @@
      "resolved": {
       "engine_version": "0.21.0",
       "resolved_gpu_kv_tokens": 3364560,
-      "resolved_max_concurrency": "1460.31"
+      "resolved_max_concurrency": 1460.31
      }
     }
    },
@@ -3881,7 +3881,7 @@
      "resolved": {
       "engine_version": "0.18.0",
       "resolved_gpu_kv_tokens": 3406688,
-      "resolved_max_concurrency": "361.49"
+      "resolved_max_concurrency": 361.49
      }
     },
     "16": {
@@ -3893,7 +3893,7 @@
      "resolved": {
       "engine_version": "0.18.0",
       "resolved_gpu_kv_tokens": 3406688,
-      "resolved_max_concurrency": "361.49"
+      "resolved_max_concurrency": 361.49
      }
     },
     "32": {
@@ -3905,7 +3905,7 @@
      "resolved": {
       "engine_version": "0.18.0",
       "resolved_gpu_kv_tokens": 3406624,
-      "resolved_max_concurrency": "361.48"
+      "resolved_max_concurrency": 361.48
      }
     },
     "4": {
@@ -3917,7 +3917,7 @@
      "resolved": {
       "engine_version": "0.18.0",
       "resolved_gpu_kv_tokens": 3406688,
-      "resolved_max_concurrency": "361.49"
+      "resolved_max_concurrency": 361.49
      }
     },
     "64": {
@@ -3929,7 +3929,7 @@
      "resolved": {
       "engine_version": "0.18.0",
       "resolved_gpu_kv_tokens": 3406704,
-      "resolved_max_concurrency": "361.49"
+      "resolved_max_concurrency": 361.49
      }
     },
     "8": {
@@ -3941,7 +3941,7 @@
      "resolved": {
       "engine_version": "0.18.0",
       "resolved_gpu_kv_tokens": 3406688,
-      "resolved_max_concurrency": "361.49"
+      "resolved_max_concurrency": 361.49
      }
     }
    },
@@ -3963,7 +3963,7 @@
      "resolved": {
       "engine_version": "0.21.0",
       "resolved_gpu_kv_tokens": 3364592,
-      "resolved_max_concurrency": "355.21"
+      "resolved_max_concurrency": 355.21
      }
     },
     "16": {
@@ -3975,7 +3975,7 @@
      "resolved": {
       "engine_version": "0.21.0",
       "resolved_gpu_kv_tokens": 3364272,
-      "resolved_max_concurrency": "355.18"
+      "resolved_max_concurrency": 355.18
      }
     },
     "32": {
@@ -3987,7 +3987,7 @@
      "resolved": {
       "engine_version": "0.21.0",
       "resolved_gpu_kv_tokens": 3364575,
-      "resolved_max_concurrency": "355.21"
+      "resolved_max_concurrency": 355.21
      }
     },
     "4": {
@@ -3999,7 +3999,7 @@
      "resolved": {
       "engine_version": "0.21.0",
       "resolved_gpu_kv_tokens": 3364575,
-      "resolved_max_concurrency": "355.21"
+      "resolved_max_concurrency": 355.21
      }
     },
     "64": {
@@ -4011,7 +4011,7 @@
      "resolved": {
       "engine_version": "0.21.0",
       "resolved_gpu_kv_tokens": 3364575,
-      "resolved_max_concurrency": "355.21"
+      "resolved_max_concurrency": 355.21
      }
     },
     "8": {
@@ -4023,7 +4023,7 @@
      "resolved": {
       "engine_version": "0.21.0",
       "resolved_gpu_kv_tokens": 3364256,
-      "resolved_max_concurrency": "355.18"
+      "resolved_max_concurrency": 355.18
      }
     }
    },

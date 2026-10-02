@@ -125,7 +125,12 @@ def parse_resolved(log: str) -> dict:
         if not m:
             continue
         raw = m.group(1).replace(",", "")
-        out[name] = int(raw) if re.fullmatch(r"\d+", raw) else raw
+        if re.fullmatch(r"\d+", raw):
+            out[name] = int(raw)
+        elif re.fullmatch(r"\d*\.\d+", raw):
+            out[name] = float(raw)
+        else:
+            out[name] = raw
     return out
 
 

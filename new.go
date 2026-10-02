@@ -444,6 +444,14 @@ func dtypeFit(d model.DType, c hardware.Chip) (suffix string, peak float64) {
 		return "bf16", c.BF16Peak * 1e12
 	case model.DTypeINT8:
 		return "fp8", c.FP8Peak * 1e12
+	case model.DTypeINT4:
+		// W4A16: the weights are four-bit but the activations are not quantized at all
+		// (compressed-tensors leaves input_activations null), so the matmul runs at the
+		// compute dtype's rate after dequantizing the weights. That is BF16, not a
+		// four-bit rate -- the narrow storage buys memory traffic, not FLOPs. Stated
+		// rather than left to the fallthrough, because the two agree only by coincidence
+		// and a reader should see which one is intended.
+		return "bf16", c.BF16Peak * 1e12
 	}
 	return "bf16", c.BF16Peak * 1e12
 }
