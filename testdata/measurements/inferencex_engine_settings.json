@@ -1,0 +1,4042 @@
+{
+ "incomplete": [
+  {
+   "label": "1k1k",
+   "reason": "no engine-args log at concurrency [4, 8, 16, 32, 64, 128, 256]",
+   "scenario": "glm-5-b200-fp4-sglang-tp4.yaml"
+  },
+  {
+   "label": "8k1k",
+   "reason": "no engine-args log at concurrency [4, 8, 16, 32, 64]",
+   "scenario": "glm-5-b200-fp4-sglang-tp4.yaml"
+  },
+  {
+   "label": "1k1k",
+   "reason": "no engine-args log at concurrency [4, 8, 16, 32, 64, 128, 256]",
+   "scenario": "glm-5-b200-fp8-sglang-tp8.yaml"
+  },
+  {
+   "label": "1k8k",
+   "reason": "no engine-args log at concurrency [4, 8, 16, 32, 64, 128]",
+   "scenario": "glm-5-b200-fp8-sglang-tp8.yaml"
+  },
+  {
+   "label": "8k1k",
+   "reason": "no engine-args log at concurrency [4, 8, 16, 32, 64, 128]",
+   "scenario": "glm-5-b200-fp8-sglang-tp8.yaml"
+  },
+  {
+   "label": "1k1k",
+   "reason": "no engine-args log at concurrency [4, 8, 16, 32, 64, 128, 256]",
+   "scenario": "glm-5-b300-fp4-sglang-tp4.yaml"
+  },
+  {
+   "label": "8k1k",
+   "reason": "no engine-args log at concurrency [4, 8, 16, 32, 64, 128, 256]",
+   "scenario": "glm-5-b300-fp4-sglang-tp4.yaml"
+  },
+  {
+   "label": "1k1k",
+   "reason": "no engine-args log at concurrency [4, 8, 16, 32, 64, 128, 256]",
+   "scenario": "glm-5-b300-fp8-sglang-tp8.yaml"
+  },
+  {
+   "label": "8k1k",
+   "reason": "no engine-args log at concurrency [4, 8, 16, 32, 64, 128, 256]",
+   "scenario": "glm-5-b300-fp8-sglang-tp8.yaml"
+  },
+  {
+   "label": "1k1k",
+   "reason": "no engine-args log at concurrency [4, 8, 16, 32, 64]",
+   "scenario": "glm-5-h200-fp8-sglang-tp8.yaml"
+  },
+  {
+   "label": "1k8k",
+   "reason": "no engine-args log at concurrency [4, 8, 16, 32, 64]",
+   "scenario": "glm-5-h200-fp8-sglang-tp8.yaml"
+  },
+  {
+   "label": "8k1k",
+   "reason": "no engine-args log at concurrency [4, 8, 16, 32, 64]",
+   "scenario": "glm-5-h200-fp8-sglang-tp8.yaml"
+  },
+  {
+   "label": "8k1k",
+   "reason": "no engine-args log at concurrency [4, 8, 16, 32, 64, 128, 256]",
+   "scenario": "gpt-oss-120b-b200-fp4-trt-tp1.yaml"
+  },
+  {
+   "label": "1k1k",
+   "reason": "no engine-args log at concurrency [4, 8, 16, 32, 64, 128, 256]",
+   "scenario": "gpt-oss-120b-b200-fp4-trt-tp2.yaml"
+  },
+  {
+   "label": "8k1k",
+   "reason": "no engine-args log at concurrency [4, 8, 16, 32, 64, 128, 256]",
+   "scenario": "gpt-oss-120b-b200-fp4-trt-tp2.yaml"
+  },
+  {
+   "label": "1k8k",
+   "reason": "no engine-args log at concurrency [4, 8, 16, 32, 64, 128, 256]",
+   "scenario": "gpt-oss-120b-b200-fp4-trt-tp4.yaml"
+  },
+  {
+   "label": "8k1k",
+   "reason": "no engine-args log at concurrency [4, 8, 16, 32]",
+   "scenario": "gpt-oss-120b-b200-fp4-trt-tp4.yaml"
+  },
+  {
+   "label": "1k1k",
+   "reason": "no engine-args log at concurrency [4, 8, 16, 32, 64]",
+   "scenario": "gpt-oss-120b-h200-fp4-trt-tp1.yaml"
+  },
+  {
+   "label": "1k8k",
+   "reason": "no engine-args log at concurrency [4, 8, 16, 32, 64]",
+   "scenario": "gpt-oss-120b-h200-fp4-trt-tp1.yaml"
+  },
+  {
+   "label": "8k1k",
+   "reason": "no engine-args log at concurrency [4, 8, 16, 32, 64]",
+   "scenario": "gpt-oss-120b-h200-fp4-trt-tp1.yaml"
+  },
+  {
+   "label": "8k1k",
+   "reason": "no engine-args log at concurrency [4, 8, 16, 32]",
+   "scenario": "minimax-m2.5-b200-fp4-trt-tp1.yaml"
+  },
+  {
+   "label": "8k1k",
+   "reason": "no engine-args log at concurrency [4, 8, 16]",
+   "scenario": "minimax-m2.5-b300-fp4-trt-tp1.yaml"
+  },
+  {
+   "label": "1k1k",
+   "reason": "no engine-args log at concurrency [4, 8, 16, 32, 64]",
+   "scenario": "qwen3.5-397b-a17b-b200-bf16-sglang-tp8.yaml"
+  },
+  {
+   "label": "1k8k",
+   "reason": "no engine-args log at concurrency [4, 8, 16, 32, 64]",
+   "scenario": "qwen3.5-397b-a17b-b200-bf16-sglang-tp8.yaml"
+  },
+  {
+   "label": "8k1k",
+   "reason": "no engine-args log at concurrency [4, 8, 16, 32, 64]",
+   "scenario": "qwen3.5-397b-a17b-b200-bf16-sglang-tp8.yaml"
+  },
+  {
+   "label": "1k1k",
+   "reason": "no engine-args log at concurrency [4, 8, 16, 32, 64, 128]",
+   "scenario": "qwen3.5-397b-a17b-b200-fp4-sglang-tp2.yaml"
+  },
+  {
+   "label": "1k1k",
+   "reason": "no engine-args log at concurrency [4, 8, 16, 32, 64, 128, 256]",
+   "scenario": "qwen3.5-397b-a17b-b200-fp8-sglang-tp4.yaml"
+  },
+  {
+   "label": "1k8k",
+   "reason": "no engine-args log at concurrency [4, 8, 16]",
+   "scenario": "qwen3.5-397b-a17b-b200-fp8-sglang-tp8.yaml"
+  },
+  {
+   "label": "1k1k",
+   "reason": "no engine-args log at concurrency [4, 8, 16, 32, 64]",
+   "scenario": "qwen3.5-397b-a17b-b300-bf16-sglang-tp4.yaml"
+  },
+  {
+   "label": "8k1k",
+   "reason": "no engine-args log at concurrency [4, 8, 16, 32, 64]",
+   "scenario": "qwen3.5-397b-a17b-b300-bf16-sglang-tp4.yaml"
+  },
+  {
+   "label": "1k1k",
+   "reason": "no engine-args log at concurrency [4, 8, 16, 32, 64]",
+   "scenario": "qwen3.5-397b-a17b-b300-bf16-sglang-tp8.yaml"
+  },
+  {
+   "label": "8k1k",
+   "reason": "no engine-args log at concurrency [4, 8, 16, 32, 64]",
+   "scenario": "qwen3.5-397b-a17b-b300-bf16-sglang-tp8.yaml"
+  },
+  {
+   "label": "1k1k",
+   "reason": "no engine-args log at concurrency [4, 8, 16, 32, 64, 128]",
+   "scenario": "qwen3.5-397b-a17b-b300-fp4-sglang-tp4.yaml"
+  },
+  {
+   "label": "8k1k",
+   "reason": "no engine-args log at concurrency [4, 8, 16, 32, 64, 128]",
+   "scenario": "qwen3.5-397b-a17b-b300-fp4-sglang-tp4.yaml"
+  },
+  {
+   "label": "1k1k",
+   "reason": "no engine-args log at concurrency [4, 8, 16, 32, 64, 128, 256]",
+   "scenario": "qwen3.5-397b-a17b-b300-fp8-sglang-tp4.yaml"
+  },
+  {
+   "label": "8k1k",
+   "reason": "no engine-args log at concurrency [4, 8, 16, 32, 64, 128, 256]",
+   "scenario": "qwen3.5-397b-a17b-b300-fp8-sglang-tp4.yaml"
+  },
+  {
+   "label": "1k1k",
+   "reason": "no engine-args log at concurrency [1, 2, 4, 8]",
+   "scenario": "qwen3.5-397b-a17b-h100-fp8-sglang-tp8.yaml"
+  }
+ ],
+ "release_tag": "db-dump/2026-09-28",
+ "run_selection": "the same (date, config_id) each sweep's absolutes resolved to, so settings and latencies come from one run",
+ "settings": [
+  {
+   "by_concurrency": {
+    "128": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 2068,
+      "max_num_batched_tokens": 8192,
+      "max_num_seqs": 512
+     },
+     "resolved": {
+      "engine_version": "0.22.0",
+      "resolved_gpu_kv_tokens": 2543846,
+      "resolved_max_concurrency": "1230.10"
+     }
+    },
+    "16": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 2068,
+      "max_num_batched_tokens": 8192,
+      "max_num_seqs": 512
+     },
+     "resolved": {
+      "engine_version": "0.22.0",
+      "resolved_gpu_kv_tokens": 2543846,
+      "resolved_max_concurrency": "1230.10"
+     }
+    },
+    "32": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 2068,
+      "max_num_batched_tokens": 8192,
+      "max_num_seqs": 512
+     },
+     "resolved": {
+      "engine_version": "0.22.0",
+      "resolved_gpu_kv_tokens": 2543846,
+      "resolved_max_concurrency": "1230.10"
+     }
+    },
+    "4": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 2068,
+      "max_num_batched_tokens": 8192,
+      "max_num_seqs": 512
+     },
+     "resolved": {
+      "engine_version": "0.22.0",
+      "resolved_gpu_kv_tokens": 2543846,
+      "resolved_max_concurrency": "1230.10"
+     }
+    },
+    "64": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 2068,
+      "max_num_batched_tokens": 8192,
+      "max_num_seqs": 512
+     },
+     "resolved": {
+      "engine_version": "0.22.0",
+      "resolved_gpu_kv_tokens": 2543846,
+      "resolved_max_concurrency": "1230.10"
+     }
+    },
+    "8": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 2068,
+      "max_num_batched_tokens": 8192,
+      "max_num_seqs": 512
+     },
+     "resolved": {
+      "engine_version": "0.22.0",
+      "resolved_gpu_kv_tokens": 2543846,
+      "resolved_max_concurrency": "1230.10"
+     }
+    }
+   },
+   "framework": "vllm",
+   "gpu": "b200",
+   "label": "1k1k",
+   "scenario": "gpt-oss-120b-b200-fp4-vllm-tp1.yaml",
+   "source_config_id": 150,
+   "source_run_date": "2026-05-31"
+  },
+  {
+   "by_concurrency": {
+    "128": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 9416,
+      "max_num_batched_tokens": 8192,
+      "max_num_seqs": 512
+     },
+     "resolved": {
+      "engine_version": "0.15.1",
+      "resolved_gpu_kv_tokens": 2562160,
+      "resolved_max_concurrency": "288.53"
+     }
+    },
+    "16": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 9416,
+      "max_num_batched_tokens": 8192,
+      "max_num_seqs": 512
+     },
+     "resolved": {
+      "engine_version": "0.15.1",
+      "resolved_gpu_kv_tokens": 2562160,
+      "resolved_max_concurrency": "288.53"
+     }
+    },
+    "32": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 9416,
+      "max_num_batched_tokens": 8192,
+      "max_num_seqs": 512
+     },
+     "resolved": {
+      "engine_version": "0.15.1",
+      "resolved_gpu_kv_tokens": 2562160,
+      "resolved_max_concurrency": "288.53"
+     }
+    },
+    "4": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 9416,
+      "max_num_batched_tokens": 8192,
+      "max_num_seqs": 512
+     },
+     "resolved": {
+      "engine_version": "0.15.1",
+      "resolved_gpu_kv_tokens": 2562160,
+      "resolved_max_concurrency": "288.53"
+     }
+    },
+    "64": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 9416,
+      "max_num_batched_tokens": 8192,
+      "max_num_seqs": 512
+     },
+     "resolved": {
+      "engine_version": "0.15.1",
+      "resolved_gpu_kv_tokens": 2562160,
+      "resolved_max_concurrency": "288.53"
+     }
+    },
+    "8": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 9416,
+      "max_num_batched_tokens": 8192,
+      "max_num_seqs": 512
+     },
+     "resolved": {
+      "engine_version": "0.15.1",
+      "resolved_gpu_kv_tokens": 2562160,
+      "resolved_max_concurrency": "288.53"
+     }
+    }
+   },
+   "framework": "vllm",
+   "gpu": "b200",
+   "label": "1k8k",
+   "scenario": "gpt-oss-120b-b200-fp4-vllm-tp1.yaml",
+   "source_config_id": 150,
+   "source_run_date": "2026-02-25"
+  },
+  {
+   "by_concurrency": {
+    "128": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 9472,
+      "max_num_batched_tokens": 8192,
+      "max_num_seqs": 512
+     },
+     "resolved": {
+      "engine_version": "0.22.0",
+      "resolved_gpu_kv_tokens": 2732480,
+      "resolved_max_concurrency": "288.48"
+     }
+    },
+    "16": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 9472,
+      "max_num_batched_tokens": 8192,
+      "max_num_seqs": 512
+     },
+     "resolved": {
+      "engine_version": "0.22.0",
+      "resolved_gpu_kv_tokens": 2732480,
+      "resolved_max_concurrency": "288.48"
+     }
+    },
+    "32": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 9472,
+      "max_num_batched_tokens": 8192,
+      "max_num_seqs": 512
+     },
+     "resolved": {
+      "engine_version": "0.22.0",
+      "resolved_gpu_kv_tokens": 2732480,
+      "resolved_max_concurrency": "288.48"
+     }
+    },
+    "4": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 9472,
+      "max_num_batched_tokens": 8192,
+      "max_num_seqs": 512
+     },
+     "resolved": {
+      "engine_version": "0.22.0",
+      "resolved_gpu_kv_tokens": 2732480,
+      "resolved_max_concurrency": "288.48"
+     }
+    },
+    "64": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 9472,
+      "max_num_batched_tokens": 8192,
+      "max_num_seqs": 512
+     },
+     "resolved": {
+      "engine_version": "0.22.0",
+      "resolved_gpu_kv_tokens": 2732480,
+      "resolved_max_concurrency": "288.48"
+     }
+    },
+    "8": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 9472,
+      "max_num_batched_tokens": 8192,
+      "max_num_seqs": 512
+     },
+     "resolved": {
+      "engine_version": "0.22.0",
+      "resolved_gpu_kv_tokens": 2732480,
+      "resolved_max_concurrency": "288.48"
+     }
+    }
+   },
+   "framework": "vllm",
+   "gpu": "b200",
+   "label": "8k1k",
+   "scenario": "gpt-oss-120b-b200-fp4-vllm-tp1.yaml",
+   "source_config_id": 150,
+   "source_run_date": "2026-05-31"
+  },
+  {
+   "by_concurrency": {
+    "128": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 2068,
+      "max_num_batched_tokens": 8192,
+      "max_num_seqs": 512
+     },
+     "resolved": {
+      "engine_version": "0.22.0",
+      "resolved_gpu_kv_tokens": 7008119,
+      "resolved_max_concurrency": "3388.84"
+     }
+    },
+    "16": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 2068,
+      "max_num_batched_tokens": 8192,
+      "max_num_seqs": 512
+     },
+     "resolved": {
+      "engine_version": "0.22.0",
+      "resolved_gpu_kv_tokens": 7008119,
+      "resolved_max_concurrency": "3388.84"
+     }
+    },
+    "32": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 2068,
+      "max_num_batched_tokens": 8192,
+      "max_num_seqs": 512
+     },
+     "resolved": {
+      "engine_version": "0.22.0",
+      "resolved_gpu_kv_tokens": 7008119,
+      "resolved_max_concurrency": "3388.84"
+     }
+    },
+    "4": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 2068,
+      "max_num_batched_tokens": 8192,
+      "max_num_seqs": 512
+     },
+     "resolved": {
+      "engine_version": "0.22.0",
+      "resolved_gpu_kv_tokens": 7008119,
+      "resolved_max_concurrency": "3388.84"
+     }
+    },
+    "64": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 2068,
+      "max_num_batched_tokens": 8192,
+      "max_num_seqs": 512
+     },
+     "resolved": {
+      "engine_version": "0.22.0",
+      "resolved_gpu_kv_tokens": 7008119,
+      "resolved_max_concurrency": "3388.84"
+     }
+    },
+    "8": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 2068,
+      "max_num_batched_tokens": 8192,
+      "max_num_seqs": 512
+     },
+     "resolved": {
+      "engine_version": "0.22.0",
+      "resolved_gpu_kv_tokens": 7008119,
+      "resolved_max_concurrency": "3388.84"
+     }
+    }
+   },
+   "framework": "vllm",
+   "gpu": "b200",
+   "label": "1k1k",
+   "scenario": "gpt-oss-120b-b200-fp4-vllm-tp2.yaml",
+   "source_config_id": 159,
+   "source_run_date": "2026-05-31"
+  },
+  {
+   "by_concurrency": {
+    "128": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 9416,
+      "max_num_batched_tokens": 8192,
+      "max_num_seqs": 512
+     },
+     "resolved": {
+      "engine_version": "0.15.1",
+      "resolved_gpu_kv_tokens": 7070096,
+      "resolved_max_concurrency": "796.18"
+     }
+    },
+    "16": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 9416,
+      "max_num_batched_tokens": 8192,
+      "max_num_seqs": 512
+     },
+     "resolved": {
+      "engine_version": "0.15.1",
+      "resolved_gpu_kv_tokens": 7070736,
+      "resolved_max_concurrency": "796.25"
+     }
+    },
+    "32": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 9416,
+      "max_num_batched_tokens": 8192,
+      "max_num_seqs": 512
+     },
+     "resolved": {
+      "engine_version": "0.15.1",
+      "resolved_gpu_kv_tokens": 7070736,
+      "resolved_max_concurrency": "796.25"
+     }
+    },
+    "4": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 9416,
+      "max_num_batched_tokens": 8192,
+      "max_num_seqs": 512
+     },
+     "resolved": {
+      "engine_version": "0.15.1",
+      "resolved_gpu_kv_tokens": 7070096,
+      "resolved_max_concurrency": "796.18"
+     }
+    },
+    "64": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 9416,
+      "max_num_batched_tokens": 8192,
+      "max_num_seqs": 512
+     },
+     "resolved": {
+      "engine_version": "0.15.1",
+      "resolved_gpu_kv_tokens": 7070096,
+      "resolved_max_concurrency": "796.18"
+     }
+    },
+    "8": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 9416,
+      "max_num_batched_tokens": 8192,
+      "max_num_seqs": 512
+     },
+     "resolved": {
+      "engine_version": "0.15.1",
+      "resolved_gpu_kv_tokens": 7070096,
+      "resolved_max_concurrency": "796.18"
+     }
+    }
+   },
+   "framework": "vllm",
+   "gpu": "b200",
+   "label": "1k8k",
+   "scenario": "gpt-oss-120b-b200-fp4-vllm-tp2.yaml",
+   "source_config_id": 159,
+   "source_run_date": "2026-02-25"
+  },
+  {
+   "by_concurrency": {
+    "128": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 9472,
+      "max_num_batched_tokens": 8192,
+      "max_num_seqs": 512
+     },
+     "resolved": {
+      "engine_version": "0.22.0",
+      "resolved_gpu_kv_tokens": 7527423,
+      "resolved_max_concurrency": "794.70"
+     }
+    },
+    "16": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 9472,
+      "max_num_batched_tokens": 8192,
+      "max_num_seqs": 512
+     },
+     "resolved": {
+      "engine_version": "0.22.0",
+      "resolved_gpu_kv_tokens": 7527423,
+      "resolved_max_concurrency": "794.70"
+     }
+    },
+    "32": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 9472,
+      "max_num_batched_tokens": 8192,
+      "max_num_seqs": 512
+     },
+     "resolved": {
+      "engine_version": "0.22.0",
+      "resolved_gpu_kv_tokens": 7527423,
+      "resolved_max_concurrency": "794.70"
+     }
+    },
+    "4": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 9472,
+      "max_num_batched_tokens": 8192,
+      "max_num_seqs": 512
+     },
+     "resolved": {
+      "engine_version": "0.22.0",
+      "resolved_gpu_kv_tokens": 7527423,
+      "resolved_max_concurrency": "794.70"
+     }
+    },
+    "64": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 9472,
+      "max_num_batched_tokens": 8192,
+      "max_num_seqs": 512
+     },
+     "resolved": {
+      "engine_version": "0.22.0",
+      "resolved_gpu_kv_tokens": 7527423,
+      "resolved_max_concurrency": "794.70"
+     }
+    },
+    "8": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 9472,
+      "max_num_batched_tokens": 8192,
+      "max_num_seqs": 512
+     },
+     "resolved": {
+      "engine_version": "0.22.0",
+      "resolved_gpu_kv_tokens": 7527423,
+      "resolved_max_concurrency": "794.70"
+     }
+    }
+   },
+   "framework": "vllm",
+   "gpu": "b200",
+   "label": "8k1k",
+   "scenario": "gpt-oss-120b-b200-fp4-vllm-tp2.yaml",
+   "source_config_id": 159,
+   "source_run_date": "2026-05-31"
+  },
+  {
+   "by_concurrency": {
+    "16": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 2068,
+      "max_num_batched_tokens": 8192,
+      "max_num_seqs": 512
+     },
+     "resolved": {
+      "engine_version": "0.22.0",
+      "resolved_gpu_kv_tokens": 16014647,
+      "resolved_max_concurrency": "7744.03"
+     }
+    },
+    "32": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 2068,
+      "max_num_batched_tokens": 8192,
+      "max_num_seqs": 512
+     },
+     "resolved": {
+      "engine_version": "0.22.0",
+      "resolved_gpu_kv_tokens": 16014647,
+      "resolved_max_concurrency": "7744.03"
+     }
+    },
+    "4": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 2068,
+      "max_num_batched_tokens": 8192,
+      "max_num_seqs": 512
+     },
+     "resolved": {
+      "engine_version": "0.22.0",
+      "resolved_gpu_kv_tokens": 16014647,
+      "resolved_max_concurrency": "7744.03"
+     }
+    },
+    "64": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 2068,
+      "max_num_batched_tokens": 8192,
+      "max_num_seqs": 512
+     },
+     "resolved": {
+      "engine_version": "0.22.0",
+      "resolved_gpu_kv_tokens": 16014647,
+      "resolved_max_concurrency": "7744.03"
+     }
+    },
+    "8": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 2068,
+      "max_num_batched_tokens": 8192,
+      "max_num_seqs": 512
+     },
+     "resolved": {
+      "engine_version": "0.22.0",
+      "resolved_gpu_kv_tokens": 16014647,
+      "resolved_max_concurrency": "7744.03"
+     }
+    }
+   },
+   "framework": "vllm",
+   "gpu": "b200",
+   "label": "1k1k",
+   "scenario": "gpt-oss-120b-b200-fp4-vllm-tp4.yaml",
+   "source_config_id": 114,
+   "source_run_date": "2026-05-31"
+  },
+  {
+   "by_concurrency": {
+    "16": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 9416,
+      "max_num_batched_tokens": 8192,
+      "max_num_seqs": 512
+     },
+     "resolved": {
+      "engine_version": "0.15.1",
+      "resolved_gpu_kv_tokens": 16117392,
+      "resolved_max_concurrency": "1815.02"
+     }
+    },
+    "32": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 9416,
+      "max_num_batched_tokens": 8192,
+      "max_num_seqs": 512
+     },
+     "resolved": {
+      "engine_version": "0.15.1",
+      "resolved_gpu_kv_tokens": 16118448,
+      "resolved_max_concurrency": "1815.14"
+     }
+    },
+    "4": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 9416,
+      "max_num_batched_tokens": 8192,
+      "max_num_seqs": 512
+     },
+     "resolved": {
+      "engine_version": "0.15.1",
+      "resolved_gpu_kv_tokens": 16117392,
+      "resolved_max_concurrency": "1815.02"
+     }
+    },
+    "64": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 9416,
+      "max_num_batched_tokens": 8192,
+      "max_num_seqs": 512
+     },
+     "resolved": {
+      "engine_version": "0.15.1",
+      "resolved_gpu_kv_tokens": 16118448,
+      "resolved_max_concurrency": "1815.14"
+     }
+    },
+    "8": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 9416,
+      "max_num_batched_tokens": 8192,
+      "max_num_seqs": 512
+     },
+     "resolved": {
+      "engine_version": "0.15.1",
+      "resolved_gpu_kv_tokens": 16117392,
+      "resolved_max_concurrency": "1815.02"
+     }
+    }
+   },
+   "framework": "vllm",
+   "gpu": "b200",
+   "label": "1k8k",
+   "scenario": "gpt-oss-120b-b200-fp4-vllm-tp4.yaml",
+   "source_config_id": 114,
+   "source_run_date": "2026-02-25"
+  },
+  {
+   "by_concurrency": {
+    "16": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 9472,
+      "max_num_batched_tokens": 8192,
+      "max_num_seqs": 512
+     },
+     "resolved": {
+      "engine_version": "0.22.0",
+      "resolved_gpu_kv_tokens": 17201186,
+      "resolved_max_concurrency": "1816.00"
+     }
+    },
+    "32": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 9472,
+      "max_num_batched_tokens": 8192,
+      "max_num_seqs": 512
+     },
+     "resolved": {
+      "engine_version": "0.22.0",
+      "resolved_gpu_kv_tokens": 17201186,
+      "resolved_max_concurrency": "1816.00"
+     }
+    },
+    "4": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 9472,
+      "max_num_batched_tokens": 8192,
+      "max_num_seqs": 512
+     },
+     "resolved": {
+      "engine_version": "0.22.0",
+      "resolved_gpu_kv_tokens": 17201186,
+      "resolved_max_concurrency": "1816.00"
+     }
+    },
+    "64": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 9472,
+      "max_num_batched_tokens": 8192,
+      "max_num_seqs": 512
+     },
+     "resolved": {
+      "engine_version": "0.22.0",
+      "resolved_gpu_kv_tokens": 17201186,
+      "resolved_max_concurrency": "1816.00"
+     }
+    },
+    "8": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 9472,
+      "max_num_batched_tokens": 8192,
+      "max_num_seqs": 512
+     },
+     "resolved": {
+      "engine_version": "0.22.0",
+      "resolved_gpu_kv_tokens": 17201186,
+      "resolved_max_concurrency": "1816.00"
+     }
+    }
+   },
+   "framework": "vllm",
+   "gpu": "b200",
+   "label": "8k1k",
+   "scenario": "gpt-oss-120b-b200-fp4-vllm-tp4.yaml",
+   "source_config_id": 114,
+   "source_run_date": "2026-05-31"
+  },
+  {
+   "by_concurrency": {
+    "16": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 10240,
+      "max_num_batched_tokens": 8192,
+      "max_num_seqs": 16
+     },
+     "resolved": {
+      "engine_version": "0.21.0",
+      "resolved_gpu_kv_tokens": 1050989,
+      "resolved_max_concurrency": "102.64"
+     }
+    },
+    "32": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 10240,
+      "max_num_batched_tokens": 8192,
+      "max_num_seqs": 32
+     },
+     "resolved": {
+      "engine_version": "0.21.0",
+      "resolved_gpu_kv_tokens": 1053379,
+      "resolved_max_concurrency": "102.87"
+     }
+    },
+    "4": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 10240,
+      "max_num_batched_tokens": 8192,
+      "max_num_seqs": 4
+     },
+     "resolved": {
+      "engine_version": "0.21.0",
+      "resolved_gpu_kv_tokens": 1051112,
+      "resolved_max_concurrency": "102.65"
+     }
+    },
+    "64": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 10240,
+      "max_num_batched_tokens": 8192,
+      "max_num_seqs": 64
+     },
+     "resolved": {
+      "engine_version": "0.21.0",
+      "resolved_gpu_kv_tokens": 1050548,
+      "resolved_max_concurrency": "102.59"
+     }
+    },
+    "8": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 10240,
+      "max_num_batched_tokens": 8192,
+      "max_num_seqs": 8
+     },
+     "resolved": {
+      "engine_version": "0.21.0",
+      "resolved_gpu_kv_tokens": 1051050,
+      "resolved_max_concurrency": "102.64"
+     }
+    }
+   },
+   "framework": "vllm",
+   "gpu": "h100",
+   "label": "1k1k",
+   "scenario": "gpt-oss-120b-h100-fp4-vllm-tp2.yaml",
+   "source_config_id": 107,
+   "source_run_date": "2026-05-17"
+  },
+  {
+   "by_concurrency": {
+    "16": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 10240,
+      "max_num_batched_tokens": 8192,
+      "max_num_seqs": 16
+     },
+     "resolved": {
+      "engine_version": "0.18.0",
+      "resolved_gpu_kv_tokens": 992992,
+      "resolved_max_concurrency": "106.91"
+     }
+    },
+    "32": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 10240,
+      "max_num_batched_tokens": 8192,
+      "max_num_seqs": 32
+     },
+     "resolved": {
+      "engine_version": "0.18.0",
+      "resolved_gpu_kv_tokens": 992992,
+      "resolved_max_concurrency": "106.91"
+     }
+    },
+    "4": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 10240,
+      "max_num_batched_tokens": 8192,
+      "max_num_seqs": 4
+     },
+     "resolved": {
+      "engine_version": "0.18.0",
+      "resolved_gpu_kv_tokens": 992944,
+      "resolved_max_concurrency": "106.91"
+     }
+    },
+    "64": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 10240,
+      "max_num_batched_tokens": 8192,
+      "max_num_seqs": 64
+     },
+     "resolved": {
+      "engine_version": "0.18.0",
+      "resolved_gpu_kv_tokens": 992944,
+      "resolved_max_concurrency": "106.91"
+     }
+    },
+    "8": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 10240,
+      "max_num_batched_tokens": 8192,
+      "max_num_seqs": 8
+     },
+     "resolved": {
+      "engine_version": "0.18.0",
+      "resolved_gpu_kv_tokens": 992992,
+      "resolved_max_concurrency": "106.91"
+     }
+    }
+   },
+   "framework": "vllm",
+   "gpu": "h100",
+   "label": "1k8k",
+   "scenario": "gpt-oss-120b-h100-fp4-vllm-tp2.yaml",
+   "source_config_id": 107,
+   "source_run_date": "2026-03-27"
+  },
+  {
+   "by_concurrency": {
+    "16": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 10240,
+      "max_num_batched_tokens": 8192,
+      "max_num_seqs": 16
+     },
+     "resolved": {
+      "engine_version": "0.21.0",
+      "resolved_gpu_kv_tokens": 1050989,
+      "resolved_max_concurrency": "102.64"
+     }
+    },
+    "32": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 10240,
+      "max_num_batched_tokens": 8192,
+      "max_num_seqs": 32
+     },
+     "resolved": {
+      "engine_version": "0.21.0",
+      "resolved_gpu_kv_tokens": 1050865,
+      "resolved_max_concurrency": "102.62"
+     }
+    },
+    "4": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 10240,
+      "max_num_batched_tokens": 8192,
+      "max_num_seqs": 4
+     },
+     "resolved": {
+      "engine_version": "0.21.0",
+      "resolved_gpu_kv_tokens": 1051112,
+      "resolved_max_concurrency": "102.65"
+     }
+    },
+    "64": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 10240,
+      "max_num_batched_tokens": 8192,
+      "max_num_seqs": 64
+     },
+     "resolved": {
+      "engine_version": "0.21.0",
+      "resolved_gpu_kv_tokens": 1050548,
+      "resolved_max_concurrency": "102.59"
+     }
+    },
+    "8": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 10240,
+      "max_num_batched_tokens": 8192,
+      "max_num_seqs": 8
+     },
+     "resolved": {
+      "engine_version": "0.21.0",
+      "resolved_gpu_kv_tokens": 1051050,
+      "resolved_max_concurrency": "102.64"
+     }
+    }
+   },
+   "framework": "vllm",
+   "gpu": "h100",
+   "label": "8k1k",
+   "scenario": "gpt-oss-120b-h100-fp4-vllm-tp2.yaml",
+   "source_config_id": 107,
+   "source_run_date": "2026-05-17"
+  },
+  {
+   "by_concurrency": {
+    "16": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 10240,
+      "max_num_batched_tokens": 8192,
+      "max_num_seqs": 16
+     },
+     "resolved": {
+      "engine_version": "0.21.0",
+      "resolved_gpu_kv_tokens": 3199872,
+      "resolved_max_concurrency": "312.49"
+     }
+    },
+    "32": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 10240,
+      "max_num_batched_tokens": 8192,
+      "max_num_seqs": 32
+     },
+     "resolved": {
+      "engine_version": "0.21.0",
+      "resolved_gpu_kv_tokens": 3199616,
+      "resolved_max_concurrency": "312.46"
+     }
+    },
+    "4": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 10240,
+      "max_num_batched_tokens": 8192,
+      "max_num_seqs": 4
+     },
+     "resolved": {
+      "engine_version": "0.21.0",
+      "resolved_gpu_kv_tokens": 3200119,
+      "resolved_max_concurrency": "312.51"
+     }
+    },
+    "64": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 10240,
+      "max_num_batched_tokens": 8192,
+      "max_num_seqs": 64
+     },
+     "resolved": {
+      "engine_version": "0.21.0",
+      "resolved_gpu_kv_tokens": 3198990,
+      "resolved_max_concurrency": "312.40"
+     }
+    },
+    "8": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 10240,
+      "max_num_batched_tokens": 8192,
+      "max_num_seqs": 8
+     },
+     "resolved": {
+      "engine_version": "0.21.0",
+      "resolved_gpu_kv_tokens": 3199995,
+      "resolved_max_concurrency": "312.50"
+     }
+    }
+   },
+   "framework": "vllm",
+   "gpu": "h100",
+   "label": "1k1k",
+   "scenario": "gpt-oss-120b-h100-fp4-vllm-tp4.yaml",
+   "source_config_id": 160,
+   "source_run_date": "2026-05-17"
+  },
+  {
+   "by_concurrency": {
+    "16": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 10240,
+      "max_num_batched_tokens": 8192,
+      "max_num_seqs": 16
+     },
+     "resolved": {
+      "engine_version": "0.18.0",
+      "resolved_gpu_kv_tokens": 2960512,
+      "resolved_max_concurrency": "318.75"
+     }
+    },
+    "32": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 10240,
+      "max_num_batched_tokens": 8192,
+      "max_num_seqs": 32
+     },
+     "resolved": {
+      "engine_version": "0.18.0",
+      "resolved_gpu_kv_tokens": 2960512,
+      "resolved_max_concurrency": "318.75"
+     }
+    },
+    "4": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 10240,
+      "max_num_batched_tokens": 8192,
+      "max_num_seqs": 4
+     },
+     "resolved": {
+      "engine_version": "0.18.0",
+      "resolved_gpu_kv_tokens": 2960400,
+      "resolved_max_concurrency": "318.73"
+     }
+    },
+    "64": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 10240,
+      "max_num_batched_tokens": 8192,
+      "max_num_seqs": 64
+     },
+     "resolved": {
+      "engine_version": "0.18.0",
+      "resolved_gpu_kv_tokens": 2984880,
+      "resolved_max_concurrency": "321.37"
+     }
+    },
+    "8": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 10240,
+      "max_num_batched_tokens": 8192,
+      "max_num_seqs": 8
+     },
+     "resolved": {
+      "engine_version": "0.18.0",
+      "resolved_gpu_kv_tokens": 2960512,
+      "resolved_max_concurrency": "318.75"
+     }
+    }
+   },
+   "framework": "vllm",
+   "gpu": "h100",
+   "label": "1k8k",
+   "scenario": "gpt-oss-120b-h100-fp4-vllm-tp4.yaml",
+   "source_config_id": 160,
+   "source_run_date": "2026-03-27"
+  },
+  {
+   "by_concurrency": {
+    "16": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 10240,
+      "max_num_batched_tokens": 8192,
+      "max_num_seqs": 16
+     },
+     "resolved": {
+      "engine_version": "0.21.0",
+      "resolved_gpu_kv_tokens": 3199872,
+      "resolved_max_concurrency": "312.49"
+     }
+    },
+    "32": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 10240,
+      "max_num_batched_tokens": 8192,
+      "max_num_seqs": 32
+     },
+     "resolved": {
+      "engine_version": "0.21.0",
+      "resolved_gpu_kv_tokens": 3199616,
+      "resolved_max_concurrency": "312.46"
+     }
+    },
+    "4": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 10240,
+      "max_num_batched_tokens": 8192,
+      "max_num_seqs": 4
+     },
+     "resolved": {
+      "engine_version": "0.21.0",
+      "resolved_gpu_kv_tokens": 3227222,
+      "resolved_max_concurrency": "315.16"
+     }
+    },
+    "64": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 10240,
+      "max_num_batched_tokens": 8192,
+      "max_num_seqs": 64
+     },
+     "resolved": {
+      "engine_version": "0.21.0",
+      "resolved_gpu_kv_tokens": 3198990,
+      "resolved_max_concurrency": "312.40"
+     }
+    },
+    "8": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 10240,
+      "max_num_batched_tokens": 8192,
+      "max_num_seqs": 8
+     },
+     "resolved": {
+      "engine_version": "0.21.0",
+      "resolved_gpu_kv_tokens": 3230115,
+      "resolved_max_concurrency": "315.44"
+     }
+    }
+   },
+   "framework": "vllm",
+   "gpu": "h100",
+   "label": "8k1k",
+   "scenario": "gpt-oss-120b-h100-fp4-vllm-tp4.yaml",
+   "source_config_id": 160,
+   "source_run_date": "2026-05-17"
+  },
+  {
+   "by_concurrency": {
+    "16": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 10240,
+      "max_num_batched_tokens": 8192,
+      "max_num_seqs": 16
+     },
+     "resolved": {
+      "engine_version": "0.21.0",
+      "resolved_gpu_kv_tokens": 7484469,
+      "resolved_max_concurrency": "730.91"
+     }
+    },
+    "32": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 10240,
+      "max_num_batched_tokens": 8192,
+      "max_num_seqs": 32
+     },
+     "resolved": {
+      "engine_version": "0.21.0",
+      "resolved_gpu_kv_tokens": 7554491,
+      "resolved_max_concurrency": "737.74"
+     }
+    },
+    "4": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 10240,
+      "max_num_batched_tokens": 8192,
+      "max_num_seqs": 4
+     },
+     "resolved": {
+      "engine_version": "0.21.0",
+      "resolved_gpu_kv_tokens": 7484972,
+      "resolved_max_concurrency": "730.95"
+     }
+    },
+    "64": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 10240,
+      "max_num_batched_tokens": 8192,
+      "max_num_seqs": 64
+     },
+     "resolved": {
+      "engine_version": "0.21.0",
+      "resolved_gpu_kv_tokens": 7483217,
+      "resolved_max_concurrency": "730.78"
+     }
+    },
+    "8": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 10240,
+      "max_num_batched_tokens": 8192,
+      "max_num_seqs": 8
+     },
+     "resolved": {
+      "engine_version": "0.21.0",
+      "resolved_gpu_kv_tokens": 7484716,
+      "resolved_max_concurrency": "730.93"
+     }
+    }
+   },
+   "framework": "vllm",
+   "gpu": "h100",
+   "label": "1k1k",
+   "scenario": "gpt-oss-120b-h100-fp4-vllm-tp8.yaml",
+   "source_config_id": 168,
+   "source_run_date": "2026-05-17"
+  },
+  {
+   "by_concurrency": {
+    "16": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 10240,
+      "max_num_batched_tokens": 8192,
+      "max_num_seqs": 16
+     },
+     "resolved": {
+      "engine_version": "0.18.0",
+      "resolved_gpu_kv_tokens": 6905040,
+      "resolved_max_concurrency": "743.44"
+     }
+    },
+    "32": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 10240,
+      "max_num_batched_tokens": 8192,
+      "max_num_seqs": 32
+     },
+     "resolved": {
+      "engine_version": "0.18.0",
+      "resolved_gpu_kv_tokens": 6971456,
+      "resolved_max_concurrency": "750.59"
+     }
+    },
+    "4": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 10240,
+      "max_num_batched_tokens": 8192,
+      "max_num_seqs": 4
+     },
+     "resolved": {
+      "engine_version": "0.18.0",
+      "resolved_gpu_kv_tokens": 6904800,
+      "resolved_max_concurrency": "743.41"
+     }
+    },
+    "64": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 10240,
+      "max_num_batched_tokens": 8192,
+      "max_num_seqs": 64
+     },
+     "resolved": {
+      "engine_version": "0.18.0",
+      "resolved_gpu_kv_tokens": 6905264,
+      "resolved_max_concurrency": "743.46"
+     }
+    },
+    "8": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 10240,
+      "max_num_batched_tokens": 8192,
+      "max_num_seqs": 8
+     },
+     "resolved": {
+      "engine_version": "0.18.0",
+      "resolved_gpu_kv_tokens": 6905040,
+      "resolved_max_concurrency": "743.44"
+     }
+    }
+   },
+   "framework": "vllm",
+   "gpu": "h100",
+   "label": "1k8k",
+   "scenario": "gpt-oss-120b-h100-fp4-vllm-tp8.yaml",
+   "source_config_id": 168,
+   "source_run_date": "2026-03-27"
+  },
+  {
+   "by_concurrency": {
+    "16": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 10240,
+      "max_num_batched_tokens": 8192,
+      "max_num_seqs": 16
+     },
+     "resolved": {
+      "engine_version": "0.21.0",
+      "resolved_gpu_kv_tokens": 7561009,
+      "resolved_max_concurrency": "738.38"
+     }
+    },
+    "4": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 10240,
+      "max_num_batched_tokens": 8192,
+      "max_num_seqs": 4
+     },
+     "resolved": {
+      "engine_version": "0.21.0",
+      "resolved_gpu_kv_tokens": 7484972,
+      "resolved_max_concurrency": "730.95"
+     }
+    },
+    "8": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 10240,
+      "max_num_batched_tokens": 8192,
+      "max_num_seqs": 8
+     },
+     "resolved": {
+      "engine_version": "0.21.0",
+      "resolved_gpu_kv_tokens": 7561265,
+      "resolved_max_concurrency": "738.40"
+     }
+    }
+   },
+   "framework": "vllm",
+   "gpu": "h100",
+   "label": "8k1k",
+   "scenario": "gpt-oss-120b-h100-fp4-vllm-tp8.yaml",
+   "source_config_id": 168,
+   "source_run_date": "2026-05-17"
+  },
+  {
+   "by_concurrency": {
+    "16": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 9472,
+      "max_num_batched_tokens": 8192,
+      "max_num_seqs": 16
+     },
+     "resolved": {
+      "engine_version": "0.22.0",
+      "resolved_gpu_kv_tokens": 886555,
+      "resolved_max_concurrency": "93.60"
+     }
+    },
+    "32": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 9472,
+      "max_num_batched_tokens": 8192,
+      "max_num_seqs": 32
+     },
+     "resolved": {
+      "engine_version": "0.22.0",
+      "resolved_gpu_kv_tokens": 886572,
+      "resolved_max_concurrency": "93.60"
+     }
+    },
+    "4": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 9472,
+      "max_num_batched_tokens": 8192,
+      "max_num_seqs": 4
+     },
+     "resolved": {
+      "engine_version": "0.22.0",
+      "resolved_gpu_kv_tokens": 886904,
+      "resolved_max_concurrency": "93.63"
+     }
+    },
+    "64": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 9472,
+      "max_num_batched_tokens": 8192,
+      "max_num_seqs": 64
+     },
+     "resolved": {
+      "engine_version": "0.22.0",
+      "resolved_gpu_kv_tokens": 886666,
+      "resolved_max_concurrency": "93.61"
+     }
+    },
+    "8": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 9472,
+      "max_num_batched_tokens": 8192,
+      "max_num_seqs": 8
+     },
+     "resolved": {
+      "engine_version": "0.22.0",
+      "resolved_gpu_kv_tokens": 886878,
+      "resolved_max_concurrency": "93.63"
+     }
+    }
+   },
+   "framework": "vllm",
+   "gpu": "h200",
+   "label": "8k1k",
+   "scenario": "gpt-oss-120b-h200-fp4-vllm-tp1.yaml",
+   "source_config_id": 147,
+   "source_run_date": "2026-05-30"
+  },
+  {
+   "by_concurrency": {
+    "16": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 2068,
+      "max_num_batched_tokens": 8192,
+      "max_num_seqs": 16
+     },
+     "resolved": {
+      "engine_version": "0.22.0",
+      "resolved_gpu_kv_tokens": 2553409,
+      "resolved_max_concurrency": "1234.72"
+     }
+    },
+    "32": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 2068,
+      "max_num_batched_tokens": 8192,
+      "max_num_seqs": 32
+     },
+     "resolved": {
+      "engine_version": "0.22.0",
+      "resolved_gpu_kv_tokens": 2553298,
+      "resolved_max_concurrency": "1234.67"
+     }
+    },
+    "4": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 2068,
+      "max_num_batched_tokens": 8192,
+      "max_num_seqs": 4
+     },
+     "resolved": {
+      "engine_version": "0.22.0",
+      "resolved_gpu_kv_tokens": 2553520,
+      "resolved_max_concurrency": "1234.78"
+     }
+    },
+    "64": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 2068,
+      "max_num_batched_tokens": 8192,
+      "max_num_seqs": 64
+     },
+     "resolved": {
+      "engine_version": "0.22.0",
+      "resolved_gpu_kv_tokens": 2552751,
+      "resolved_max_concurrency": "1234.41"
+     }
+    },
+    "8": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 2068,
+      "max_num_batched_tokens": 8192,
+      "max_num_seqs": 8
+     },
+     "resolved": {
+      "engine_version": "0.22.0",
+      "resolved_gpu_kv_tokens": 2553464,
+      "resolved_max_concurrency": "1234.75"
+     }
+    }
+   },
+   "framework": "vllm",
+   "gpu": "h200",
+   "label": "1k1k",
+   "scenario": "gpt-oss-120b-h200-fp4-vllm-tp2.yaml",
+   "source_config_id": 129,
+   "source_run_date": "2026-05-30"
+  },
+  {
+   "by_concurrency": {
+    "16": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 9416,
+      "max_num_batched_tokens": 8192,
+      "max_num_seqs": 16
+     },
+     "resolved": {
+      "engine_version": "0.18.0",
+      "resolved_gpu_kv_tokens": 2583008,
+      "resolved_max_concurrency": "290.88"
+     }
+    },
+    "32": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 9416,
+      "max_num_batched_tokens": 8192,
+      "max_num_seqs": 32
+     },
+     "resolved": {
+      "engine_version": "0.18.0",
+      "resolved_gpu_kv_tokens": 2583008,
+      "resolved_max_concurrency": "290.88"
+     }
+    },
+    "4": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 9416,
+      "max_num_batched_tokens": 8192,
+      "max_num_seqs": 4
+     },
+     "resolved": {
+      "engine_version": "0.18.0",
+      "resolved_gpu_kv_tokens": 2582944,
+      "resolved_max_concurrency": "290.87"
+     }
+    },
+    "64": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 9416,
+      "max_num_batched_tokens": 8192,
+      "max_num_seqs": 64
+     },
+     "resolved": {
+      "engine_version": "0.18.0",
+      "resolved_gpu_kv_tokens": 2582944,
+      "resolved_max_concurrency": "290.87"
+     }
+    },
+    "8": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 9416,
+      "max_num_batched_tokens": 8192,
+      "max_num_seqs": 8
+     },
+     "resolved": {
+      "engine_version": "0.18.0",
+      "resolved_gpu_kv_tokens": 2583008,
+      "resolved_max_concurrency": "290.88"
+     }
+    }
+   },
+   "framework": "vllm",
+   "gpu": "h200",
+   "label": "1k8k",
+   "scenario": "gpt-oss-120b-h200-fp4-vllm-tp2.yaml",
+   "source_config_id": 129,
+   "source_run_date": "2026-03-27"
+  },
+  {
+   "by_concurrency": {
+    "16": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 9472,
+      "max_num_batched_tokens": 8192,
+      "max_num_seqs": 16
+     },
+     "resolved": {
+      "engine_version": "0.22.0",
+      "resolved_gpu_kv_tokens": 2742565,
+      "resolved_max_concurrency": "289.54"
+     }
+    },
+    "32": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 9472,
+      "max_num_batched_tokens": 8192,
+      "max_num_seqs": 32
+     },
+     "resolved": {
+      "engine_version": "0.22.0",
+      "resolved_gpu_kv_tokens": 2742165,
+      "resolved_max_concurrency": "289.50"
+     }
+    },
+    "4": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 9472,
+      "max_num_batched_tokens": 8192,
+      "max_num_seqs": 4
+     },
+     "resolved": {
+      "engine_version": "0.22.0",
+      "resolved_gpu_kv_tokens": 2742684,
+      "resolved_max_concurrency": "289.56"
+     }
+    },
+    "64": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 9472,
+      "max_num_batched_tokens": 8192,
+      "max_num_seqs": 64
+     },
+     "resolved": {
+      "engine_version": "0.22.0",
+      "resolved_gpu_kv_tokens": 2742139,
+      "resolved_max_concurrency": "289.50"
+     }
+    },
+    "8": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 9472,
+      "max_num_batched_tokens": 8192,
+      "max_num_seqs": 8
+     },
+     "resolved": {
+      "engine_version": "0.22.0",
+      "resolved_gpu_kv_tokens": 2744029,
+      "resolved_max_concurrency": "289.70"
+     }
+    }
+   },
+   "framework": "vllm",
+   "gpu": "h200",
+   "label": "8k1k",
+   "scenario": "gpt-oss-120b-h200-fp4-vllm-tp2.yaml",
+   "source_config_id": 129,
+   "source_run_date": "2026-05-30"
+  },
+  {
+   "by_concurrency": {
+    "16": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 2068,
+      "max_num_batched_tokens": 8192,
+      "max_num_seqs": 16
+     },
+     "resolved": {
+      "engine_version": "0.22.0",
+      "resolved_gpu_kv_tokens": 6130891,
+      "resolved_max_concurrency": "2964.65"
+     }
+    },
+    "32": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 2068,
+      "max_num_batched_tokens": 8192,
+      "max_num_seqs": 32
+     },
+     "resolved": {
+      "engine_version": "0.22.0",
+      "resolved_gpu_kv_tokens": 6131192,
+      "resolved_max_concurrency": "2964.79"
+     }
+    },
+    "4": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 2068,
+      "max_num_batched_tokens": 8192,
+      "max_num_seqs": 4
+     },
+     "resolved": {
+      "engine_version": "0.22.0",
+      "resolved_gpu_kv_tokens": 6134797,
+      "resolved_max_concurrency": "2966.54"
+     }
+    },
+    "64": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 2068,
+      "max_num_batched_tokens": 8192,
+      "max_num_seqs": 64
+     },
+     "resolved": {
+      "engine_version": "0.22.0",
+      "resolved_gpu_kv_tokens": 6130629,
+      "resolved_max_concurrency": "2964.52"
+     }
+    },
+    "8": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 2068,
+      "max_num_batched_tokens": 8192,
+      "max_num_seqs": 8
+     },
+     "resolved": {
+      "engine_version": "0.22.0",
+      "resolved_gpu_kv_tokens": 6131532,
+      "resolved_max_concurrency": "2964.96"
+     }
+    }
+   },
+   "framework": "vllm",
+   "gpu": "h200",
+   "label": "1k1k",
+   "scenario": "gpt-oss-120b-h200-fp4-vllm-tp4.yaml",
+   "source_config_id": 154,
+   "source_run_date": "2026-05-30"
+  },
+  {
+   "by_concurrency": {
+    "16": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 9416,
+      "max_num_batched_tokens": 8192,
+      "max_num_seqs": 16
+     },
+     "resolved": {
+      "engine_version": "0.18.0",
+      "resolved_gpu_kv_tokens": 6164720,
+      "resolved_max_concurrency": "694.23"
+     }
+    },
+    "32": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 9416,
+      "max_num_batched_tokens": 8192,
+      "max_num_seqs": 32
+     },
+     "resolved": {
+      "engine_version": "0.18.0",
+      "resolved_gpu_kv_tokens": 6161456,
+      "resolved_max_concurrency": "693.86"
+     }
+    },
+    "4": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 9416,
+      "max_num_batched_tokens": 8192,
+      "max_num_seqs": 4
+     },
+     "resolved": {
+      "engine_version": "0.18.0",
+      "resolved_gpu_kv_tokens": 6161344,
+      "resolved_max_concurrency": "693.85"
+     }
+    },
+    "64": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 9416,
+      "max_num_batched_tokens": 8192,
+      "max_num_seqs": 64
+     },
+     "resolved": {
+      "engine_version": "0.18.0",
+      "resolved_gpu_kv_tokens": 6161344,
+      "resolved_max_concurrency": "693.85"
+     }
+    },
+    "8": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 9416,
+      "max_num_batched_tokens": 8192,
+      "max_num_seqs": 8
+     },
+     "resolved": {
+      "engine_version": "0.18.0",
+      "resolved_gpu_kv_tokens": 6161456,
+      "resolved_max_concurrency": "693.86"
+     }
+    }
+   },
+   "framework": "vllm",
+   "gpu": "h200",
+   "label": "1k8k",
+   "scenario": "gpt-oss-120b-h200-fp4-vllm-tp4.yaml",
+   "source_config_id": 154,
+   "source_run_date": "2026-03-27"
+  },
+  {
+   "by_concurrency": {
+    "16": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 9472,
+      "max_num_batched_tokens": 8192,
+      "max_num_seqs": 16
+     },
+     "resolved": {
+      "engine_version": "0.22.0",
+      "resolved_gpu_kv_tokens": 6585635,
+      "resolved_max_concurrency": "695.27"
+     }
+    },
+    "32": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 9472,
+      "max_num_batched_tokens": 8192,
+      "max_num_seqs": 32
+     },
+     "resolved": {
+      "engine_version": "0.22.0",
+      "resolved_gpu_kv_tokens": 6585388,
+      "resolved_max_concurrency": "695.25"
+     }
+    },
+    "4": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 9472,
+      "max_num_batched_tokens": 8192,
+      "max_num_seqs": 4
+     },
+     "resolved": {
+      "engine_version": "0.22.0",
+      "resolved_gpu_kv_tokens": 6585873,
+      "resolved_max_concurrency": "695.30"
+     }
+    },
+    "64": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 9472,
+      "max_num_batched_tokens": 8192,
+      "max_num_seqs": 64
+     },
+     "resolved": {
+      "engine_version": "0.22.0",
+      "resolved_gpu_kv_tokens": 6584784,
+      "resolved_max_concurrency": "695.18"
+     }
+    },
+    "8": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 9472,
+      "max_num_batched_tokens": 8192,
+      "max_num_seqs": 8
+     },
+     "resolved": {
+      "engine_version": "0.22.0",
+      "resolved_gpu_kv_tokens": 6585754,
+      "resolved_max_concurrency": "695.29"
+     }
+    }
+   },
+   "framework": "vllm",
+   "gpu": "h200",
+   "label": "8k1k",
+   "scenario": "gpt-oss-120b-h200-fp4-vllm-tp4.yaml",
+   "source_config_id": 154,
+   "source_run_date": "2026-05-30"
+  },
+  {
+   "by_concurrency": {
+    "16": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 2068,
+      "max_num_batched_tokens": 8192,
+      "max_num_seqs": 16
+     },
+     "resolved": {
+      "engine_version": "0.22.0",
+      "resolved_gpu_kv_tokens": 13252813,
+      "resolved_max_concurrency": "6408.52"
+     }
+    },
+    "32": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 2068,
+      "max_num_batched_tokens": 8192,
+      "max_num_seqs": 32
+     },
+     "resolved": {
+      "engine_version": "0.22.0",
+      "resolved_gpu_kv_tokens": 13253415,
+      "resolved_max_concurrency": "6408.81"
+     }
+    },
+    "4": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 2068,
+      "max_num_batched_tokens": 8192,
+      "max_num_seqs": 4
+     },
+     "resolved": {
+      "engine_version": "0.22.0",
+      "resolved_gpu_kv_tokens": 13254311,
+      "resolved_max_concurrency": "6409.24"
+     }
+    },
+    "64": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 2068,
+      "max_num_batched_tokens": 8192,
+      "max_num_seqs": 64
+     },
+     "resolved": {
+      "engine_version": "0.22.0",
+      "resolved_gpu_kv_tokens": 13252734,
+      "resolved_max_concurrency": "6408.48"
+     }
+    },
+    "8": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 2068,
+      "max_num_batched_tokens": 8192,
+      "max_num_seqs": 8
+     },
+     "resolved": {
+      "engine_version": "0.22.0",
+      "resolved_gpu_kv_tokens": 13254089,
+      "resolved_max_concurrency": "6409.13"
+     }
+    }
+   },
+   "framework": "vllm",
+   "gpu": "h200",
+   "label": "1k1k",
+   "scenario": "gpt-oss-120b-h200-fp4-vllm-tp8.yaml",
+   "source_config_id": 122,
+   "source_run_date": "2026-05-30"
+  },
+  {
+   "by_concurrency": {
+    "16": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 9416,
+      "max_num_batched_tokens": 8192,
+      "max_num_seqs": 16
+     },
+     "resolved": {
+      "engine_version": "0.18.0",
+      "resolved_gpu_kv_tokens": 13328128,
+      "resolved_max_concurrency": "1500.92"
+     }
+    },
+    "32": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 9416,
+      "max_num_batched_tokens": 8192,
+      "max_num_seqs": 32
+     },
+     "resolved": {
+      "engine_version": "0.18.0",
+      "resolved_gpu_kv_tokens": 13321712,
+      "resolved_max_concurrency": "1500.19"
+     }
+    },
+    "4": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 9416,
+      "max_num_batched_tokens": 8192,
+      "max_num_seqs": 4
+     },
+     "resolved": {
+      "engine_version": "0.18.0",
+      "resolved_gpu_kv_tokens": 13321488,
+      "resolved_max_concurrency": "1500.17"
+     }
+    },
+    "64": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 9416,
+      "max_num_batched_tokens": 8192,
+      "max_num_seqs": 64
+     },
+     "resolved": {
+      "engine_version": "0.18.0",
+      "resolved_gpu_kv_tokens": 13321936,
+      "resolved_max_concurrency": "1500.22"
+     }
+    },
+    "8": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 9416,
+      "max_num_batched_tokens": 8192,
+      "max_num_seqs": 8
+     },
+     "resolved": {
+      "engine_version": "0.18.0",
+      "resolved_gpu_kv_tokens": 13321712,
+      "resolved_max_concurrency": "1500.19"
+     }
+    }
+   },
+   "framework": "vllm",
+   "gpu": "h200",
+   "label": "1k8k",
+   "scenario": "gpt-oss-120b-h200-fp4-vllm-tp8.yaml",
+   "source_config_id": 122,
+   "source_run_date": "2026-03-27"
+  },
+  {
+   "by_concurrency": {
+    "16": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 9472,
+      "max_num_batched_tokens": 8192,
+      "max_num_seqs": 16
+     },
+     "resolved": {
+      "engine_version": "0.22.0",
+      "resolved_gpu_kv_tokens": 14235709,
+      "resolved_max_concurrency": "1502.93"
+     }
+    },
+    "32": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 9472,
+      "max_num_batched_tokens": 8192,
+      "max_num_seqs": 32
+     },
+     "resolved": {
+      "engine_version": "0.22.0",
+      "resolved_gpu_kv_tokens": 14235224,
+      "resolved_max_concurrency": "1502.87"
+     }
+    },
+    "4": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 9472,
+      "max_num_batched_tokens": 8192,
+      "max_num_seqs": 4
+     },
+     "resolved": {
+      "engine_version": "0.22.0",
+      "resolved_gpu_kv_tokens": 14236186,
+      "resolved_max_concurrency": "1502.98"
+     }
+    },
+    "8": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 9472,
+      "max_num_batched_tokens": 8192,
+      "max_num_seqs": 8
+     },
+     "resolved": {
+      "engine_version": "0.22.0",
+      "resolved_gpu_kv_tokens": 14235947,
+      "resolved_max_concurrency": "1502.95"
+     }
+    }
+   },
+   "framework": "vllm",
+   "gpu": "h200",
+   "label": "8k1k",
+   "scenario": "gpt-oss-120b-h200-fp4-vllm-tp8.yaml",
+   "source_config_id": 122,
+   "source_run_date": "2026-05-30"
+  },
+  {
+   "by_concurrency": {
+    "16": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 2304,
+      "max_num_batched_tokens": 2048
+     },
+     "resolved": {
+      "engine_version": "0.22.0",
+      "resolved_gpu_kv_tokens": 242192,
+      "resolved_max_concurrency": "105.12"
+     }
+    },
+    "4": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 2304,
+      "max_num_batched_tokens": 2048
+     },
+     "resolved": {
+      "engine_version": "0.22.0",
+      "resolved_gpu_kv_tokens": 242192,
+      "resolved_max_concurrency": "105.12"
+     }
+    },
+    "8": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 2304,
+      "max_num_batched_tokens": 2048
+     },
+     "resolved": {
+      "engine_version": "0.22.0",
+      "resolved_gpu_kv_tokens": 242192,
+      "resolved_max_concurrency": "105.12"
+     }
+    }
+   },
+   "framework": "vllm",
+   "gpu": "b200",
+   "label": "1k1k",
+   "scenario": "minimax-m2.5-b200-fp4-vllm-tp1.yaml",
+   "source_config_id": 701,
+   "source_run_date": "2026-06-04"
+  },
+  {
+   "by_concurrency": {
+    "16": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 9472,
+      "max_num_batched_tokens": 16384
+     },
+     "resolved": {
+      "engine_version": "0.22.0",
+      "resolved_gpu_kv_tokens": 241472,
+      "resolved_max_concurrency": "25.49"
+     }
+    },
+    "32": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 9472,
+      "max_num_batched_tokens": 16384
+     },
+     "resolved": {
+      "engine_version": "0.22.0",
+      "resolved_gpu_kv_tokens": 241472,
+      "resolved_max_concurrency": "25.49"
+     }
+    },
+    "4": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 9472,
+      "max_num_batched_tokens": 16384
+     },
+     "resolved": {
+      "engine_version": "0.22.0",
+      "resolved_gpu_kv_tokens": 241472,
+      "resolved_max_concurrency": "25.49"
+     }
+    },
+    "8": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 9472,
+      "max_num_batched_tokens": 16384
+     },
+     "resolved": {
+      "engine_version": "0.22.0",
+      "resolved_gpu_kv_tokens": 241472,
+      "resolved_max_concurrency": "25.49"
+     }
+    }
+   },
+   "framework": "vllm",
+   "gpu": "b200",
+   "label": "8k1k",
+   "scenario": "minimax-m2.5-b200-fp4-vllm-tp1.yaml",
+   "source_config_id": 701,
+   "source_run_date": "2026-06-04"
+  },
+  {
+   "by_concurrency": {
+    "1024": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 2304,
+      "max_num_batched_tokens": 2048
+     },
+     "resolved": {
+      "engine_version": "0.22.0",
+      "resolved_gpu_kv_tokens": 245840,
+      "resolved_max_concurrency": "106.70"
+     }
+    },
+    "256": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 2304,
+      "max_num_batched_tokens": 2048
+     },
+     "resolved": {
+      "engine_version": "0.22.0",
+      "resolved_gpu_kv_tokens": 245840,
+      "resolved_max_concurrency": "106.70"
+     }
+    },
+    "512": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 2304,
+      "max_num_batched_tokens": 2048
+     },
+     "resolved": {
+      "engine_version": "0.22.0",
+      "resolved_gpu_kv_tokens": 245840,
+      "resolved_max_concurrency": "106.70"
+     }
+    }
+   },
+   "framework": "vllm",
+   "gpu": "b200",
+   "label": "1k1k",
+   "scenario": "minimax-m2.5-b200-fp4-vllm-tp2-ep4-dp2.yaml",
+   "source_config_id": 707,
+   "source_run_date": "2026-06-04"
+  },
+  {
+   "by_concurrency": {
+    "128": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 9472,
+      "max_num_batched_tokens": 16384
+     },
+     "resolved": {
+      "engine_version": "0.22.0",
+      "resolved_gpu_kv_tokens": 1524544,
+      "resolved_max_concurrency": "160.95"
+     }
+    },
+    "256": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 9472,
+      "max_num_batched_tokens": 16384
+     },
+     "resolved": {
+      "engine_version": "0.22.0",
+      "resolved_gpu_kv_tokens": 1524544,
+      "resolved_max_concurrency": "160.95"
+     }
+    },
+    "512": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 9472,
+      "max_num_batched_tokens": 16384
+     },
+     "resolved": {
+      "engine_version": "0.22.0",
+      "resolved_gpu_kv_tokens": 1524544,
+      "resolved_max_concurrency": "160.95"
+     }
+    }
+   },
+   "framework": "vllm",
+   "gpu": "b200",
+   "label": "8k1k",
+   "scenario": "minimax-m2.5-b200-fp4-vllm-tp2-ep4-dp2.yaml",
+   "source_config_id": 706,
+   "source_run_date": "2026-06-04"
+  },
+  {
+   "by_concurrency": {
+    "16": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 2304,
+      "max_num_batched_tokens": 2048
+     },
+     "resolved": {
+      "engine_version": "0.22.0",
+      "resolved_gpu_kv_tokens": 4120176,
+      "resolved_max_concurrency": "1788.27"
+     }
+    },
+    "4": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 2304,
+      "max_num_batched_tokens": 2048
+     },
+     "resolved": {
+      "engine_version": "0.22.0",
+      "resolved_gpu_kv_tokens": 4120176,
+      "resolved_max_concurrency": "1788.27"
+     }
+    },
+    "8": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 2304,
+      "max_num_batched_tokens": 2048
+     },
+     "resolved": {
+      "engine_version": "0.22.0",
+      "resolved_gpu_kv_tokens": 4120176,
+      "resolved_max_concurrency": "1788.27"
+     }
+    }
+   },
+   "framework": "vllm",
+   "gpu": "b200",
+   "label": "1k1k",
+   "scenario": "minimax-m2.5-b200-fp4-vllm-tp4.yaml",
+   "source_config_id": 702,
+   "source_run_date": "2026-06-04"
+  },
+  {
+   "by_concurrency": {
+    "16": {
+     "passed": {
+      "block_size": 32,
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.95,
+      "max_model_len": 9416
+     },
+     "resolved": {
+      "engine_version": "0.17.0",
+      "resolved_gpu_kv_tokens": 476352,
+      "resolved_max_concurrency": "50.46"
+     }
+    },
+    "32": {
+     "passed": {
+      "block_size": 32,
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.95,
+      "max_model_len": 9416
+     },
+     "resolved": {
+      "engine_version": "0.17.0",
+      "resolved_gpu_kv_tokens": 476352,
+      "resolved_max_concurrency": "50.46"
+     }
+    },
+    "4": {
+     "passed": {
+      "block_size": 32,
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.95,
+      "max_model_len": 9416
+     },
+     "resolved": {
+      "engine_version": "0.17.0",
+      "resolved_gpu_kv_tokens": 476352,
+      "resolved_max_concurrency": "50.46"
+     }
+    },
+    "64": {
+     "passed": {
+      "block_size": 32,
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.95,
+      "max_model_len": 9416
+     },
+     "resolved": {
+      "engine_version": "0.17.0",
+      "resolved_gpu_kv_tokens": 476352,
+      "resolved_max_concurrency": "50.46"
+     }
+    },
+    "8": {
+     "passed": {
+      "block_size": 32,
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.95,
+      "max_model_len": 9416
+     },
+     "resolved": {
+      "engine_version": "0.17.0",
+      "resolved_gpu_kv_tokens": 476352,
+      "resolved_max_concurrency": "50.46"
+     }
+    }
+   },
+   "framework": "vllm",
+   "gpu": "b200",
+   "label": "1k8k",
+   "scenario": "minimax-m2.5-b200-fp8-vllm-tp2.yaml",
+   "source_config_id": 633,
+   "source_run_date": "2026-03-28"
+  },
+  {
+   "by_concurrency": {
+    "16": {
+     "passed": {
+      "block_size": 32,
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 9472,
+      "max_num_batched_tokens": 16384
+     },
+     "resolved": {
+      "engine_version": "0.22.0",
+      "resolved_gpu_kv_tokens": 765152,
+      "resolved_max_concurrency": "80.78"
+     }
+    },
+    "32": {
+     "passed": {
+      "block_size": 32,
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 9472,
+      "max_num_batched_tokens": 16384
+     },
+     "resolved": {
+      "engine_version": "0.22.0",
+      "resolved_gpu_kv_tokens": 765152,
+      "resolved_max_concurrency": "80.78"
+     }
+    },
+    "4": {
+     "passed": {
+      "block_size": 32,
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 9472,
+      "max_num_batched_tokens": 16384
+     },
+     "resolved": {
+      "engine_version": "0.22.0",
+      "resolved_gpu_kv_tokens": 765152,
+      "resolved_max_concurrency": "80.78"
+     }
+    },
+    "64": {
+     "passed": {
+      "block_size": 32,
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 9472,
+      "max_num_batched_tokens": 16384
+     },
+     "resolved": {
+      "engine_version": "0.22.0",
+      "resolved_gpu_kv_tokens": 765152,
+      "resolved_max_concurrency": "80.78"
+     }
+    },
+    "8": {
+     "passed": {
+      "block_size": 32,
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 9472,
+      "max_num_batched_tokens": 16384
+     },
+     "resolved": {
+      "engine_version": "0.22.0",
+      "resolved_gpu_kv_tokens": 765152,
+      "resolved_max_concurrency": "80.78"
+     }
+    }
+   },
+   "framework": "vllm",
+   "gpu": "b200",
+   "label": "8k1k",
+   "scenario": "minimax-m2.5-b200-fp8-vllm-tp2.yaml",
+   "source_config_id": 633,
+   "source_run_date": "2026-05-31"
+  },
+  {
+   "by_concurrency": {
+    "128": {
+     "passed": {
+      "block_size": 32,
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 2304,
+      "max_num_batched_tokens": 2048
+     },
+     "resolved": {
+      "engine_version": "0.22.0",
+      "resolved_gpu_kv_tokens": 3362656,
+      "resolved_max_concurrency": "1459.49"
+     }
+    },
+    "16": {
+     "passed": {
+      "block_size": 32,
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 2304,
+      "max_num_batched_tokens": 2048
+     },
+     "resolved": {
+      "engine_version": "0.22.0",
+      "resolved_gpu_kv_tokens": 3362656,
+      "resolved_max_concurrency": "1459.49"
+     }
+    },
+    "32": {
+     "passed": {
+      "block_size": 32,
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 2304,
+      "max_num_batched_tokens": 2048
+     },
+     "resolved": {
+      "engine_version": "0.22.0",
+      "resolved_gpu_kv_tokens": 3362656,
+      "resolved_max_concurrency": "1459.49"
+     }
+    },
+    "4": {
+     "passed": {
+      "block_size": 32,
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 2304,
+      "max_num_batched_tokens": 2048
+     },
+     "resolved": {
+      "engine_version": "0.22.0",
+      "resolved_gpu_kv_tokens": 3362656,
+      "resolved_max_concurrency": "1459.49"
+     }
+    },
+    "64": {
+     "passed": {
+      "block_size": 32,
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 2304,
+      "max_num_batched_tokens": 2048
+     },
+     "resolved": {
+      "engine_version": "0.22.0",
+      "resolved_gpu_kv_tokens": 3362656,
+      "resolved_max_concurrency": "1459.49"
+     }
+    },
+    "8": {
+     "passed": {
+      "block_size": 32,
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 2304,
+      "max_num_batched_tokens": 2048
+     },
+     "resolved": {
+      "engine_version": "0.22.0",
+      "resolved_gpu_kv_tokens": 3362656,
+      "resolved_max_concurrency": "1459.49"
+     }
+    }
+   },
+   "framework": "vllm",
+   "gpu": "b200",
+   "label": "1k1k",
+   "scenario": "minimax-m2.5-b200-fp8-vllm-tp4.yaml",
+   "source_config_id": 634,
+   "source_run_date": "2026-05-31"
+  },
+  {
+   "by_concurrency": {
+    "16": {
+     "passed": {
+      "block_size": 32,
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.95,
+      "max_model_len": 9416
+     },
+     "resolved": {
+      "engine_version": "0.17.0",
+      "resolved_gpu_kv_tokens": 1857920,
+      "resolved_max_concurrency": "196.81"
+     }
+    },
+    "32": {
+     "passed": {
+      "block_size": 32,
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.95,
+      "max_model_len": 9416
+     },
+     "resolved": {
+      "engine_version": "0.17.0",
+      "resolved_gpu_kv_tokens": 1857920,
+      "resolved_max_concurrency": "196.81"
+     }
+    },
+    "4": {
+     "passed": {
+      "block_size": 32,
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.95,
+      "max_model_len": 9416
+     },
+     "resolved": {
+      "engine_version": "0.17.0",
+      "resolved_gpu_kv_tokens": 1857920,
+      "resolved_max_concurrency": "196.81"
+     }
+    },
+    "64": {
+     "passed": {
+      "block_size": 32,
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.95,
+      "max_model_len": 9416
+     },
+     "resolved": {
+      "engine_version": "0.17.0",
+      "resolved_gpu_kv_tokens": 1857920,
+      "resolved_max_concurrency": "196.81"
+     }
+    },
+    "8": {
+     "passed": {
+      "block_size": 32,
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.95,
+      "max_model_len": 9416
+     },
+     "resolved": {
+      "engine_version": "0.17.0",
+      "resolved_gpu_kv_tokens": 1857920,
+      "resolved_max_concurrency": "196.81"
+     }
+    }
+   },
+   "framework": "vllm",
+   "gpu": "b200",
+   "label": "1k8k",
+   "scenario": "minimax-m2.5-b200-fp8-vllm-tp4.yaml",
+   "source_config_id": 634,
+   "source_run_date": "2026-03-28"
+  },
+  {
+   "by_concurrency": {
+    "128": {
+     "passed": {
+      "block_size": 32,
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 9472,
+      "max_num_batched_tokens": 16384
+     },
+     "resolved": {
+      "engine_version": "0.22.0",
+      "resolved_gpu_kv_tokens": 3345984,
+      "resolved_max_concurrency": "353.25"
+     }
+    },
+    "16": {
+     "passed": {
+      "block_size": 32,
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 9472,
+      "max_num_batched_tokens": 16384
+     },
+     "resolved": {
+      "engine_version": "0.22.0",
+      "resolved_gpu_kv_tokens": 3345984,
+      "resolved_max_concurrency": "353.25"
+     }
+    },
+    "256": {
+     "passed": {
+      "block_size": 32,
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 9472,
+      "max_num_batched_tokens": 16384
+     },
+     "resolved": {
+      "engine_version": "0.22.0",
+      "resolved_gpu_kv_tokens": 3345984,
+      "resolved_max_concurrency": "353.25"
+     }
+    },
+    "32": {
+     "passed": {
+      "block_size": 32,
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 9472,
+      "max_num_batched_tokens": 16384
+     },
+     "resolved": {
+      "engine_version": "0.22.0",
+      "resolved_gpu_kv_tokens": 3345984,
+      "resolved_max_concurrency": "353.25"
+     }
+    },
+    "4": {
+     "passed": {
+      "block_size": 32,
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 9472,
+      "max_num_batched_tokens": 16384
+     },
+     "resolved": {
+      "engine_version": "0.22.0",
+      "resolved_gpu_kv_tokens": 3345984,
+      "resolved_max_concurrency": "353.25"
+     }
+    },
+    "64": {
+     "passed": {
+      "block_size": 32,
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 9472,
+      "max_num_batched_tokens": 16384
+     },
+     "resolved": {
+      "engine_version": "0.22.0",
+      "resolved_gpu_kv_tokens": 3345984,
+      "resolved_max_concurrency": "353.25"
+     }
+    },
+    "8": {
+     "passed": {
+      "block_size": 32,
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 9472,
+      "max_num_batched_tokens": 16384
+     },
+     "resolved": {
+      "engine_version": "0.22.0",
+      "resolved_gpu_kv_tokens": 3345984,
+      "resolved_max_concurrency": "353.25"
+     }
+    }
+   },
+   "framework": "vllm",
+   "gpu": "b200",
+   "label": "8k1k",
+   "scenario": "minimax-m2.5-b200-fp8-vllm-tp4.yaml",
+   "source_config_id": 634,
+   "source_run_date": "2026-05-31"
+  },
+  {
+   "by_concurrency": {
+    "128": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 9472,
+      "max_num_batched_tokens": 16384
+     },
+     "resolved": {
+      "engine_version": "0.21.0",
+      "resolved_gpu_kv_tokens": 921392,
+      "resolved_max_concurrency": "97.28"
+     }
+    },
+    "16": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 9472,
+      "max_num_batched_tokens": 16384
+     },
+     "resolved": {
+      "engine_version": "0.21.0",
+      "resolved_gpu_kv_tokens": 921392,
+      "resolved_max_concurrency": "97.28"
+     }
+    },
+    "32": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 9472,
+      "max_num_batched_tokens": 16384
+     },
+     "resolved": {
+      "engine_version": "0.21.0",
+      "resolved_gpu_kv_tokens": 921392,
+      "resolved_max_concurrency": "97.28"
+     }
+    },
+    "4": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 9472,
+      "max_num_batched_tokens": 16384
+     },
+     "resolved": {
+      "engine_version": "0.21.0",
+      "resolved_gpu_kv_tokens": 921392,
+      "resolved_max_concurrency": "97.28"
+     }
+    },
+    "64": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 9472,
+      "max_num_batched_tokens": 16384
+     },
+     "resolved": {
+      "engine_version": "0.21.0",
+      "resolved_gpu_kv_tokens": 921392,
+      "resolved_max_concurrency": "97.28"
+     }
+    },
+    "8": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 9472,
+      "max_num_batched_tokens": 16384
+     },
+     "resolved": {
+      "engine_version": "0.21.0",
+      "resolved_gpu_kv_tokens": 921392,
+      "resolved_max_concurrency": "97.28"
+     }
+    }
+   },
+   "framework": "vllm",
+   "gpu": "b300",
+   "label": "8k1k",
+   "scenario": "minimax-m2.5-b300-fp4-vllm-tp1.yaml",
+   "source_config_id": 728,
+   "source_run_date": "2026-06-04"
+  },
+  {
+   "by_concurrency": {
+    "1024": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 2304,
+      "max_num_batched_tokens": 2048
+     },
+     "resolved": {
+      "engine_version": "0.21.0",
+      "resolved_gpu_kv_tokens": 925760,
+      "resolved_max_concurrency": "401.81"
+     }
+    },
+    "2048": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 2304,
+      "max_num_batched_tokens": 2048
+     },
+     "resolved": {
+      "engine_version": "0.21.0",
+      "resolved_gpu_kv_tokens": 925760,
+      "resolved_max_concurrency": "401.81"
+     }
+    },
+    "256": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 2304,
+      "max_num_batched_tokens": 2048
+     },
+     "resolved": {
+      "engine_version": "0.21.0",
+      "resolved_gpu_kv_tokens": 925760,
+      "resolved_max_concurrency": "401.81"
+     }
+    },
+    "512": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": 2048,
+      "max_model_len": 2304,
+      "max_num_batched_tokens": 2048
+     },
+     "resolved": {
+      "engine_version": "0.21.0",
+      "resolved_gpu_kv_tokens": 925760,
+      "resolved_max_concurrency": "401.81"
+     }
+    }
+   },
+   "framework": "vllm",
+   "gpu": "b300",
+   "label": "1k1k",
+   "scenario": "minimax-m2.5-b300-fp4-vllm-tp2-ep4-dp2.yaml",
+   "source_config_id": 727,
+   "source_run_date": "2026-06-04"
+  },
+  {
+   "by_concurrency": {
+    "1": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.95,
+      "max_model_len": 2304,
+      "max_num_batched_tokens": 32768,
+      "max_num_seqs": 512
+     },
+     "resolved": {
+      "engine_version": "0.22.0",
+      "resolved_gpu_kv_tokens": 2473760,
+      "resolved_max_concurrency": "1073.68"
+     }
+    },
+    "128": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.95,
+      "max_model_len": 2304,
+      "max_num_batched_tokens": 32768,
+      "max_num_seqs": 512
+     },
+     "resolved": {
+      "engine_version": "0.22.0",
+      "resolved_gpu_kv_tokens": 2473744,
+      "resolved_max_concurrency": "1073.67"
+     }
+    },
+    "16": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.95,
+      "max_model_len": 2304,
+      "max_num_batched_tokens": 32768,
+      "max_num_seqs": 512
+     },
+     "resolved": {
+      "engine_version": "0.22.0",
+      "resolved_gpu_kv_tokens": 2473744,
+      "resolved_max_concurrency": "1073.67"
+     }
+    },
+    "2": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.95,
+      "max_model_len": 2304,
+      "max_num_batched_tokens": 32768,
+      "max_num_seqs": 512
+     },
+     "resolved": {
+      "engine_version": "0.22.0",
+      "resolved_gpu_kv_tokens": 2473744,
+      "resolved_max_concurrency": "1073.67"
+     }
+    },
+    "256": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.95,
+      "max_model_len": 2304,
+      "max_num_batched_tokens": 32768,
+      "max_num_seqs": 512
+     },
+     "resolved": {
+      "engine_version": "0.22.0",
+      "resolved_gpu_kv_tokens": 2473760,
+      "resolved_max_concurrency": "1073.68"
+     }
+    },
+    "32": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.95,
+      "max_model_len": 2304,
+      "max_num_batched_tokens": 32768,
+      "max_num_seqs": 512
+     },
+     "resolved": {
+      "engine_version": "0.22.0",
+      "resolved_gpu_kv_tokens": 2473760,
+      "resolved_max_concurrency": "1073.68"
+     }
+    },
+    "4": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.95,
+      "max_model_len": 2304,
+      "max_num_batched_tokens": 32768,
+      "max_num_seqs": 512
+     },
+     "resolved": {
+      "engine_version": "0.22.0",
+      "resolved_gpu_kv_tokens": 2473760,
+      "resolved_max_concurrency": "1073.68"
+     }
+    },
+    "64": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.95,
+      "max_model_len": 2304,
+      "max_num_batched_tokens": 32768,
+      "max_num_seqs": 512
+     },
+     "resolved": {
+      "engine_version": "0.22.0",
+      "resolved_gpu_kv_tokens": 2473760,
+      "resolved_max_concurrency": "1073.68"
+     }
+    },
+    "8": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.95,
+      "max_model_len": 2304,
+      "max_num_batched_tokens": 32768,
+      "max_num_seqs": 512
+     },
+     "resolved": {
+      "engine_version": "0.22.0",
+      "resolved_gpu_kv_tokens": 2473760,
+      "resolved_max_concurrency": "1073.68"
+     }
+    }
+   },
+   "framework": "vllm",
+   "gpu": "h200",
+   "label": "1k1k",
+   "scenario": "minimax-m2.5-h200-fp8-vllm-tp4.yaml",
+   "source_config_id": 606,
+   "source_run_date": "2026-06-05"
+  },
+  {
+   "by_concurrency": {
+    "16": {
+     "passed": {
+      "gpu_memory_utilization": 0.95,
+      "max_model_len": 9416
+     },
+     "resolved": {
+      "engine_version": "0.16.0",
+      "resolved_gpu_kv_tokens": 1201696,
+      "resolved_max_concurrency": "127.51"
+     }
+    },
+    "32": {
+     "passed": {
+      "gpu_memory_utilization": 0.95,
+      "max_model_len": 9416
+     },
+     "resolved": {
+      "engine_version": "0.16.0",
+      "resolved_gpu_kv_tokens": 1201712,
+      "resolved_max_concurrency": "127.52"
+     }
+    },
+    "4": {
+     "passed": {
+      "gpu_memory_utilization": 0.95,
+      "max_model_len": 9416
+     },
+     "resolved": {
+      "engine_version": "0.16.0",
+      "resolved_gpu_kv_tokens": 1201696,
+      "resolved_max_concurrency": "127.51"
+     }
+    },
+    "64": {
+     "passed": {
+      "gpu_memory_utilization": 0.95,
+      "max_model_len": 9416
+     },
+     "resolved": {
+      "engine_version": "0.16.0",
+      "resolved_gpu_kv_tokens": 1201696,
+      "resolved_max_concurrency": "127.51"
+     }
+    },
+    "8": {
+     "passed": {
+      "gpu_memory_utilization": 0.95,
+      "max_model_len": 9416
+     },
+     "resolved": {
+      "engine_version": "0.16.0",
+      "resolved_gpu_kv_tokens": 1201696,
+      "resolved_max_concurrency": "127.51"
+     }
+    }
+   },
+   "framework": "vllm",
+   "gpu": "h200",
+   "label": "1k8k",
+   "scenario": "minimax-m2.5-h200-fp8-vllm-tp4.yaml",
+   "source_config_id": 606,
+   "source_run_date": "2026-03-01"
+  },
+  {
+   "by_concurrency": {
+    "1": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.95,
+      "max_model_len": 9472,
+      "max_num_batched_tokens": 32768,
+      "max_num_seqs": 512
+     },
+     "resolved": {
+      "engine_version": "0.22.0",
+      "resolved_gpu_kv_tokens": 2473760,
+      "resolved_max_concurrency": "261.17"
+     }
+    },
+    "128": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.95,
+      "max_model_len": 9472,
+      "max_num_batched_tokens": 32768,
+      "max_num_seqs": 512
+     },
+     "resolved": {
+      "engine_version": "0.22.0",
+      "resolved_gpu_kv_tokens": 2473760,
+      "resolved_max_concurrency": "261.17"
+     }
+    },
+    "16": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.95,
+      "max_model_len": 9472,
+      "max_num_batched_tokens": 32768,
+      "max_num_seqs": 512
+     },
+     "resolved": {
+      "engine_version": "0.22.0",
+      "resolved_gpu_kv_tokens": 2473760,
+      "resolved_max_concurrency": "261.17"
+     }
+    },
+    "2": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.95,
+      "max_model_len": 9472,
+      "max_num_batched_tokens": 32768,
+      "max_num_seqs": 512
+     },
+     "resolved": {
+      "engine_version": "0.22.0",
+      "resolved_gpu_kv_tokens": 2473760,
+      "resolved_max_concurrency": "261.17"
+     }
+    },
+    "256": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.95,
+      "max_model_len": 9472,
+      "max_num_batched_tokens": 32768,
+      "max_num_seqs": 512
+     },
+     "resolved": {
+      "engine_version": "0.22.0",
+      "resolved_gpu_kv_tokens": 2473760,
+      "resolved_max_concurrency": "261.17"
+     }
+    },
+    "32": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.95,
+      "max_model_len": 9472,
+      "max_num_batched_tokens": 32768,
+      "max_num_seqs": 512
+     },
+     "resolved": {
+      "engine_version": "0.22.0",
+      "resolved_gpu_kv_tokens": 2473760,
+      "resolved_max_concurrency": "261.17"
+     }
+    },
+    "4": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.95,
+      "max_model_len": 9472,
+      "max_num_batched_tokens": 32768,
+      "max_num_seqs": 512
+     },
+     "resolved": {
+      "engine_version": "0.22.0",
+      "resolved_gpu_kv_tokens": 2473760,
+      "resolved_max_concurrency": "261.17"
+     }
+    },
+    "64": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.95,
+      "max_model_len": 9472,
+      "max_num_batched_tokens": 32768,
+      "max_num_seqs": 512
+     },
+     "resolved": {
+      "engine_version": "0.22.0",
+      "resolved_gpu_kv_tokens": 2473760,
+      "resolved_max_concurrency": "261.17"
+     }
+    },
+    "8": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.95,
+      "max_model_len": 9472,
+      "max_num_batched_tokens": 32768,
+      "max_num_seqs": 512
+     },
+     "resolved": {
+      "engine_version": "0.22.0",
+      "resolved_gpu_kv_tokens": 2473760,
+      "resolved_max_concurrency": "261.17"
+     }
+    }
+   },
+   "framework": "vllm",
+   "gpu": "h200",
+   "label": "8k1k",
+   "scenario": "minimax-m2.5-h200-fp8-vllm-tp4.yaml",
+   "source_config_id": 606,
+   "source_run_date": "2026-06-05"
+  },
+  {
+   "by_concurrency": {
+    "128": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.95,
+      "max_model_len": 2304
+     },
+     "resolved": {
+      "engine_version": "0.21.0",
+      "resolved_gpu_kv_tokens": 3364240,
+      "resolved_max_concurrency": "1460.17"
+     }
+    },
+    "16": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.95,
+      "max_model_len": 2304
+     },
+     "resolved": {
+      "engine_version": "0.21.0",
+      "resolved_gpu_kv_tokens": 3364560,
+      "resolved_max_concurrency": "1460.31"
+     }
+    },
+    "32": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.95,
+      "max_model_len": 2304
+     },
+     "resolved": {
+      "engine_version": "0.21.0",
+      "resolved_gpu_kv_tokens": 3364576,
+      "resolved_max_concurrency": "1460.32"
+     }
+    },
+    "4": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.95,
+      "max_model_len": 2304
+     },
+     "resolved": {
+      "engine_version": "0.21.0",
+      "resolved_gpu_kv_tokens": 3364224,
+      "resolved_max_concurrency": "1460.17"
+     }
+    },
+    "64": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.95,
+      "max_model_len": 2304
+     },
+     "resolved": {
+      "engine_version": "0.21.0",
+      "resolved_gpu_kv_tokens": 3364240,
+      "resolved_max_concurrency": "1460.17"
+     }
+    },
+    "8": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.95,
+      "max_model_len": 2304
+     },
+     "resolved": {
+      "engine_version": "0.21.0",
+      "resolved_gpu_kv_tokens": 3364560,
+      "resolved_max_concurrency": "1460.31"
+     }
+    }
+   },
+   "framework": "vllm",
+   "gpu": "h200",
+   "label": "1k1k",
+   "scenario": "minimax-m2.5-h200-fp8-vllm-tp8.yaml",
+   "source_config_id": 637,
+   "source_run_date": "2026-05-17"
+  },
+  {
+   "by_concurrency": {
+    "128": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.95,
+      "max_model_len": 9416
+     },
+     "resolved": {
+      "engine_version": "0.18.0",
+      "resolved_gpu_kv_tokens": 3406688,
+      "resolved_max_concurrency": "361.49"
+     }
+    },
+    "16": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.95,
+      "max_model_len": 9416
+     },
+     "resolved": {
+      "engine_version": "0.18.0",
+      "resolved_gpu_kv_tokens": 3406688,
+      "resolved_max_concurrency": "361.49"
+     }
+    },
+    "32": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.95,
+      "max_model_len": 9416
+     },
+     "resolved": {
+      "engine_version": "0.18.0",
+      "resolved_gpu_kv_tokens": 3406624,
+      "resolved_max_concurrency": "361.48"
+     }
+    },
+    "4": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.95,
+      "max_model_len": 9416
+     },
+     "resolved": {
+      "engine_version": "0.18.0",
+      "resolved_gpu_kv_tokens": 3406688,
+      "resolved_max_concurrency": "361.49"
+     }
+    },
+    "64": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.95,
+      "max_model_len": 9416
+     },
+     "resolved": {
+      "engine_version": "0.18.0",
+      "resolved_gpu_kv_tokens": 3406704,
+      "resolved_max_concurrency": "361.49"
+     }
+    },
+    "8": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.95,
+      "max_model_len": 9416
+     },
+     "resolved": {
+      "engine_version": "0.18.0",
+      "resolved_gpu_kv_tokens": 3406688,
+      "resolved_max_concurrency": "361.49"
+     }
+    }
+   },
+   "framework": "vllm",
+   "gpu": "h200",
+   "label": "1k8k",
+   "scenario": "minimax-m2.5-h200-fp8-vllm-tp8.yaml",
+   "source_config_id": 637,
+   "source_run_date": "2026-03-28"
+  },
+  {
+   "by_concurrency": {
+    "128": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.95,
+      "max_model_len": 9472
+     },
+     "resolved": {
+      "engine_version": "0.21.0",
+      "resolved_gpu_kv_tokens": 3364592,
+      "resolved_max_concurrency": "355.21"
+     }
+    },
+    "16": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.95,
+      "max_model_len": 9472
+     },
+     "resolved": {
+      "engine_version": "0.21.0",
+      "resolved_gpu_kv_tokens": 3364272,
+      "resolved_max_concurrency": "355.18"
+     }
+    },
+    "32": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.95,
+      "max_model_len": 9472
+     },
+     "resolved": {
+      "engine_version": "0.21.0",
+      "resolved_gpu_kv_tokens": 3364575,
+      "resolved_max_concurrency": "355.21"
+     }
+    },
+    "4": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.95,
+      "max_model_len": 9472
+     },
+     "resolved": {
+      "engine_version": "0.21.0",
+      "resolved_gpu_kv_tokens": 3364575,
+      "resolved_max_concurrency": "355.21"
+     }
+    },
+    "64": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.95,
+      "max_model_len": 9472
+     },
+     "resolved": {
+      "engine_version": "0.21.0",
+      "resolved_gpu_kv_tokens": 3364575,
+      "resolved_max_concurrency": "355.21"
+     }
+    },
+    "8": {
+     "passed": {
+      "enable_prefix_caching": false,
+      "gpu_memory_utilization": 0.95,
+      "max_model_len": 9472
+     },
+     "resolved": {
+      "engine_version": "0.21.0",
+      "resolved_gpu_kv_tokens": 3364256,
+      "resolved_max_concurrency": "355.18"
+     }
+    }
+   },
+   "framework": "vllm",
+   "gpu": "h200",
+   "label": "8k1k",
+   "scenario": "minimax-m2.5-h200-fp8-vllm-tp8.yaml",
+   "source_config_id": 637,
+   "source_run_date": "2026-05-17"
+  }
+ ],
+ "source": "SemiAnalysis InferenceX database dump, vLLM server logs",
+ "source_url": "https://github.com/SemiAnalysisAI/InferenceX-app/releases/tag/db-dump/2026-09-28",
+ "sweeps": 46,
+ "what": "per (scenario, label, concurrency): the settings the run PASSED, and what the engine RESOLVED. A field absent from `passed` was not passed, and the engine's own default applies; it is left absent rather than filled in."
+}
