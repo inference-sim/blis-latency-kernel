@@ -74,6 +74,12 @@ MODELS = {
     # the generic attention rate and misprice them silently.
     "dsr1": "deepseek-v3",
     "kimik2.5": "kimi-k2.5",
+    # MiniMax-M3 is MiniMaxM3SparseForConditionalGeneration, a vision-language checkpoint
+    # whose text decoder the artifact measures. Its attention is block-sparse: the read is
+    # bounded by sparse_topk_blocks * sparse_block_size and a separate indexer scores which
+    # blocks to read. The catalog derives it from the published config at revision
+    # f0e1c1e0, with every shape cross-checked against the safetensors headers.
+    "minimaxm3": "minimax-m3",
 }
 
 # Artifact GPU slug -> blis-catalog hardware name.

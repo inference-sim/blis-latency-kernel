@@ -67,9 +67,27 @@ type PlannedLayer struct {
 	TopK                      int
 
 	// Attention, when the layer has it. Zero heads means it does not.
+	//
+	// These name the layer's PRIMARY attention: the one that reads the KV cache the
+	// engine sizes. A layer may run more than one attention kernel -- a block-sparse
+	// layer scores which blocks to read before reading them -- and every one of them is
+	// in Attentions. The singular fields are the primary entry, kept because the KV
+	// geometry and the prefill term are properties of that one attention rather than of
+	// the set.
 	AttnQHeads, AttnKVHeads, AttnHeadDim int
 	AttnKind                             model.AttentionKind
 	AttnWindow                           int
+
+	// Attentions is every attention kernel this layer launches, in graph order.
+	//
+	// A layer with one attention has one entry and the singular fields repeat it. The
+	// distinction matters because a secondary attention is NOT a smaller copy of the
+	// primary: a block-sparse layer's indexer scans the whole context to rank blocks
+	// while the attention it feeds reads only the chosen ones, so the two have different
+	// head geometry AND different bounds. Collapsing them charges the step once and
+	// drops the other -- on MiniMax-M3 at 8K context the dropped indexer read is 0.94x
+	// the attention read it selects for, and 15x at 131K.
+	Attentions []PlannedAttention
 
 	// Recurrent state, when the layer has it.
 	RecurrentKind       model.RecurrentKind
@@ -91,6 +109,28 @@ type PlannedLayer struct {
 	// constant it multiplies is calibrated against measurement with that in mind.
 	Kernels int
 }
+
+// PlannedAttention is one attention kernel a layer launches.
+//
+// Window is the per-token read bound in tokens, zero when the read tracks context. A
+// secondary attention with no window is the expensive case rather than the cheap one:
+// it is the kernel that scans everything.
+type PlannedAttention struct {
+	QHeads, KVHeads, HeadDim int
+	Kind                     model.AttentionKind
+	Window                   int
+	// Role is the graph's label for what this kernel does, e.g. "block_index_scores".
+	// Empty on a layer's primary attention.
+	Role string
+}
+
+// HoldsKV reports whether this attention reads the KV cache the engine sizes.
+//
+// A block-index scorer keeps its own narrow cache, sized by the model's own index
+// projections rather than by num_key_value_heads, so it must not contribute to the
+// geometry that sizes pages. Decided by role rather than by head count because a
+// small head count is not what makes a cache separate.
+func (a PlannedAttention) HoldsKV() bool { return a.Role == "" }
 
 // PlannedCollective is one surviving collective and what it moves.
 type PlannedCollective struct {
@@ -230,8 +270,18 @@ func planNodes(nodes []model.Node, em Emitter, dtypeBytes, stateBytes float64,
 				pl.SharedExpertWeightBytes += shared * dtypeBytes
 			}
 		case model.OpAttention:
-			pl.AttnQHeads, pl.AttnKVHeads, pl.AttnHeadDim = n.NumQHeads, n.NumKVHeads, n.HeadDim
-			pl.AttnKind, pl.AttnWindow = n.AttentionKind, n.Window
+			pl.Attentions = append(pl.Attentions, PlannedAttention{
+				QHeads: n.NumQHeads, KVHeads: n.NumKVHeads, HeadDim: n.HeadDim,
+				Kind: n.AttentionKind, Window: n.Window, Role: n.Role,
+			})
+			// The primary is the first attention that reads the engine's KV cache, not
+			// the last node seen. An earlier assignment here overwrote, so on a layer
+			// whose indexer precedes its attention the primary was whichever came last.
+			if pl.AttnQHeads == 0 && n.Role == "" {
+				pl.AttnQHeads, pl.AttnKVHeads, pl.AttnHeadDim =
+					n.NumQHeads, n.NumKVHeads, n.HeadDim
+				pl.AttnKind, pl.AttnWindow = n.AttentionKind, n.Window
+			}
 		case model.OpRecurrentUpdate:
 			pl.RecurrentKind = n.RecurrentKind
 			pl.RecurrentStateBytes += recurrentBytes(n, stateBytes)

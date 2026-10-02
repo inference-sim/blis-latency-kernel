@@ -222,3 +222,123 @@ func BenchmarkWalkPlan(b *testing.B) {
 		b.Fatal("the traversal computed nothing")
 	}
 }
+
+// blockSparseGraph mirrors MiniMax-M3's sparse layer: an indexer that scores which blocks
+// to read, then the bounded attention that reads them. The indexer comes FIRST, which is
+// the order it runs in and the order that used to decide the primary by accident.
+func blockSparseGraph() *model.Graph {
+	const hidden = 6144
+	sparse := model.LayerKind{ID: "sparse", Nodes: []model.Node{
+		{Op: model.OpElementwise},
+		{Op: model.OpGEMM, N: 9216, K: hidden},
+		{Op: model.OpGEMM, N: 640, K: hidden, Role: "index_qk_proj"},
+		{Op: model.OpAttention, Role: "block_index_scores",
+			AttentionKind: model.AttentionGQA,
+			NumQHeads:     4, NumKVHeads: 1, HeadDim: 128},
+		{Op: model.OpAttention, AttentionKind: model.AttentionSWA,
+			NumQHeads: 64, NumKVHeads: 4, HeadDim: 128, Window: 2176},
+		{Op: model.OpGEMM, N: hidden, K: 8192},
+	}}
+	return &model.Graph{
+		Global:     model.GlobalShape{HiddenSize: hidden, VocabSize: 200064},
+		LayerKinds: []model.LayerKind{sparse},
+		Stack:      model.Stack{Pattern: []string{"sparse"}, Repeat: 57},
+	}
+}
+
+func TestPlanKeepsEveryAttentionKernelALayerLaunches(t *testing.T) {
+	// A layer that launches two attention kernels must report two. An earlier plan
+	// assigned the attention fields per node, so the second overwrote the first and the
+	// step paid for one of them.
+	p, err := BuildPlan(blockSparseGraph(), emitNone{}, 2, 4)
+	if err != nil {
+		t.Fatal(err)
+	}
+	l := p.Layers[0]
+	if got := len(l.Attentions); got != 2 {
+		t.Fatalf("layer launches 2 attention kernels, plan has %d", got)
+	}
+}
+
+func TestPrimaryAttentionIsTheOneHoldingKVWhicheverOrderTheyAppearIn(t *testing.T) {
+	// Asserted in BOTH orders on purpose. With the indexer first, a plan that takes the
+	// last node seen gets the right answer by luck, so that arrangement alone cannot
+	// tell a role-aware choice from the overwrite this replaced. With the indexer last,
+	// only a role-aware choice still reports the attention that holds KV.
+	for _, tc := range []struct {
+		name       string
+		indexFirst bool
+	}{{"indexer first", true}, {"indexer last", false}} {
+		t.Run(tc.name, func(t *testing.T) {
+			g := blockSparseGraph()
+			nodes := g.LayerKinds[0].Nodes
+			var idx, main int
+			for i, n := range nodes {
+				if n.Op != model.OpAttention {
+					continue
+				}
+				if n.Role == "" {
+					main = i
+				} else {
+					idx = i
+				}
+			}
+			if (idx < main) != tc.indexFirst {
+				nodes[idx], nodes[main] = nodes[main], nodes[idx]
+			}
+			p, err := BuildPlan(g, emitNone{}, 2, 4)
+			if err != nil {
+				t.Fatal(err)
+			}
+			l := p.Layers[0]
+			if l.AttnQHeads != 64 || l.AttnKVHeads != 4 {
+				t.Fatalf("primary is %dq/%dkv, want 64q/4kv (the indexer is 4q/1kv)",
+					l.AttnQHeads, l.AttnKVHeads)
+			}
+			if l.AttnKind != model.AttentionSWA || l.AttnWindow != 2176 {
+				t.Fatalf("primary should carry the bounded read, got kind=%s window=%d",
+					l.AttnKind, l.AttnWindow)
+			}
+		})
+	}
+}
+
+func TestIndexerIsNotCountedAsHoldingKV(t *testing.T) {
+	// The scorer keeps its own narrow cache, sized by the model's index projections
+	// rather than by num_key_value_heads. Counting it as KV-holding doubled MiniMax-M3's
+	// KV-holding layer count and let its geometry set the engine's page size.
+	p, err := BuildPlan(blockSparseGraph(), emitNone{}, 2, 4)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var holders int
+	for _, a := range p.Layers[0].Attentions {
+		if a.HoldsKV() {
+			holders++
+		}
+	}
+	if holders != 1 {
+		t.Fatalf("%d attention kernels claim to hold the engine's KV, want 1", holders)
+	}
+}
+
+func TestSingleAttentionLayerStillReportsItAsPrimary(t *testing.T) {
+	// The common case must be unchanged: one attention, reported in both places.
+	p, err := BuildPlan(hybridGraph(), emitNone{}, 2, 4)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, l := range p.Layers {
+		if len(l.Attentions) == 0 {
+			continue
+		}
+		if len(l.Attentions) != 1 {
+			t.Fatalf("layer has %d attentions, want 1", len(l.Attentions))
+		}
+		a := l.Attentions[0]
+		if a.QHeads != l.AttnQHeads || a.KVHeads != l.AttnKVHeads ||
+			a.HeadDim != l.AttnHeadDim || a.Kind != l.AttnKind {
+			t.Fatalf("the sole attention and the primary fields disagree")
+		}
+	}
+}

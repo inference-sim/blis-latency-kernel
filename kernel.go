@@ -384,6 +384,44 @@ func (k *Kernel) stepTime(b kernel.Batch,
 				flops += causalFLOPs * float64(l.AttnQHeads) *
 					float64(l.AttnHeadDim) / k.tp
 			}
+
+			// Secondary attention kernels this layer launches. A block-sparse layer
+			// scores which blocks to read before reading them, and that scorer is a
+			// separate kernel over a separate, narrow cache: its bytes come from its own
+			// head geometry rather than from the engine's KV figure, and its read is
+			// bounded by context where the attention it feeds is bounded by the top-k.
+			//
+			// Charged to HBM like the primary decode term. Omitting it made selection
+			// free, which understates every block-sparse layer -- on MiniMax-M3 the
+			// dropped read is 0.94x the attention read at 8K context and 15x at 131K.
+			for _, a := range l.Attentions {
+				if a.HoldsKV() || decodeRequests <= 0 {
+					continue
+				}
+				floor, rate := k.attentionFloor, k.attentionRate
+				if fr, ok := k.attentionByKind[a.Kind]; ok {
+					floor, rate = fr.floor, fr.rate
+				}
+				if rate <= 0 {
+					continue
+				}
+				// Scale the engine's per-token KV figure by this kernel's own head
+				// geometry over the primary's. Derived rather than recomputed from the
+				// cache dtype so the two cannot drift: kvBytesPerToken already carries
+				// the cache width, the tensor-parallel division and the replication
+				// floor that a head is never split across ranks.
+				primary := float64(l.AttnKVHeads) * float64(l.AttnHeadDim)
+				if primary <= 0 {
+					continue
+				}
+				ratio := float64(a.KVHeads) * float64(a.HeadDim) / primary
+				perToken := k.kvBytesPerToken / float64(k.plan.TotalLayers) * ratio
+				tokens := decodeKVTokens
+				if a.Window > 0 {
+					tokens = math.Min(tokens, float64(a.Window)*float64(decodeRequests))
+				}
+				attnSeconds += floor.Seconds() + tokens*perToken/rate
+			}
 		}
 		elementwise += tokensF * l.ElementwiseBytesPerToken / k.tp
 

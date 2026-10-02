@@ -93,7 +93,11 @@ func main() {
 	catalog := flag.String("catalog", "/Users/sri/Documents/Projects/blis-catalog", "")
 	registry := flag.String("registry", "/Users/sri/Documents/Projects/blis-registry", "")
 	data := flag.String("data", "testdata/measurements/aisimulate_e2e.json", "")
-	testdata := flag.String("testdata", "testdata", "scenario directory")
+	// The generated per-deployment scenarios, which is where
+	// scripts/gen_aisimulate_scenarios.py writes them and where main_test.go's
+	// scenarioRoot looks. The default was "testdata" and every run failed on the first
+	// sweep until a reader passed the flag.
+	testdata := flag.String("testdata", "testdata/aisimulate", "scenario directory")
 	verbose := flag.Bool("verbose", false, "print every point")
 	flag.Parse()
 

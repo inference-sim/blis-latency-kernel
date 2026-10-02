@@ -504,17 +504,30 @@ func cacheDTypeBytes(declared string, fallback model.DType) float64 {
 
 // kvGeometry returns the KV head count, head dimension and layer count that hold KV. A
 // recurrent layer holds no KV, so it does not contribute.
+//
+// A layer is counted ONCE however many attention kernels it launches, and only the
+// attention that reads the engine's cache sets the geometry. Both matter on a
+// block-sparse layer: its indexer is a second Attention node with its own narrow cache
+// (MiniMax-M3 scores with 4 heads over 128 where the layer reads 4 KV heads over 128),
+// so counting per node doubled that model's KV-holding layers to 117 of 60 and left the
+// geometry set by whichever node the loop saw last.
 func kvGeometry(g *model.Graph) (nkv, headDim, layers int) {
 	counts := map[string]int{}
 	for _, id := range g.Stack.Expand() {
 		counts[id]++
 	}
 	for _, lk := range g.LayerKinds {
+		holds := false
 		for _, n := range lk.Nodes {
-			if n.Op != model.OpAttention {
+			if n.Op != model.OpAttention || n.Role != "" {
 				continue
 			}
-			nkv, headDim = n.NumKVHeads, n.HeadDim
+			if !holds {
+				nkv, headDim = n.NumKVHeads, n.HeadDim
+				holds = true
+			}
+		}
+		if holds {
 			layers += counts[lk.ID]
 		}
 	}
