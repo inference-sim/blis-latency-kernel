@@ -342,3 +342,87 @@ func TestSingleAttentionLayerStillReportsItAsPrimary(t *testing.T) {
 		}
 	}
 }
+
+// mixedPrecisionMoE mirrors DeepSeek-V4-Pro: routed experts stored at fp4 beside an fp8
+// checkpoint. The node-level override is the only way to express that, and getting it
+// wrong doubles the expert weights, which is what made the kernel refuse a deployment
+// InferenceX actually ran on 8 GPUs.
+func mixedPrecisionMoE(expertDType model.DType) *model.Graph {
+	const hidden = 7168
+	nodes := []model.Node{
+		{Op: model.OpGEMM, Role: "qkv_proj", N: 66560, K: hidden},
+		{Op: model.OpGroupedGEMM, Role: "experts", N: 3072, K: hidden,
+			Experts: 384, TopK: 6, WeightDType: expertDType},
+	}
+	return &model.Graph{
+		Global:     model.GlobalShape{HiddenSize: hidden, VocabSize: 129280},
+		LayerKinds: []model.LayerKind{{ID: "moe", Nodes: nodes}},
+		Stack:      model.Stack{Pattern: []string{"moe"}, Repeat: 61},
+	}
+}
+
+func TestANodeDTypeOverridesTheCheckpointWidthForWeightsOnly(t *testing.T) {
+	// fp8 globally (2 bytes passed as the checkpoint width here), experts at fp4.
+	const global = 1.0
+	base, err := BuildPlan(mixedPrecisionMoE(""), emitNone{}, global, 4)
+	if err != nil {
+		t.Fatal(err)
+	}
+	over, err := BuildPlan(mixedPrecisionMoE(model.DTypeNVFP4), emitNone{}, global, 4)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, o := base.Layers[0], over.Layers[0]
+
+	// The expert weights halve, because nvfp4 is half of fp8.
+	got, want := o.ExpertWeightBytesPerExpert, b.ExpertWeightBytesPerExpert/2
+	if got != want {
+		t.Errorf("expert weight bytes = %.0f, want %.0f (half the fp8 figure)", got, want)
+	}
+	// The DENSE weights do not, because the override is on the expert node alone.
+	// Asserted against the ABSOLUTE figure rather than only against the other graph: both
+	// graphs share the dense node, so a bug that applied a wrong width to it in BOTH would
+	// cancel in a comparison and pass. 66560 * 7168 parameters at the 1-byte global width.
+	const wantDense = 66560.0 * 7168 * 1
+	for name, l := range map[string]PlannedLayer{"without an override": b, "with one": o} {
+		if l.DenseWeightBytes != wantDense {
+			t.Errorf("%s: dense weight bytes = %.0f, want %.0f at the global width",
+				name, l.DenseWeightBytes, wantDense)
+		}
+	}
+	// FLOPs count arithmetic, not bytes, so a storage width cannot change them.
+	if o.ExpertFLOPsPerTokenPerExpert != b.ExpertFLOPsPerTokenPerExpert {
+		t.Errorf("expert FLOPs moved with a storage width: %.0f vs %.0f",
+			o.ExpertFLOPsPerTokenPerExpert, b.ExpertFLOPsPerTokenPerExpert)
+	}
+}
+
+func TestAnAbsentNodeDTypeLeavesEveryFigureUnchanged(t *testing.T) {
+	// The common case must be untouched: every committed graph states no node dtype, so a
+	// plan built without one has to match what it produced before the field existed.
+	p, err := BuildPlan(hybridGraph(), emitNone{}, 2, 4)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, l := range p.Layers {
+		for _, n := range []float64{l.DenseWeightBytes, l.ExpertWeightBytesPerExpert} {
+			if n < 0 {
+				t.Fatalf("negative weight bytes: %f", n)
+			}
+		}
+	}
+	// hybridGraph's expert node is N=5120 over K=8192, three matrices per gated expert,
+	// at the 2 bytes per parameter this plan was built with.
+	var found bool
+	for _, l := range p.Layers {
+		if l.ExpertWeightBytesPerExpert > 0 {
+			found = true
+			if want := 3.0 * 5120 * 8192 * 2; l.ExpertWeightBytesPerExpert != want {
+				t.Errorf("expert bytes = %.0f, want %.0f", l.ExpertWeightBytesPerExpert, want)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("no expert layer in the plan")
+	}
+}

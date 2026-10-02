@@ -227,6 +227,19 @@ var kernelsPerPrimitive = map[model.Op]int{
 	model.OpAll2All:         2, // dispatch and combine are separate launches
 }
 
+// weightBytes is the width this node's parameters are stored at: its own override where
+// it states one, the checkpoint's otherwise. Mixed-precision MoE is the case that needs
+// it -- DeepSeek-V4-Pro stores routed experts at fp4 beside fp8 everywhere else, and
+// pricing them at the global width doubles 720 GiB of experts to 1,441 GiB.
+func weightBytes(n model.Node, global float64) float64 {
+	if n.WeightDType != "" {
+		if b := n.WeightDType.Bytes(); b > 0 {
+			return b
+		}
+	}
+	return global
+}
+
 func planNodes(nodes []model.Node, em Emitter, dtypeBytes, stateBytes float64,
 	hidden int) (PlannedLayer, error) {
 	var pl PlannedLayer
@@ -253,12 +266,15 @@ func planNodes(nodes []model.Node, em Emitter, dtypeBytes, stateBytes float64,
 		case model.OpGEMM:
 			// Two FLOPs per multiply-accumulate, per output element, per token.
 			pl.DenseFLOPsPerToken += 2 * float64(n.N) * float64(n.K)
-			pl.DenseWeightBytes += float64(n.N) * float64(n.K) * dtypeBytes
+			pl.DenseWeightBytes += float64(n.N) * float64(n.K) * weightBytes(n, dtypeBytes)
 		case model.OpGroupedGEMM:
 			// A gated expert holds three matrices; the node's N is the inner width.
 			perExpert := 3 * float64(n.N) * float64(n.K)
 			pl.ExpertFLOPsPerTokenPerExpert += 2 * perExpert
-			pl.ExpertWeightBytesPerExpert += perExpert * dtypeBytes
+			// Only the WEIGHT terms take a node's dtype override: activations and
+			// collectives cross at the served width whatever the weights are stored as.
+			ew := weightBytes(n, dtypeBytes)
+			pl.ExpertWeightBytesPerExpert += perExpert * ew
 			pl.TopK = n.TopK
 			if n.SharedExperts > 0 {
 				inner := n.N
@@ -267,7 +283,7 @@ func planNodes(nodes []model.Node, em Emitter, dtypeBytes, stateBytes float64,
 				}
 				shared := 3 * float64(inner) * float64(n.K) * float64(n.SharedExperts)
 				pl.SharedExpertFLOPsPerToken += 2 * shared
-				pl.SharedExpertWeightBytes += shared * dtypeBytes
+				pl.SharedExpertWeightBytes += shared * ew
 			}
 		case model.OpAttention:
 			pl.Attentions = append(pl.Attentions, PlannedAttention{
