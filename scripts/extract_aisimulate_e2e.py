@@ -62,6 +62,18 @@ MODELS = {
     # It is the corpus's largest model at 408 points and its only DENSE one; the other four
     # are all MoE, so without it the comparison says nothing about dense architectures.
     "llama70b": "llama-3.1-70b-instruct",
+    # Added to blis-catalog this cycle, each with its graph DERIVED by the catalog's own
+    # scripts/derive_graph.py rather than written: deepseek-v3 prices as MLA plus routed
+    # experts with a three-layer dense prologue, and kimi-k2.5 as the same family -- vLLM
+    # instantiates its text decoder as DeepseekV2ForCausalLM over config.text_config, and the
+    # text_config names DeepseekV3ForCausalLM itself.
+    #
+    # DeepSeek-V4-Pro and MiniMax-M3 are deliberately absent. Both carry a learned
+    # block-sparse indexer (index_n_heads / sparse_attention_config), which the schema names
+    # as sparse_mla but blis-registry has no coefficients for; the kernel would fall back to
+    # the generic attention rate and misprice them silently.
+    "dsr1": "deepseek-v3",
+    "kimik2.5": "kimi-k2.5",
 }
 
 # Artifact GPU slug -> blis-catalog hardware name.
