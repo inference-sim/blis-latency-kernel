@@ -80,6 +80,10 @@ MODELS = {
     # blocks to read. The catalog derives it from the published config at revision
     # f0e1c1e0, with every shape cross-checked against the safetensors headers.
     "minimaxm3": "minimax-m3",
+    # DeepSeek-V4-Pro: compressed sparse attention at two ratios with a top-k indexer.
+    # The catalog derives it from the published config at revision b5968e91, with every
+    # bound read from vLLM's own compressor and sparse_mla rather than from field names.
+    "dsv4": "deepseek-v4-pro",
 }
 
 # Artifact GPU slug -> blis-catalog hardware name.
