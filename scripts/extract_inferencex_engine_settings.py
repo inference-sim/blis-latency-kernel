@@ -131,17 +131,54 @@ def args_body(log: str) -> str | None:
     return None
 
 
+def top_level_fields(body: str) -> dict[str, str]:
+    """Split the args body into its TOP-LEVEL `key: value` pairs.
+
+    Split by brace depth rather than by comma, because `speculative_config` holds a
+    nested dict whose own keys include `model`. A depth-blind search finds the DRAFT
+    checkpoint there and reports it as the served model: on a MiniMax-M3 MTP run the
+    served MiniMax-M3-MXFP8 came back as Inferact/MiniMax-M3-EAGLE3, which is a
+    different model with a different graph. Nested values are returned whole, so a
+    caller that wants a field inside one reads it from the returned text.
+    """
+    out: dict[str, str] = {}
+    depth = 0
+    part = ""
+    parts = []
+    for ch in body:
+        if ch in "{[":
+            depth += 1
+        elif ch in "}]":
+            depth -= 1
+        if ch == "," and depth == 0:
+            parts.append(part)
+            part = ""
+        else:
+            part += ch
+    parts.append(part)
+    for piece in parts:
+        m = re.match(r"\s*'([A-Za-z_0-9]+)':\s*(.+)$", piece, re.S)
+        if m:
+            out[m.group(1)] = m.group(2).strip()
+    return out
+
+
 def parse_args_line(log: str) -> dict:
     """The `non-default args` dict, as a mapping of the fields this project reads."""
     body = args_body(log)
     if body is None:
         return {}
+    fields = top_level_fields(body)
     found = {}
     for field in ARG_FIELDS:
-        v = re.search(rf"'{field}': *([^,}}]+)", body)
-        if not v:
+        if field not in fields:
             continue
-        raw = v.group(1).strip().strip("'\"")
+        raw = fields[field].strip().strip("'\"")
+        if raw == "None":
+            # The run passed the flag with a literal None, which is the absence of a
+            # setting. Recording the string makes it look like a value: a reader asking
+            # whether a capture size was set would get "None" and read it as one.
+            continue
         if raw in ("True", "False"):
             found[field] = raw == "True"
         elif re.fullmatch(r"-?\d+", raw):
@@ -150,6 +187,21 @@ def parse_args_line(log: str) -> dict:
             found[field] = float(raw)
         else:
             found[field] = raw
+    # num_speculative_tokens and the draft method live INSIDE speculative_config on the
+    # runs that carry one, so they are read from there rather than from the top level.
+    # Recorded because they change tokens per step: a step that accepts drafts serves
+    # more than one token per request, so an ITL read against it is not a step time.
+    nested = found.get("speculative_config")
+    if isinstance(nested, str):
+        n = re.search(r"'num_speculative_tokens':\s*(\d+)", nested)
+        if n:
+            found["num_speculative_tokens"] = int(n.group(1))
+        meth = re.search(r"'method':\s*'([A-Za-z_0-9]+)'", nested)
+        if meth:
+            found["speculative_method"] = meth.group(1)
+        draft = re.search(r"'model':\s*'([^']+)'", nested)
+        if draft:
+            found["draft_model"] = draft.group(1)
     return found
 
 

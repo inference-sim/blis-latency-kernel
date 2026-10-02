@@ -4093,7 +4093,6 @@
      "passed": {
       "enable_prefix_caching": false,
       "gpu_memory_utilization": 0.9,
-      "max_cudagraph_capture_size": "None",
       "max_model_len": 2304,
       "max_num_seqs": 1,
       "model": "/scratch/models/Kimi-K2.5-NVFP4"
@@ -4108,7 +4107,6 @@
      "passed": {
       "enable_prefix_caching": false,
       "gpu_memory_utilization": 0.9,
-      "max_cudagraph_capture_size": "None",
       "max_model_len": 2304,
       "max_num_seqs": 128,
       "model": "/scratch/models/Kimi-K2.5-NVFP4"
@@ -4123,7 +4121,6 @@
      "passed": {
       "enable_prefix_caching": false,
       "gpu_memory_utilization": 0.9,
-      "max_cudagraph_capture_size": "None",
       "max_model_len": 2304,
       "max_num_seqs": 16,
       "model": "/scratch/models/Kimi-K2.5-NVFP4"
@@ -4138,7 +4135,6 @@
      "passed": {
       "enable_prefix_caching": false,
       "gpu_memory_utilization": 0.9,
-      "max_cudagraph_capture_size": "None",
       "max_model_len": 2304,
       "max_num_seqs": 2,
       "model": "/scratch/models/Kimi-K2.5-NVFP4"
@@ -4153,7 +4149,6 @@
      "passed": {
       "enable_prefix_caching": false,
       "gpu_memory_utilization": 0.9,
-      "max_cudagraph_capture_size": "None",
       "max_model_len": 2304,
       "max_num_seqs": 32,
       "model": "/scratch/models/Kimi-K2.5-NVFP4"
@@ -4168,7 +4163,6 @@
      "passed": {
       "enable_prefix_caching": false,
       "gpu_memory_utilization": 0.9,
-      "max_cudagraph_capture_size": "None",
       "max_model_len": 2304,
       "max_num_seqs": 4,
       "model": "/scratch/models/Kimi-K2.5-NVFP4"
@@ -4183,7 +4177,6 @@
      "passed": {
       "enable_prefix_caching": false,
       "gpu_memory_utilization": 0.9,
-      "max_cudagraph_capture_size": "None",
       "max_model_len": 2304,
       "max_num_seqs": 64,
       "model": "/scratch/models/Kimi-K2.5-NVFP4"
@@ -4198,7 +4191,6 @@
      "passed": {
       "enable_prefix_caching": false,
       "gpu_memory_utilization": 0.9,
-      "max_cudagraph_capture_size": "None",
       "max_model_len": 2304,
       "max_num_seqs": 8,
       "model": "/scratch/models/Kimi-K2.5-NVFP4"
@@ -4345,7 +4337,6 @@
      "passed": {
       "enable_prefix_caching": false,
       "gpu_memory_utilization": 0.9,
-      "max_cudagraph_capture_size": "None",
       "max_model_len": 2304,
       "max_num_seqs": 1,
       "model": "/scratch/models/Kimi-K2.5-NVFP4"
@@ -4360,7 +4351,6 @@
      "passed": {
       "enable_prefix_caching": false,
       "gpu_memory_utilization": 0.9,
-      "max_cudagraph_capture_size": "None",
       "max_model_len": 2304,
       "max_num_seqs": 2,
       "model": "/scratch/models/Kimi-K2.5-NVFP4"
@@ -4375,7 +4365,6 @@
      "passed": {
       "enable_prefix_caching": false,
       "gpu_memory_utilization": 0.9,
-      "max_cudagraph_capture_size": "None",
       "max_model_len": 2304,
       "max_num_seqs": 4,
       "model": "/scratch/models/Kimi-K2.5-NVFP4"
@@ -5358,7 +5347,6 @@
      "passed": {
       "enable_prefix_caching": false,
       "gpu_memory_utilization": 0.95,
-      "max_cudagraph_capture_size": "None",
       "max_model_len": 2304,
       "max_num_batched_tokens": 32768,
       "max_num_seqs": 512,
@@ -5374,7 +5362,6 @@
      "passed": {
       "enable_prefix_caching": false,
       "gpu_memory_utilization": 0.95,
-      "max_cudagraph_capture_size": "None",
       "max_model_len": 2304,
       "max_num_batched_tokens": 32768,
       "max_num_seqs": 512,
@@ -5390,7 +5377,6 @@
      "passed": {
       "enable_prefix_caching": false,
       "gpu_memory_utilization": 0.95,
-      "max_cudagraph_capture_size": "None",
       "max_model_len": 2304,
       "max_num_batched_tokens": 32768,
       "max_num_seqs": 512,
@@ -5406,7 +5392,6 @@
      "passed": {
       "enable_prefix_caching": false,
       "gpu_memory_utilization": 0.95,
-      "max_cudagraph_capture_size": "None",
       "max_model_len": 2304,
       "max_num_batched_tokens": 32768,
       "max_num_seqs": 512,
@@ -5422,7 +5407,6 @@
      "passed": {
       "enable_prefix_caching": false,
       "gpu_memory_utilization": 0.95,
-      "max_cudagraph_capture_size": "None",
       "max_model_len": 2304,
       "max_num_batched_tokens": 32768,
       "max_num_seqs": 512,
@@ -5438,7 +5422,6 @@
      "passed": {
       "enable_prefix_caching": false,
       "gpu_memory_utilization": 0.95,
-      "max_cudagraph_capture_size": "None",
       "max_model_len": 2304,
       "max_num_batched_tokens": 32768,
       "max_num_seqs": 512,
@@ -5454,7 +5437,6 @@
      "passed": {
       "enable_prefix_caching": false,
       "gpu_memory_utilization": 0.95,
-      "max_cudagraph_capture_size": "None",
       "max_model_len": 2304,
       "max_num_batched_tokens": 32768,
       "max_num_seqs": 512,
@@ -5470,7 +5452,6 @@
      "passed": {
       "enable_prefix_caching": false,
       "gpu_memory_utilization": 0.95,
-      "max_cudagraph_capture_size": "None",
       "max_model_len": 2304,
       "max_num_batched_tokens": 32768,
       "max_num_seqs": 512,
@@ -5486,7 +5467,6 @@
      "passed": {
       "enable_prefix_caching": false,
       "gpu_memory_utilization": 0.95,
-      "max_cudagraph_capture_size": "None",
       "max_model_len": 2304,
       "max_num_batched_tokens": 32768,
       "max_num_seqs": 512,
@@ -5582,7 +5562,6 @@
      "passed": {
       "enable_prefix_caching": false,
       "gpu_memory_utilization": 0.95,
-      "max_cudagraph_capture_size": "None",
       "max_model_len": 9472,
       "max_num_batched_tokens": 32768,
       "max_num_seqs": 512,
@@ -5598,7 +5577,6 @@
      "passed": {
       "enable_prefix_caching": false,
       "gpu_memory_utilization": 0.95,
-      "max_cudagraph_capture_size": "None",
       "max_model_len": 9472,
       "max_num_batched_tokens": 32768,
       "max_num_seqs": 512,
@@ -5614,7 +5592,6 @@
      "passed": {
       "enable_prefix_caching": false,
       "gpu_memory_utilization": 0.95,
-      "max_cudagraph_capture_size": "None",
       "max_model_len": 9472,
       "max_num_batched_tokens": 32768,
       "max_num_seqs": 512,
@@ -5630,7 +5607,6 @@
      "passed": {
       "enable_prefix_caching": false,
       "gpu_memory_utilization": 0.95,
-      "max_cudagraph_capture_size": "None",
       "max_model_len": 9472,
       "max_num_batched_tokens": 32768,
       "max_num_seqs": 512,
@@ -5646,7 +5622,6 @@
      "passed": {
       "enable_prefix_caching": false,
       "gpu_memory_utilization": 0.95,
-      "max_cudagraph_capture_size": "None",
       "max_model_len": 9472,
       "max_num_batched_tokens": 32768,
       "max_num_seqs": 512,
@@ -5662,7 +5637,6 @@
      "passed": {
       "enable_prefix_caching": false,
       "gpu_memory_utilization": 0.95,
-      "max_cudagraph_capture_size": "None",
       "max_model_len": 9472,
       "max_num_batched_tokens": 32768,
       "max_num_seqs": 512,
@@ -5678,7 +5652,6 @@
      "passed": {
       "enable_prefix_caching": false,
       "gpu_memory_utilization": 0.95,
-      "max_cudagraph_capture_size": "None",
       "max_model_len": 9472,
       "max_num_batched_tokens": 32768,
       "max_num_seqs": 512,
@@ -5694,7 +5667,6 @@
      "passed": {
       "enable_prefix_caching": false,
       "gpu_memory_utilization": 0.95,
-      "max_cudagraph_capture_size": "None",
       "max_model_len": 9472,
       "max_num_batched_tokens": 32768,
       "max_num_seqs": 512,
@@ -5710,7 +5682,6 @@
      "passed": {
       "enable_prefix_caching": false,
       "gpu_memory_utilization": 0.95,
-      "max_cudagraph_capture_size": "None",
       "max_model_len": 9472,
       "max_num_batched_tokens": 32768,
       "max_num_seqs": 512,
