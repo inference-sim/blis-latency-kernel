@@ -71,6 +71,17 @@ ARG_FIELDS = (
     "gpu_memory_utilization",
     "cuda_graph_sizes",
     "max_cudagraph_capture_size",
+    # Fields that identify WHICH DEPLOYMENT a run is, not how it was tuned. Without them
+    # two rows at the same (model, hardware, tp, isl, osl, concurrency) can be different
+    # deployments and get pooled as repeated measurements of one. On MiniMax-M3 h200 tp8
+    # at concurrency 4 that pooling spans 4,862 to 10,085 us: two of the five runs serve
+    # Inferact/MiniMax-M3-EAGLE3 with eagle3 speculation at 3 draft tokens, and three
+    # serve the plain MXFP8 checkpoint. Grouping by these as well takes the median
+    # within-cell spread from 1.384x to 1.016x over 630 cells.
+    "model",
+    "speculative_config",
+    "num_speculative_tokens",
+    "enable_expert_parallel",
 )
 
 # Lines the engine prints AFTER resolving. These are measurements of the running engine, not
@@ -95,12 +106,36 @@ def query_scalar(sql: str) -> str:
     return out.stdout
 
 
+def args_body(log: str) -> str | None:
+    r"""The text inside the `non-default args` braces, matched by balance rather than by
+    the first closing brace.
+
+    A non-greedy `\{(.*?)\}` stops at the first `}`, which on this corpus is inside the
+    nested speculative_config dict rather than at the end of the args: 2,628 of the
+    9,192 args lines in the dump carry a nested dict, and every field after it was
+    silently dropped -- max_cudagraph_capture_size on 757, block_size and four
+    others on 83.
+    """
+    i = log.find("non-default args: {")
+    if i < 0:
+        return None
+    start = log.index("{", i)
+    depth = 0
+    for k in range(start, len(log)):
+        if log[k] == "{":
+            depth += 1
+        elif log[k] == "}":
+            depth -= 1
+            if depth == 0:
+                return log[start + 1:k]
+    return None
+
+
 def parse_args_line(log: str) -> dict:
     """The `non-default args` dict, as a mapping of the fields this project reads."""
-    m = re.search(r"non-default args: \{(.*?)\}", log, re.S)
-    if not m:
+    body = args_body(log)
+    if body is None:
         return {}
-    body = m.group(1)
     found = {}
     for field in ARG_FIELDS:
         v = re.search(rf"'{field}': *([^,}}]+)", body)

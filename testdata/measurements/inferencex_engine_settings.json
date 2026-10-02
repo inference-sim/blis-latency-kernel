@@ -692,7 +692,8 @@
       "enable_prefix_caching": false,
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 2304,
-      "max_num_batched_tokens": 2048
+      "max_num_batched_tokens": 2048,
+      "model": "/lustre/fsw/models/DeepSeek-V4-Pro"
      },
      "resolved": {
       "engine_version": "0.25.0",
@@ -706,7 +707,8 @@
       "enable_prefix_caching": false,
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 2304,
-      "max_num_batched_tokens": 2048
+      "max_num_batched_tokens": 2048,
+      "model": "/lustre/fsw/models/DeepSeek-V4-Pro"
      },
      "resolved": {
       "engine_version": "0.25.0",
@@ -720,7 +722,8 @@
       "enable_prefix_caching": false,
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 2304,
-      "max_num_batched_tokens": 2048
+      "max_num_batched_tokens": 2048,
+      "model": "/lustre/fsw/models/DeepSeek-V4-Pro"
      },
      "resolved": {
       "engine_version": "0.25.0",
@@ -734,7 +737,8 @@
       "enable_prefix_caching": false,
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 2304,
-      "max_num_batched_tokens": 2048
+      "max_num_batched_tokens": 2048,
+      "model": "/lustre/fsw/models/DeepSeek-V4-Pro"
      },
      "resolved": {
       "engine_version": "0.25.0",
@@ -748,7 +752,8 @@
       "enable_prefix_caching": false,
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 2304,
-      "max_num_batched_tokens": 2048
+      "max_num_batched_tokens": 2048,
+      "model": "/lustre/fsw/models/DeepSeek-V4-Pro"
      },
      "resolved": {
       "engine_version": "0.25.0",
@@ -762,7 +767,8 @@
       "enable_prefix_caching": false,
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 2304,
-      "max_num_batched_tokens": 2048
+      "max_num_batched_tokens": 2048,
+      "model": "/lustre/fsw/models/DeepSeek-V4-Pro"
      },
      "resolved": {
       "engine_version": "0.25.0",
@@ -776,7 +782,8 @@
       "enable_prefix_caching": false,
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 2304,
-      "max_num_batched_tokens": 2048
+      "max_num_batched_tokens": 2048,
+      "model": "/lustre/fsw/models/DeepSeek-V4-Pro"
      },
      "resolved": {
       "engine_version": "0.25.0",
@@ -800,7 +807,8 @@
       "enable_prefix_caching": false,
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 2304,
-      "max_num_batched_tokens": 2048
+      "max_num_batched_tokens": 2048,
+      "model": "/scratch/models/DeepSeek-V4-Pro"
      },
      "resolved": {
       "engine_version": "0.25.0",
@@ -814,7 +822,8 @@
       "enable_prefix_caching": false,
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 2304,
-      "max_num_batched_tokens": 2048
+      "max_num_batched_tokens": 2048,
+      "model": "/scratch/models/DeepSeek-V4-Pro"
      },
      "resolved": {
       "engine_version": "0.25.0",
@@ -828,7 +837,8 @@
       "enable_prefix_caching": false,
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 2304,
-      "max_num_batched_tokens": 2048
+      "max_num_batched_tokens": 2048,
+      "model": "/scratch/models/DeepSeek-V4-Pro"
      },
      "resolved": {
       "engine_version": "0.25.0",
@@ -842,7 +852,8 @@
       "enable_prefix_caching": false,
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 2304,
-      "max_num_batched_tokens": 2048
+      "max_num_batched_tokens": 2048,
+      "model": "/scratch/models/DeepSeek-V4-Pro"
      },
      "resolved": {
       "engine_version": "0.25.0",
@@ -856,7 +867,8 @@
       "enable_prefix_caching": false,
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 2304,
-      "max_num_batched_tokens": 2048
+      "max_num_batched_tokens": 2048,
+      "model": "/scratch/models/DeepSeek-V4-Pro"
      },
      "resolved": {
       "engine_version": "0.25.0",
@@ -870,7 +882,8 @@
       "enable_prefix_caching": false,
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 2304,
-      "max_num_batched_tokens": 2048
+      "max_num_batched_tokens": 2048,
+      "model": "/scratch/models/DeepSeek-V4-Pro"
      },
      "resolved": {
       "engine_version": "0.25.0",
@@ -884,7 +897,8 @@
       "enable_prefix_caching": false,
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 2304,
-      "max_num_batched_tokens": 2048
+      "max_num_batched_tokens": 2048,
+      "model": "/scratch/models/DeepSeek-V4-Pro"
      },
      "resolved": {
       "engine_version": "0.25.0",
@@ -898,7 +912,8 @@
       "enable_prefix_caching": false,
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 2304,
-      "max_num_batched_tokens": 2048
+      "max_num_batched_tokens": 2048,
+      "model": "/scratch/models/DeepSeek-V4-Pro"
      },
      "resolved": {
       "engine_version": "0.25.0",
@@ -922,7 +937,8 @@
       "enable_prefix_caching": false,
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 9472,
-      "max_num_batched_tokens": 16384
+      "max_num_batched_tokens": 16384,
+      "model": "/scratch/models/DeepSeek-V4-Pro"
      },
      "resolved": {
       "engine_version": "0.25.0",
@@ -936,7 +952,8 @@
       "enable_prefix_caching": false,
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 9472,
-      "max_num_batched_tokens": 16384
+      "max_num_batched_tokens": 16384,
+      "model": "/scratch/models/DeepSeek-V4-Pro"
      },
      "resolved": {
       "engine_version": "0.25.0",
@@ -950,7 +967,8 @@
       "enable_prefix_caching": false,
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 9472,
-      "max_num_batched_tokens": 16384
+      "max_num_batched_tokens": 16384,
+      "model": "/scratch/models/DeepSeek-V4-Pro"
      },
      "resolved": {
       "engine_version": "0.25.0",
@@ -964,7 +982,8 @@
       "enable_prefix_caching": false,
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 9472,
-      "max_num_batched_tokens": 16384
+      "max_num_batched_tokens": 16384,
+      "model": "/scratch/models/DeepSeek-V4-Pro"
      },
      "resolved": {
       "engine_version": "0.25.0",
@@ -978,7 +997,8 @@
       "enable_prefix_caching": false,
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 9472,
-      "max_num_batched_tokens": 16384
+      "max_num_batched_tokens": 16384,
+      "model": "/scratch/models/DeepSeek-V4-Pro"
      },
      "resolved": {
       "engine_version": "0.25.0",
@@ -992,7 +1012,8 @@
       "enable_prefix_caching": false,
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 9472,
-      "max_num_batched_tokens": 16384
+      "max_num_batched_tokens": 16384,
+      "model": "/scratch/models/DeepSeek-V4-Pro"
      },
      "resolved": {
       "engine_version": "0.25.0",
@@ -1006,7 +1027,8 @@
       "enable_prefix_caching": false,
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 9472,
-      "max_num_batched_tokens": 16384
+      "max_num_batched_tokens": 16384,
+      "model": "/scratch/models/DeepSeek-V4-Pro"
      },
      "resolved": {
       "engine_version": "0.25.0",
@@ -1030,7 +1052,8 @@
       "enable_prefix_caching": false,
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 2304,
-      "max_num_batched_tokens": 2048
+      "max_num_batched_tokens": 2048,
+      "model": "/scratch/models/DeepSeek-V4-Pro"
      },
      "resolved": {
       "engine_version": "0.25.0",
@@ -1044,7 +1067,8 @@
       "enable_prefix_caching": false,
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 2304,
-      "max_num_batched_tokens": 2048
+      "max_num_batched_tokens": 2048,
+      "model": "/scratch/models/DeepSeek-V4-Pro"
      },
      "resolved": {
       "engine_version": "0.25.0",
@@ -1058,7 +1082,8 @@
       "enable_prefix_caching": false,
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 2304,
-      "max_num_batched_tokens": 2048
+      "max_num_batched_tokens": 2048,
+      "model": "/scratch/models/DeepSeek-V4-Pro"
      },
      "resolved": {
       "engine_version": "0.25.0",
@@ -1082,7 +1107,8 @@
       "enable_prefix_caching": false,
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 9472,
-      "max_num_batched_tokens": 16384
+      "max_num_batched_tokens": 16384,
+      "model": "/scratch/models/DeepSeek-V4-Pro"
      },
      "resolved": {
       "engine_version": "0.25.0",
@@ -1096,7 +1122,8 @@
       "enable_prefix_caching": false,
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 9472,
-      "max_num_batched_tokens": 16384
+      "max_num_batched_tokens": 16384,
+      "model": "/scratch/models/DeepSeek-V4-Pro"
      },
      "resolved": {
       "engine_version": "0.25.0",
@@ -1110,7 +1137,8 @@
       "enable_prefix_caching": false,
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 9472,
-      "max_num_batched_tokens": 16384
+      "max_num_batched_tokens": 16384,
+      "model": "/scratch/models/DeepSeek-V4-Pro"
      },
      "resolved": {
       "engine_version": "0.25.0",
@@ -1135,7 +1163,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 2068,
       "max_num_batched_tokens": 8192,
-      "max_num_seqs": 512
+      "max_num_seqs": 512,
+      "model": "/lustre/fsw/models/gpt-oss-120b"
      },
      "resolved": {
       "engine_version": "0.22.0",
@@ -1150,7 +1179,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 2068,
       "max_num_batched_tokens": 8192,
-      "max_num_seqs": 512
+      "max_num_seqs": 512,
+      "model": "/lustre/fsw/models/gpt-oss-120b"
      },
      "resolved": {
       "engine_version": "0.22.0",
@@ -1165,7 +1195,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 2068,
       "max_num_batched_tokens": 8192,
-      "max_num_seqs": 512
+      "max_num_seqs": 512,
+      "model": "/lustre/fsw/models/gpt-oss-120b"
      },
      "resolved": {
       "engine_version": "0.22.0",
@@ -1180,7 +1211,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 2068,
       "max_num_batched_tokens": 8192,
-      "max_num_seqs": 512
+      "max_num_seqs": 512,
+      "model": "/lustre/fsw/models/gpt-oss-120b"
      },
      "resolved": {
       "engine_version": "0.22.0",
@@ -1195,7 +1227,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 2068,
       "max_num_batched_tokens": 8192,
-      "max_num_seqs": 512
+      "max_num_seqs": 512,
+      "model": "/lustre/fsw/models/gpt-oss-120b"
      },
      "resolved": {
       "engine_version": "0.22.0",
@@ -1210,7 +1243,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 2068,
       "max_num_batched_tokens": 8192,
-      "max_num_seqs": 512
+      "max_num_seqs": 512,
+      "model": "/lustre/fsw/models/gpt-oss-120b"
      },
      "resolved": {
       "engine_version": "0.22.0",
@@ -1234,7 +1268,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 9416,
       "max_num_batched_tokens": 8192,
-      "max_num_seqs": 512
+      "max_num_seqs": 512,
+      "model": "openai/gpt-oss-120b"
      },
      "resolved": {
       "engine_version": "0.15.1",
@@ -1248,7 +1283,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 9416,
       "max_num_batched_tokens": 8192,
-      "max_num_seqs": 512
+      "max_num_seqs": 512,
+      "model": "openai/gpt-oss-120b"
      },
      "resolved": {
       "engine_version": "0.15.1",
@@ -1262,7 +1298,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 9416,
       "max_num_batched_tokens": 8192,
-      "max_num_seqs": 512
+      "max_num_seqs": 512,
+      "model": "openai/gpt-oss-120b"
      },
      "resolved": {
       "engine_version": "0.15.1",
@@ -1276,7 +1313,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 9416,
       "max_num_batched_tokens": 8192,
-      "max_num_seqs": 512
+      "max_num_seqs": 512,
+      "model": "openai/gpt-oss-120b"
      },
      "resolved": {
       "engine_version": "0.15.1",
@@ -1290,7 +1328,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 9416,
       "max_num_batched_tokens": 8192,
-      "max_num_seqs": 512
+      "max_num_seqs": 512,
+      "model": "openai/gpt-oss-120b"
      },
      "resolved": {
       "engine_version": "0.15.1",
@@ -1304,7 +1343,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 9416,
       "max_num_batched_tokens": 8192,
-      "max_num_seqs": 512
+      "max_num_seqs": 512,
+      "model": "openai/gpt-oss-120b"
      },
      "resolved": {
       "engine_version": "0.15.1",
@@ -1329,7 +1369,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 9472,
       "max_num_batched_tokens": 8192,
-      "max_num_seqs": 512
+      "max_num_seqs": 512,
+      "model": "/lustre/fsw/models/gpt-oss-120b"
      },
      "resolved": {
       "engine_version": "0.22.0",
@@ -1344,7 +1385,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 9472,
       "max_num_batched_tokens": 8192,
-      "max_num_seqs": 512
+      "max_num_seqs": 512,
+      "model": "/lustre/fsw/models/gpt-oss-120b"
      },
      "resolved": {
       "engine_version": "0.22.0",
@@ -1359,7 +1401,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 9472,
       "max_num_batched_tokens": 8192,
-      "max_num_seqs": 512
+      "max_num_seqs": 512,
+      "model": "/lustre/fsw/models/gpt-oss-120b"
      },
      "resolved": {
       "engine_version": "0.22.0",
@@ -1374,7 +1417,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 9472,
       "max_num_batched_tokens": 8192,
-      "max_num_seqs": 512
+      "max_num_seqs": 512,
+      "model": "/lustre/fsw/models/gpt-oss-120b"
      },
      "resolved": {
       "engine_version": "0.22.0",
@@ -1389,7 +1433,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 9472,
       "max_num_batched_tokens": 8192,
-      "max_num_seqs": 512
+      "max_num_seqs": 512,
+      "model": "/lustre/fsw/models/gpt-oss-120b"
      },
      "resolved": {
       "engine_version": "0.22.0",
@@ -1404,7 +1449,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 9472,
       "max_num_batched_tokens": 8192,
-      "max_num_seqs": 512
+      "max_num_seqs": 512,
+      "model": "/lustre/fsw/models/gpt-oss-120b"
      },
      "resolved": {
       "engine_version": "0.22.0",
@@ -1429,7 +1475,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 2068,
       "max_num_batched_tokens": 8192,
-      "max_num_seqs": 512
+      "max_num_seqs": 512,
+      "model": "/lustre/fsw/models/gpt-oss-120b"
      },
      "resolved": {
       "engine_version": "0.22.0",
@@ -1444,7 +1491,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 2068,
       "max_num_batched_tokens": 8192,
-      "max_num_seqs": 512
+      "max_num_seqs": 512,
+      "model": "/lustre/fsw/models/gpt-oss-120b"
      },
      "resolved": {
       "engine_version": "0.22.0",
@@ -1459,7 +1507,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 2068,
       "max_num_batched_tokens": 8192,
-      "max_num_seqs": 512
+      "max_num_seqs": 512,
+      "model": "/lustre/fsw/models/gpt-oss-120b"
      },
      "resolved": {
       "engine_version": "0.22.0",
@@ -1474,7 +1523,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 2068,
       "max_num_batched_tokens": 8192,
-      "max_num_seqs": 512
+      "max_num_seqs": 512,
+      "model": "/lustre/fsw/models/gpt-oss-120b"
      },
      "resolved": {
       "engine_version": "0.22.0",
@@ -1489,7 +1539,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 2068,
       "max_num_batched_tokens": 8192,
-      "max_num_seqs": 512
+      "max_num_seqs": 512,
+      "model": "/lustre/fsw/models/gpt-oss-120b"
      },
      "resolved": {
       "engine_version": "0.22.0",
@@ -1504,7 +1555,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 2068,
       "max_num_batched_tokens": 8192,
-      "max_num_seqs": 512
+      "max_num_seqs": 512,
+      "model": "/lustre/fsw/models/gpt-oss-120b"
      },
      "resolved": {
       "engine_version": "0.22.0",
@@ -1528,7 +1580,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 9416,
       "max_num_batched_tokens": 8192,
-      "max_num_seqs": 512
+      "max_num_seqs": 512,
+      "model": "openai/gpt-oss-120b"
      },
      "resolved": {
       "engine_version": "0.15.1",
@@ -1542,7 +1595,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 9416,
       "max_num_batched_tokens": 8192,
-      "max_num_seqs": 512
+      "max_num_seqs": 512,
+      "model": "openai/gpt-oss-120b"
      },
      "resolved": {
       "engine_version": "0.15.1",
@@ -1556,7 +1610,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 9416,
       "max_num_batched_tokens": 8192,
-      "max_num_seqs": 512
+      "max_num_seqs": 512,
+      "model": "openai/gpt-oss-120b"
      },
      "resolved": {
       "engine_version": "0.15.1",
@@ -1570,7 +1625,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 9416,
       "max_num_batched_tokens": 8192,
-      "max_num_seqs": 512
+      "max_num_seqs": 512,
+      "model": "openai/gpt-oss-120b"
      },
      "resolved": {
       "engine_version": "0.15.1",
@@ -1584,7 +1640,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 9416,
       "max_num_batched_tokens": 8192,
-      "max_num_seqs": 512
+      "max_num_seqs": 512,
+      "model": "openai/gpt-oss-120b"
      },
      "resolved": {
       "engine_version": "0.15.1",
@@ -1598,7 +1655,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 9416,
       "max_num_batched_tokens": 8192,
-      "max_num_seqs": 512
+      "max_num_seqs": 512,
+      "model": "openai/gpt-oss-120b"
      },
      "resolved": {
       "engine_version": "0.15.1",
@@ -1623,7 +1681,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 9472,
       "max_num_batched_tokens": 8192,
-      "max_num_seqs": 512
+      "max_num_seqs": 512,
+      "model": "/lustre/fsw/models/gpt-oss-120b"
      },
      "resolved": {
       "engine_version": "0.22.0",
@@ -1638,7 +1697,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 9472,
       "max_num_batched_tokens": 8192,
-      "max_num_seqs": 512
+      "max_num_seqs": 512,
+      "model": "/lustre/fsw/models/gpt-oss-120b"
      },
      "resolved": {
       "engine_version": "0.22.0",
@@ -1653,7 +1713,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 9472,
       "max_num_batched_tokens": 8192,
-      "max_num_seqs": 512
+      "max_num_seqs": 512,
+      "model": "/lustre/fsw/models/gpt-oss-120b"
      },
      "resolved": {
       "engine_version": "0.22.0",
@@ -1668,7 +1729,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 9472,
       "max_num_batched_tokens": 8192,
-      "max_num_seqs": 512
+      "max_num_seqs": 512,
+      "model": "/lustre/fsw/models/gpt-oss-120b"
      },
      "resolved": {
       "engine_version": "0.22.0",
@@ -1683,7 +1745,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 9472,
       "max_num_batched_tokens": 8192,
-      "max_num_seqs": 512
+      "max_num_seqs": 512,
+      "model": "/lustre/fsw/models/gpt-oss-120b"
      },
      "resolved": {
       "engine_version": "0.22.0",
@@ -1698,7 +1761,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 9472,
       "max_num_batched_tokens": 8192,
-      "max_num_seqs": 512
+      "max_num_seqs": 512,
+      "model": "/lustre/fsw/models/gpt-oss-120b"
      },
      "resolved": {
       "engine_version": "0.22.0",
@@ -1723,7 +1787,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 2068,
       "max_num_batched_tokens": 8192,
-      "max_num_seqs": 512
+      "max_num_seqs": 512,
+      "model": "/lustre/fsw/models/gpt-oss-120b"
      },
      "resolved": {
       "engine_version": "0.22.0",
@@ -1738,7 +1803,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 2068,
       "max_num_batched_tokens": 8192,
-      "max_num_seqs": 512
+      "max_num_seqs": 512,
+      "model": "/lustre/fsw/models/gpt-oss-120b"
      },
      "resolved": {
       "engine_version": "0.22.0",
@@ -1753,7 +1819,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 2068,
       "max_num_batched_tokens": 8192,
-      "max_num_seqs": 512
+      "max_num_seqs": 512,
+      "model": "/lustre/fsw/models/gpt-oss-120b"
      },
      "resolved": {
       "engine_version": "0.22.0",
@@ -1768,7 +1835,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 2068,
       "max_num_batched_tokens": 8192,
-      "max_num_seqs": 512
+      "max_num_seqs": 512,
+      "model": "/lustre/fsw/models/gpt-oss-120b"
      },
      "resolved": {
       "engine_version": "0.22.0",
@@ -1783,7 +1851,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 2068,
       "max_num_batched_tokens": 8192,
-      "max_num_seqs": 512
+      "max_num_seqs": 512,
+      "model": "/lustre/fsw/models/gpt-oss-120b"
      },
      "resolved": {
       "engine_version": "0.22.0",
@@ -1807,7 +1876,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 9416,
       "max_num_batched_tokens": 8192,
-      "max_num_seqs": 512
+      "max_num_seqs": 512,
+      "model": "openai/gpt-oss-120b"
      },
      "resolved": {
       "engine_version": "0.15.1",
@@ -1821,7 +1891,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 9416,
       "max_num_batched_tokens": 8192,
-      "max_num_seqs": 512
+      "max_num_seqs": 512,
+      "model": "openai/gpt-oss-120b"
      },
      "resolved": {
       "engine_version": "0.15.1",
@@ -1835,7 +1906,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 9416,
       "max_num_batched_tokens": 8192,
-      "max_num_seqs": 512
+      "max_num_seqs": 512,
+      "model": "openai/gpt-oss-120b"
      },
      "resolved": {
       "engine_version": "0.15.1",
@@ -1849,7 +1921,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 9416,
       "max_num_batched_tokens": 8192,
-      "max_num_seqs": 512
+      "max_num_seqs": 512,
+      "model": "openai/gpt-oss-120b"
      },
      "resolved": {
       "engine_version": "0.15.1",
@@ -1863,7 +1936,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 9416,
       "max_num_batched_tokens": 8192,
-      "max_num_seqs": 512
+      "max_num_seqs": 512,
+      "model": "openai/gpt-oss-120b"
      },
      "resolved": {
       "engine_version": "0.15.1",
@@ -1888,7 +1962,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 9472,
       "max_num_batched_tokens": 8192,
-      "max_num_seqs": 512
+      "max_num_seqs": 512,
+      "model": "/lustre/fsw/models/gpt-oss-120b"
      },
      "resolved": {
       "engine_version": "0.22.0",
@@ -1903,7 +1978,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 9472,
       "max_num_batched_tokens": 8192,
-      "max_num_seqs": 512
+      "max_num_seqs": 512,
+      "model": "/lustre/fsw/models/gpt-oss-120b"
      },
      "resolved": {
       "engine_version": "0.22.0",
@@ -1918,7 +1994,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 9472,
       "max_num_batched_tokens": 8192,
-      "max_num_seqs": 512
+      "max_num_seqs": 512,
+      "model": "/lustre/fsw/models/gpt-oss-120b"
      },
      "resolved": {
       "engine_version": "0.22.0",
@@ -1933,7 +2010,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 9472,
       "max_num_batched_tokens": 8192,
-      "max_num_seqs": 512
+      "max_num_seqs": 512,
+      "model": "/lustre/fsw/models/gpt-oss-120b"
      },
      "resolved": {
       "engine_version": "0.22.0",
@@ -1948,7 +2026,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 9472,
       "max_num_batched_tokens": 8192,
-      "max_num_seqs": 512
+      "max_num_seqs": 512,
+      "model": "/lustre/fsw/models/gpt-oss-120b"
      },
      "resolved": {
       "engine_version": "0.22.0",
@@ -1973,7 +2052,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 10240,
       "max_num_batched_tokens": 8192,
-      "max_num_seqs": 16
+      "max_num_seqs": 16,
+      "model": "openai/gpt-oss-120b"
      },
      "resolved": {
       "engine_version": "0.21.0",
@@ -1988,7 +2068,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 10240,
       "max_num_batched_tokens": 8192,
-      "max_num_seqs": 32
+      "max_num_seqs": 32,
+      "model": "openai/gpt-oss-120b"
      },
      "resolved": {
       "engine_version": "0.21.0",
@@ -2003,7 +2084,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 10240,
       "max_num_batched_tokens": 8192,
-      "max_num_seqs": 4
+      "max_num_seqs": 4,
+      "model": "openai/gpt-oss-120b"
      },
      "resolved": {
       "engine_version": "0.21.0",
@@ -2018,7 +2100,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 10240,
       "max_num_batched_tokens": 8192,
-      "max_num_seqs": 64
+      "max_num_seqs": 64,
+      "model": "openai/gpt-oss-120b"
      },
      "resolved": {
       "engine_version": "0.21.0",
@@ -2033,7 +2116,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 10240,
       "max_num_batched_tokens": 8192,
-      "max_num_seqs": 8
+      "max_num_seqs": 8,
+      "model": "openai/gpt-oss-120b"
      },
      "resolved": {
       "engine_version": "0.21.0",
@@ -2057,7 +2141,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 10240,
       "max_num_batched_tokens": 8192,
-      "max_num_seqs": 16
+      "max_num_seqs": 16,
+      "model": "openai/gpt-oss-120b"
      },
      "resolved": {
       "engine_version": "0.18.0",
@@ -2071,7 +2156,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 10240,
       "max_num_batched_tokens": 8192,
-      "max_num_seqs": 32
+      "max_num_seqs": 32,
+      "model": "openai/gpt-oss-120b"
      },
      "resolved": {
       "engine_version": "0.18.0",
@@ -2085,7 +2171,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 10240,
       "max_num_batched_tokens": 8192,
-      "max_num_seqs": 4
+      "max_num_seqs": 4,
+      "model": "openai/gpt-oss-120b"
      },
      "resolved": {
       "engine_version": "0.18.0",
@@ -2099,7 +2186,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 10240,
       "max_num_batched_tokens": 8192,
-      "max_num_seqs": 64
+      "max_num_seqs": 64,
+      "model": "openai/gpt-oss-120b"
      },
      "resolved": {
       "engine_version": "0.18.0",
@@ -2113,7 +2201,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 10240,
       "max_num_batched_tokens": 8192,
-      "max_num_seqs": 8
+      "max_num_seqs": 8,
+      "model": "openai/gpt-oss-120b"
      },
      "resolved": {
       "engine_version": "0.18.0",
@@ -2138,7 +2227,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 10240,
       "max_num_batched_tokens": 8192,
-      "max_num_seqs": 16
+      "max_num_seqs": 16,
+      "model": "openai/gpt-oss-120b"
      },
      "resolved": {
       "engine_version": "0.21.0",
@@ -2153,7 +2243,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 10240,
       "max_num_batched_tokens": 8192,
-      "max_num_seqs": 32
+      "max_num_seqs": 32,
+      "model": "openai/gpt-oss-120b"
      },
      "resolved": {
       "engine_version": "0.21.0",
@@ -2168,7 +2259,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 10240,
       "max_num_batched_tokens": 8192,
-      "max_num_seqs": 4
+      "max_num_seqs": 4,
+      "model": "openai/gpt-oss-120b"
      },
      "resolved": {
       "engine_version": "0.21.0",
@@ -2183,7 +2275,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 10240,
       "max_num_batched_tokens": 8192,
-      "max_num_seqs": 64
+      "max_num_seqs": 64,
+      "model": "openai/gpt-oss-120b"
      },
      "resolved": {
       "engine_version": "0.21.0",
@@ -2198,7 +2291,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 10240,
       "max_num_batched_tokens": 8192,
-      "max_num_seqs": 8
+      "max_num_seqs": 8,
+      "model": "openai/gpt-oss-120b"
      },
      "resolved": {
       "engine_version": "0.21.0",
@@ -2223,7 +2317,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 10240,
       "max_num_batched_tokens": 8192,
-      "max_num_seqs": 16
+      "max_num_seqs": 16,
+      "model": "openai/gpt-oss-120b"
      },
      "resolved": {
       "engine_version": "0.21.0",
@@ -2238,7 +2333,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 10240,
       "max_num_batched_tokens": 8192,
-      "max_num_seqs": 32
+      "max_num_seqs": 32,
+      "model": "openai/gpt-oss-120b"
      },
      "resolved": {
       "engine_version": "0.21.0",
@@ -2253,7 +2349,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 10240,
       "max_num_batched_tokens": 8192,
-      "max_num_seqs": 4
+      "max_num_seqs": 4,
+      "model": "openai/gpt-oss-120b"
      },
      "resolved": {
       "engine_version": "0.21.0",
@@ -2268,7 +2365,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 10240,
       "max_num_batched_tokens": 8192,
-      "max_num_seqs": 64
+      "max_num_seqs": 64,
+      "model": "openai/gpt-oss-120b"
      },
      "resolved": {
       "engine_version": "0.21.0",
@@ -2283,7 +2381,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 10240,
       "max_num_batched_tokens": 8192,
-      "max_num_seqs": 8
+      "max_num_seqs": 8,
+      "model": "openai/gpt-oss-120b"
      },
      "resolved": {
       "engine_version": "0.21.0",
@@ -2307,7 +2406,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 10240,
       "max_num_batched_tokens": 8192,
-      "max_num_seqs": 16
+      "max_num_seqs": 16,
+      "model": "openai/gpt-oss-120b"
      },
      "resolved": {
       "engine_version": "0.18.0",
@@ -2321,7 +2421,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 10240,
       "max_num_batched_tokens": 8192,
-      "max_num_seqs": 32
+      "max_num_seqs": 32,
+      "model": "openai/gpt-oss-120b"
      },
      "resolved": {
       "engine_version": "0.18.0",
@@ -2335,7 +2436,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 10240,
       "max_num_batched_tokens": 8192,
-      "max_num_seqs": 4
+      "max_num_seqs": 4,
+      "model": "openai/gpt-oss-120b"
      },
      "resolved": {
       "engine_version": "0.18.0",
@@ -2349,7 +2451,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 10240,
       "max_num_batched_tokens": 8192,
-      "max_num_seqs": 64
+      "max_num_seqs": 64,
+      "model": "openai/gpt-oss-120b"
      },
      "resolved": {
       "engine_version": "0.18.0",
@@ -2363,7 +2466,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 10240,
       "max_num_batched_tokens": 8192,
-      "max_num_seqs": 8
+      "max_num_seqs": 8,
+      "model": "openai/gpt-oss-120b"
      },
      "resolved": {
       "engine_version": "0.18.0",
@@ -2388,7 +2492,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 10240,
       "max_num_batched_tokens": 8192,
-      "max_num_seqs": 16
+      "max_num_seqs": 16,
+      "model": "openai/gpt-oss-120b"
      },
      "resolved": {
       "engine_version": "0.21.0",
@@ -2403,7 +2508,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 10240,
       "max_num_batched_tokens": 8192,
-      "max_num_seqs": 32
+      "max_num_seqs": 32,
+      "model": "openai/gpt-oss-120b"
      },
      "resolved": {
       "engine_version": "0.21.0",
@@ -2418,7 +2524,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 10240,
       "max_num_batched_tokens": 8192,
-      "max_num_seqs": 4
+      "max_num_seqs": 4,
+      "model": "openai/gpt-oss-120b"
      },
      "resolved": {
       "engine_version": "0.21.0",
@@ -2433,7 +2540,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 10240,
       "max_num_batched_tokens": 8192,
-      "max_num_seqs": 64
+      "max_num_seqs": 64,
+      "model": "openai/gpt-oss-120b"
      },
      "resolved": {
       "engine_version": "0.21.0",
@@ -2448,7 +2556,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 10240,
       "max_num_batched_tokens": 8192,
-      "max_num_seqs": 8
+      "max_num_seqs": 8,
+      "model": "openai/gpt-oss-120b"
      },
      "resolved": {
       "engine_version": "0.21.0",
@@ -2473,7 +2582,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 10240,
       "max_num_batched_tokens": 8192,
-      "max_num_seqs": 16
+      "max_num_seqs": 16,
+      "model": "openai/gpt-oss-120b"
      },
      "resolved": {
       "engine_version": "0.21.0",
@@ -2488,7 +2598,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 10240,
       "max_num_batched_tokens": 8192,
-      "max_num_seqs": 32
+      "max_num_seqs": 32,
+      "model": "openai/gpt-oss-120b"
      },
      "resolved": {
       "engine_version": "0.21.0",
@@ -2503,7 +2614,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 10240,
       "max_num_batched_tokens": 8192,
-      "max_num_seqs": 4
+      "max_num_seqs": 4,
+      "model": "openai/gpt-oss-120b"
      },
      "resolved": {
       "engine_version": "0.21.0",
@@ -2518,7 +2630,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 10240,
       "max_num_batched_tokens": 8192,
-      "max_num_seqs": 64
+      "max_num_seqs": 64,
+      "model": "openai/gpt-oss-120b"
      },
      "resolved": {
       "engine_version": "0.21.0",
@@ -2533,7 +2646,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 10240,
       "max_num_batched_tokens": 8192,
-      "max_num_seqs": 8
+      "max_num_seqs": 8,
+      "model": "openai/gpt-oss-120b"
      },
      "resolved": {
       "engine_version": "0.21.0",
@@ -2557,7 +2671,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 10240,
       "max_num_batched_tokens": 8192,
-      "max_num_seqs": 16
+      "max_num_seqs": 16,
+      "model": "openai/gpt-oss-120b"
      },
      "resolved": {
       "engine_version": "0.18.0",
@@ -2571,7 +2686,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 10240,
       "max_num_batched_tokens": 8192,
-      "max_num_seqs": 32
+      "max_num_seqs": 32,
+      "model": "openai/gpt-oss-120b"
      },
      "resolved": {
       "engine_version": "0.18.0",
@@ -2585,7 +2701,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 10240,
       "max_num_batched_tokens": 8192,
-      "max_num_seqs": 4
+      "max_num_seqs": 4,
+      "model": "openai/gpt-oss-120b"
      },
      "resolved": {
       "engine_version": "0.18.0",
@@ -2599,7 +2716,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 10240,
       "max_num_batched_tokens": 8192,
-      "max_num_seqs": 64
+      "max_num_seqs": 64,
+      "model": "openai/gpt-oss-120b"
      },
      "resolved": {
       "engine_version": "0.18.0",
@@ -2613,7 +2731,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 10240,
       "max_num_batched_tokens": 8192,
-      "max_num_seqs": 8
+      "max_num_seqs": 8,
+      "model": "openai/gpt-oss-120b"
      },
      "resolved": {
       "engine_version": "0.18.0",
@@ -2638,7 +2757,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 10240,
       "max_num_batched_tokens": 8192,
-      "max_num_seqs": 16
+      "max_num_seqs": 16,
+      "model": "openai/gpt-oss-120b"
      },
      "resolved": {
       "engine_version": "0.21.0",
@@ -2653,7 +2773,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 10240,
       "max_num_batched_tokens": 8192,
-      "max_num_seqs": 4
+      "max_num_seqs": 4,
+      "model": "openai/gpt-oss-120b"
      },
      "resolved": {
       "engine_version": "0.21.0",
@@ -2668,7 +2789,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 10240,
       "max_num_batched_tokens": 8192,
-      "max_num_seqs": 8
+      "max_num_seqs": 8,
+      "model": "openai/gpt-oss-120b"
      },
      "resolved": {
       "engine_version": "0.21.0",
@@ -2693,7 +2815,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 9472,
       "max_num_batched_tokens": 8192,
-      "max_num_seqs": 16
+      "max_num_seqs": 16,
+      "model": "openai/gpt-oss-120b"
      },
      "resolved": {
       "engine_version": "0.22.0",
@@ -2708,7 +2831,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 9472,
       "max_num_batched_tokens": 8192,
-      "max_num_seqs": 32
+      "max_num_seqs": 32,
+      "model": "openai/gpt-oss-120b"
      },
      "resolved": {
       "engine_version": "0.22.0",
@@ -2723,7 +2847,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 9472,
       "max_num_batched_tokens": 8192,
-      "max_num_seqs": 4
+      "max_num_seqs": 4,
+      "model": "openai/gpt-oss-120b"
      },
      "resolved": {
       "engine_version": "0.22.0",
@@ -2738,7 +2863,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 9472,
       "max_num_batched_tokens": 8192,
-      "max_num_seqs": 64
+      "max_num_seqs": 64,
+      "model": "openai/gpt-oss-120b"
      },
      "resolved": {
       "engine_version": "0.22.0",
@@ -2753,7 +2879,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 9472,
       "max_num_batched_tokens": 8192,
-      "max_num_seqs": 8
+      "max_num_seqs": 8,
+      "model": "openai/gpt-oss-120b"
      },
      "resolved": {
       "engine_version": "0.22.0",
@@ -2778,7 +2905,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 2068,
       "max_num_batched_tokens": 8192,
-      "max_num_seqs": 16
+      "max_num_seqs": 16,
+      "model": "openai/gpt-oss-120b"
      },
      "resolved": {
       "engine_version": "0.22.0",
@@ -2793,7 +2921,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 2068,
       "max_num_batched_tokens": 8192,
-      "max_num_seqs": 32
+      "max_num_seqs": 32,
+      "model": "openai/gpt-oss-120b"
      },
      "resolved": {
       "engine_version": "0.22.0",
@@ -2808,7 +2937,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 2068,
       "max_num_batched_tokens": 8192,
-      "max_num_seqs": 4
+      "max_num_seqs": 4,
+      "model": "openai/gpt-oss-120b"
      },
      "resolved": {
       "engine_version": "0.22.0",
@@ -2823,7 +2953,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 2068,
       "max_num_batched_tokens": 8192,
-      "max_num_seqs": 64
+      "max_num_seqs": 64,
+      "model": "openai/gpt-oss-120b"
      },
      "resolved": {
       "engine_version": "0.22.0",
@@ -2838,7 +2969,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 2068,
       "max_num_batched_tokens": 8192,
-      "max_num_seqs": 8
+      "max_num_seqs": 8,
+      "model": "openai/gpt-oss-120b"
      },
      "resolved": {
       "engine_version": "0.22.0",
@@ -2862,7 +2994,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 9416,
       "max_num_batched_tokens": 8192,
-      "max_num_seqs": 16
+      "max_num_seqs": 16,
+      "model": "openai/gpt-oss-120b"
      },
      "resolved": {
       "engine_version": "0.18.0",
@@ -2876,7 +3009,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 9416,
       "max_num_batched_tokens": 8192,
-      "max_num_seqs": 32
+      "max_num_seqs": 32,
+      "model": "openai/gpt-oss-120b"
      },
      "resolved": {
       "engine_version": "0.18.0",
@@ -2890,7 +3024,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 9416,
       "max_num_batched_tokens": 8192,
-      "max_num_seqs": 4
+      "max_num_seqs": 4,
+      "model": "openai/gpt-oss-120b"
      },
      "resolved": {
       "engine_version": "0.18.0",
@@ -2904,7 +3039,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 9416,
       "max_num_batched_tokens": 8192,
-      "max_num_seqs": 64
+      "max_num_seqs": 64,
+      "model": "openai/gpt-oss-120b"
      },
      "resolved": {
       "engine_version": "0.18.0",
@@ -2918,7 +3054,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 9416,
       "max_num_batched_tokens": 8192,
-      "max_num_seqs": 8
+      "max_num_seqs": 8,
+      "model": "openai/gpt-oss-120b"
      },
      "resolved": {
       "engine_version": "0.18.0",
@@ -2943,7 +3080,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 9472,
       "max_num_batched_tokens": 8192,
-      "max_num_seqs": 16
+      "max_num_seqs": 16,
+      "model": "openai/gpt-oss-120b"
      },
      "resolved": {
       "engine_version": "0.22.0",
@@ -2958,7 +3096,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 9472,
       "max_num_batched_tokens": 8192,
-      "max_num_seqs": 32
+      "max_num_seqs": 32,
+      "model": "openai/gpt-oss-120b"
      },
      "resolved": {
       "engine_version": "0.22.0",
@@ -2973,7 +3112,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 9472,
       "max_num_batched_tokens": 8192,
-      "max_num_seqs": 4
+      "max_num_seqs": 4,
+      "model": "openai/gpt-oss-120b"
      },
      "resolved": {
       "engine_version": "0.22.0",
@@ -2988,7 +3128,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 9472,
       "max_num_batched_tokens": 8192,
-      "max_num_seqs": 64
+      "max_num_seqs": 64,
+      "model": "openai/gpt-oss-120b"
      },
      "resolved": {
       "engine_version": "0.22.0",
@@ -3003,7 +3144,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 9472,
       "max_num_batched_tokens": 8192,
-      "max_num_seqs": 8
+      "max_num_seqs": 8,
+      "model": "openai/gpt-oss-120b"
      },
      "resolved": {
       "engine_version": "0.22.0",
@@ -3028,7 +3170,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 2068,
       "max_num_batched_tokens": 8192,
-      "max_num_seqs": 16
+      "max_num_seqs": 16,
+      "model": "openai/gpt-oss-120b"
      },
      "resolved": {
       "engine_version": "0.22.0",
@@ -3043,7 +3186,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 2068,
       "max_num_batched_tokens": 8192,
-      "max_num_seqs": 32
+      "max_num_seqs": 32,
+      "model": "openai/gpt-oss-120b"
      },
      "resolved": {
       "engine_version": "0.22.0",
@@ -3058,7 +3202,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 2068,
       "max_num_batched_tokens": 8192,
-      "max_num_seqs": 4
+      "max_num_seqs": 4,
+      "model": "openai/gpt-oss-120b"
      },
      "resolved": {
       "engine_version": "0.22.0",
@@ -3073,7 +3218,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 2068,
       "max_num_batched_tokens": 8192,
-      "max_num_seqs": 64
+      "max_num_seqs": 64,
+      "model": "openai/gpt-oss-120b"
      },
      "resolved": {
       "engine_version": "0.22.0",
@@ -3088,7 +3234,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 2068,
       "max_num_batched_tokens": 8192,
-      "max_num_seqs": 8
+      "max_num_seqs": 8,
+      "model": "openai/gpt-oss-120b"
      },
      "resolved": {
       "engine_version": "0.22.0",
@@ -3112,7 +3259,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 9416,
       "max_num_batched_tokens": 8192,
-      "max_num_seqs": 16
+      "max_num_seqs": 16,
+      "model": "openai/gpt-oss-120b"
      },
      "resolved": {
       "engine_version": "0.18.0",
@@ -3126,7 +3274,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 9416,
       "max_num_batched_tokens": 8192,
-      "max_num_seqs": 32
+      "max_num_seqs": 32,
+      "model": "openai/gpt-oss-120b"
      },
      "resolved": {
       "engine_version": "0.18.0",
@@ -3140,7 +3289,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 9416,
       "max_num_batched_tokens": 8192,
-      "max_num_seqs": 4
+      "max_num_seqs": 4,
+      "model": "openai/gpt-oss-120b"
      },
      "resolved": {
       "engine_version": "0.18.0",
@@ -3154,7 +3304,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 9416,
       "max_num_batched_tokens": 8192,
-      "max_num_seqs": 64
+      "max_num_seqs": 64,
+      "model": "openai/gpt-oss-120b"
      },
      "resolved": {
       "engine_version": "0.18.0",
@@ -3168,7 +3319,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 9416,
       "max_num_batched_tokens": 8192,
-      "max_num_seqs": 8
+      "max_num_seqs": 8,
+      "model": "openai/gpt-oss-120b"
      },
      "resolved": {
       "engine_version": "0.18.0",
@@ -3193,7 +3345,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 9472,
       "max_num_batched_tokens": 8192,
-      "max_num_seqs": 16
+      "max_num_seqs": 16,
+      "model": "openai/gpt-oss-120b"
      },
      "resolved": {
       "engine_version": "0.22.0",
@@ -3208,7 +3361,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 9472,
       "max_num_batched_tokens": 8192,
-      "max_num_seqs": 32
+      "max_num_seqs": 32,
+      "model": "openai/gpt-oss-120b"
      },
      "resolved": {
       "engine_version": "0.22.0",
@@ -3223,7 +3377,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 9472,
       "max_num_batched_tokens": 8192,
-      "max_num_seqs": 4
+      "max_num_seqs": 4,
+      "model": "openai/gpt-oss-120b"
      },
      "resolved": {
       "engine_version": "0.22.0",
@@ -3238,7 +3393,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 9472,
       "max_num_batched_tokens": 8192,
-      "max_num_seqs": 64
+      "max_num_seqs": 64,
+      "model": "openai/gpt-oss-120b"
      },
      "resolved": {
       "engine_version": "0.22.0",
@@ -3253,7 +3409,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 9472,
       "max_num_batched_tokens": 8192,
-      "max_num_seqs": 8
+      "max_num_seqs": 8,
+      "model": "openai/gpt-oss-120b"
      },
      "resolved": {
       "engine_version": "0.22.0",
@@ -3278,7 +3435,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 2068,
       "max_num_batched_tokens": 8192,
-      "max_num_seqs": 16
+      "max_num_seqs": 16,
+      "model": "openai/gpt-oss-120b"
      },
      "resolved": {
       "engine_version": "0.22.0",
@@ -3293,7 +3451,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 2068,
       "max_num_batched_tokens": 8192,
-      "max_num_seqs": 32
+      "max_num_seqs": 32,
+      "model": "openai/gpt-oss-120b"
      },
      "resolved": {
       "engine_version": "0.22.0",
@@ -3308,7 +3467,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 2068,
       "max_num_batched_tokens": 8192,
-      "max_num_seqs": 4
+      "max_num_seqs": 4,
+      "model": "openai/gpt-oss-120b"
      },
      "resolved": {
       "engine_version": "0.22.0",
@@ -3323,7 +3483,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 2068,
       "max_num_batched_tokens": 8192,
-      "max_num_seqs": 64
+      "max_num_seqs": 64,
+      "model": "openai/gpt-oss-120b"
      },
      "resolved": {
       "engine_version": "0.22.0",
@@ -3338,7 +3499,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 2068,
       "max_num_batched_tokens": 8192,
-      "max_num_seqs": 8
+      "max_num_seqs": 8,
+      "model": "openai/gpt-oss-120b"
      },
      "resolved": {
       "engine_version": "0.22.0",
@@ -3362,7 +3524,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 9416,
       "max_num_batched_tokens": 8192,
-      "max_num_seqs": 16
+      "max_num_seqs": 16,
+      "model": "openai/gpt-oss-120b"
      },
      "resolved": {
       "engine_version": "0.18.0",
@@ -3376,7 +3539,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 9416,
       "max_num_batched_tokens": 8192,
-      "max_num_seqs": 32
+      "max_num_seqs": 32,
+      "model": "openai/gpt-oss-120b"
      },
      "resolved": {
       "engine_version": "0.18.0",
@@ -3390,7 +3554,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 9416,
       "max_num_batched_tokens": 8192,
-      "max_num_seqs": 4
+      "max_num_seqs": 4,
+      "model": "openai/gpt-oss-120b"
      },
      "resolved": {
       "engine_version": "0.18.0",
@@ -3404,7 +3569,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 9416,
       "max_num_batched_tokens": 8192,
-      "max_num_seqs": 64
+      "max_num_seqs": 64,
+      "model": "openai/gpt-oss-120b"
      },
      "resolved": {
       "engine_version": "0.18.0",
@@ -3418,7 +3584,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 9416,
       "max_num_batched_tokens": 8192,
-      "max_num_seqs": 8
+      "max_num_seqs": 8,
+      "model": "openai/gpt-oss-120b"
      },
      "resolved": {
       "engine_version": "0.18.0",
@@ -3443,7 +3610,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 9472,
       "max_num_batched_tokens": 8192,
-      "max_num_seqs": 16
+      "max_num_seqs": 16,
+      "model": "openai/gpt-oss-120b"
      },
      "resolved": {
       "engine_version": "0.22.0",
@@ -3458,7 +3626,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 9472,
       "max_num_batched_tokens": 8192,
-      "max_num_seqs": 32
+      "max_num_seqs": 32,
+      "model": "openai/gpt-oss-120b"
      },
      "resolved": {
       "engine_version": "0.22.0",
@@ -3473,7 +3642,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 9472,
       "max_num_batched_tokens": 8192,
-      "max_num_seqs": 4
+      "max_num_seqs": 4,
+      "model": "openai/gpt-oss-120b"
      },
      "resolved": {
       "engine_version": "0.22.0",
@@ -3488,7 +3658,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 9472,
       "max_num_batched_tokens": 8192,
-      "max_num_seqs": 8
+      "max_num_seqs": 8,
+      "model": "openai/gpt-oss-120b"
      },
      "resolved": {
       "engine_version": "0.22.0",
@@ -3513,7 +3684,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 2304,
       "max_num_batched_tokens": 2048,
-      "max_num_seqs": 1
+      "max_num_seqs": 1,
+      "model": "/lustre/fsw/models/Kimi-K2.5-NVFP4"
      },
      "resolved": {
       "engine_version": "0.22.0",
@@ -3528,7 +3700,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 2304,
       "max_num_batched_tokens": 2048,
-      "max_num_seqs": 128
+      "max_num_seqs": 128,
+      "model": "/lustre/fsw/models/Kimi-K2.5-NVFP4"
      },
      "resolved": {
       "engine_version": "0.22.0",
@@ -3543,7 +3716,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 2304,
       "max_num_batched_tokens": 2048,
-      "max_num_seqs": 16
+      "max_num_seqs": 16,
+      "model": "/lustre/fsw/models/Kimi-K2.5-NVFP4"
      },
      "resolved": {
       "engine_version": "0.22.0",
@@ -3558,7 +3732,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 2304,
       "max_num_batched_tokens": 2048,
-      "max_num_seqs": 2
+      "max_num_seqs": 2,
+      "model": "/lustre/fsw/models/Kimi-K2.5-NVFP4"
      },
      "resolved": {
       "engine_version": "0.22.0",
@@ -3573,7 +3748,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 2304,
       "max_num_batched_tokens": 2048,
-      "max_num_seqs": 32
+      "max_num_seqs": 32,
+      "model": "/lustre/fsw/models/Kimi-K2.5-NVFP4"
      },
      "resolved": {
       "engine_version": "0.22.0",
@@ -3588,7 +3764,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 2304,
       "max_num_batched_tokens": 2048,
-      "max_num_seqs": 4
+      "max_num_seqs": 4,
+      "model": "/lustre/fsw/models/Kimi-K2.5-NVFP4"
      },
      "resolved": {
       "engine_version": "0.22.0",
@@ -3603,7 +3780,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 2304,
       "max_num_batched_tokens": 2048,
-      "max_num_seqs": 64
+      "max_num_seqs": 64,
+      "model": "/lustre/fsw/models/Kimi-K2.5-NVFP4"
      },
      "resolved": {
       "engine_version": "0.22.0",
@@ -3618,7 +3796,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 2304,
       "max_num_batched_tokens": 2048,
-      "max_num_seqs": 8
+      "max_num_seqs": 8,
+      "model": "/lustre/fsw/models/Kimi-K2.5-NVFP4"
      },
      "resolved": {
       "engine_version": "0.22.0",
@@ -3642,7 +3821,8 @@
       "gpu_memory_utilization": 0.9,
       "max_cudagraph_capture_size": 2,
       "max_model_len": 9472,
-      "max_num_seqs": 1
+      "max_num_seqs": 1,
+      "model": "/lustre/fsw/models/Kimi-K2.5-NVFP4"
      },
      "resolved": {
       "resolved_gpu_kv_tokens": 528352,
@@ -3655,7 +3835,8 @@
       "gpu_memory_utilization": 0.9,
       "max_cudagraph_capture_size": 32,
       "max_model_len": 9472,
-      "max_num_seqs": 16
+      "max_num_seqs": 16,
+      "model": "/lustre/fsw/models/Kimi-K2.5-NVFP4"
      },
      "resolved": {
       "resolved_gpu_kv_tokens": 528672,
@@ -3668,7 +3849,8 @@
       "gpu_memory_utilization": 0.9,
       "max_cudagraph_capture_size": 4,
       "max_model_len": 9472,
-      "max_num_seqs": 2
+      "max_num_seqs": 2,
+      "model": "/lustre/fsw/models/Kimi-K2.5-NVFP4"
      },
      "resolved": {
       "resolved_gpu_kv_tokens": 528352,
@@ -3681,7 +3863,8 @@
       "gpu_memory_utilization": 0.9,
       "max_cudagraph_capture_size": 64,
       "max_model_len": 9472,
-      "max_num_seqs": 32
+      "max_num_seqs": 32,
+      "model": "/lustre/fsw/models/Kimi-K2.5-NVFP4"
      },
      "resolved": {
       "resolved_gpu_kv_tokens": 525632,
@@ -3694,7 +3877,8 @@
       "gpu_memory_utilization": 0.9,
       "max_cudagraph_capture_size": 8,
       "max_model_len": 9472,
-      "max_num_seqs": 4
+      "max_num_seqs": 4,
+      "model": "/lustre/fsw/models/Kimi-K2.5-NVFP4"
      },
      "resolved": {
       "resolved_gpu_kv_tokens": 528352,
@@ -3707,7 +3891,8 @@
       "gpu_memory_utilization": 0.9,
       "max_cudagraph_capture_size": 16,
       "max_model_len": 9472,
-      "max_num_seqs": 8
+      "max_num_seqs": 8,
+      "model": "/lustre/fsw/models/Kimi-K2.5-NVFP4"
      },
      "resolved": {
       "resolved_gpu_kv_tokens": 528512,
@@ -3731,7 +3916,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 2304,
       "max_num_batched_tokens": 2048,
-      "max_num_seqs": 1
+      "max_num_seqs": 1,
+      "model": "/lustre/fsw/models/Kimi-K2.5-NVFP4"
      },
      "resolved": {
       "engine_version": "0.22.0",
@@ -3746,7 +3932,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 2304,
       "max_num_batched_tokens": 2048,
-      "max_num_seqs": 2
+      "max_num_seqs": 2,
+      "model": "/lustre/fsw/models/Kimi-K2.5-NVFP4"
      },
      "resolved": {
       "engine_version": "0.22.0",
@@ -3761,7 +3948,8 @@
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 2304,
       "max_num_batched_tokens": 2048,
-      "max_num_seqs": 4
+      "max_num_seqs": 4,
+      "model": "/lustre/fsw/models/Kimi-K2.5-NVFP4"
      },
      "resolved": {
       "engine_version": "0.22.0",
@@ -3785,7 +3973,8 @@
       "gpu_memory_utilization": 0.9,
       "max_cudagraph_capture_size": 2,
       "max_model_len": 9472,
-      "max_num_seqs": 1
+      "max_num_seqs": 1,
+      "model": "/lustre/fsw/models/Kimi-K2.5-NVFP4"
      },
      "resolved": {
       "resolved_gpu_kv_tokens": 2622816,
@@ -3798,7 +3987,8 @@
       "gpu_memory_utilization": 0.9,
       "max_cudagraph_capture_size": 256,
       "max_model_len": 9472,
-      "max_num_seqs": 128
+      "max_num_seqs": 128,
+      "model": "/lustre/fsw/models/Kimi-K2.5-NVFP4"
      },
      "resolved": {
       "resolved_gpu_kv_tokens": 2621344,
@@ -3811,7 +4001,8 @@
       "gpu_memory_utilization": 0.9,
       "max_cudagraph_capture_size": 32,
       "max_model_len": 9472,
-      "max_num_seqs": 16
+      "max_num_seqs": 16,
+      "model": "/lustre/fsw/models/Kimi-K2.5-NVFP4"
      },
      "resolved": {
       "resolved_gpu_kv_tokens": 2619296,
@@ -3824,7 +4015,8 @@
       "gpu_memory_utilization": 0.9,
       "max_cudagraph_capture_size": 4,
       "max_model_len": 9472,
-      "max_num_seqs": 2
+      "max_num_seqs": 2,
+      "model": "/lustre/fsw/models/Kimi-K2.5-NVFP4"
      },
      "resolved": {
       "resolved_gpu_kv_tokens": 2622752,
@@ -3837,7 +4029,8 @@
       "gpu_memory_utilization": 0.9,
       "max_cudagraph_capture_size": 64,
       "max_model_len": 9472,
-      "max_num_seqs": 32
+      "max_num_seqs": 32,
+      "model": "/lustre/fsw/models/Kimi-K2.5-NVFP4"
      },
      "resolved": {
       "resolved_gpu_kv_tokens": 2619552,
@@ -3850,7 +4043,8 @@
       "gpu_memory_utilization": 0.9,
       "max_cudagraph_capture_size": 8,
       "max_model_len": 9472,
-      "max_num_seqs": 4
+      "max_num_seqs": 4,
+      "model": "/lustre/fsw/models/Kimi-K2.5-NVFP4"
      },
      "resolved": {
       "resolved_gpu_kv_tokens": 2622816,
@@ -3863,7 +4057,8 @@
       "gpu_memory_utilization": 0.9,
       "max_cudagraph_capture_size": 128,
       "max_model_len": 9472,
-      "max_num_seqs": 64
+      "max_num_seqs": 64,
+      "model": "/lustre/fsw/models/Kimi-K2.5-NVFP4"
      },
      "resolved": {
       "resolved_gpu_kv_tokens": 2620608,
@@ -3876,7 +4071,8 @@
       "gpu_memory_utilization": 0.9,
       "max_cudagraph_capture_size": 16,
       "max_model_len": 9472,
-      "max_num_seqs": 8
+      "max_num_seqs": 8,
+      "model": "/lustre/fsw/models/Kimi-K2.5-NVFP4"
      },
      "resolved": {
       "resolved_gpu_kv_tokens": 2622976,
@@ -3897,8 +4093,10 @@
      "passed": {
       "enable_prefix_caching": false,
       "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": "None",
       "max_model_len": 2304,
-      "max_num_seqs": 1
+      "max_num_seqs": 1,
+      "model": "/scratch/models/Kimi-K2.5-NVFP4"
      },
      "resolved": {
       "engine_version": "0.22.0",
@@ -3910,8 +4108,10 @@
      "passed": {
       "enable_prefix_caching": false,
       "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": "None",
       "max_model_len": 2304,
-      "max_num_seqs": 128
+      "max_num_seqs": 128,
+      "model": "/scratch/models/Kimi-K2.5-NVFP4"
      },
      "resolved": {
       "engine_version": "0.22.0",
@@ -3923,8 +4123,10 @@
      "passed": {
       "enable_prefix_caching": false,
       "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": "None",
       "max_model_len": 2304,
-      "max_num_seqs": 16
+      "max_num_seqs": 16,
+      "model": "/scratch/models/Kimi-K2.5-NVFP4"
      },
      "resolved": {
       "engine_version": "0.22.0",
@@ -3936,8 +4138,10 @@
      "passed": {
       "enable_prefix_caching": false,
       "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": "None",
       "max_model_len": 2304,
-      "max_num_seqs": 2
+      "max_num_seqs": 2,
+      "model": "/scratch/models/Kimi-K2.5-NVFP4"
      },
      "resolved": {
       "engine_version": "0.22.0",
@@ -3949,8 +4153,10 @@
      "passed": {
       "enable_prefix_caching": false,
       "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": "None",
       "max_model_len": 2304,
-      "max_num_seqs": 32
+      "max_num_seqs": 32,
+      "model": "/scratch/models/Kimi-K2.5-NVFP4"
      },
      "resolved": {
       "engine_version": "0.22.0",
@@ -3962,8 +4168,10 @@
      "passed": {
       "enable_prefix_caching": false,
       "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": "None",
       "max_model_len": 2304,
-      "max_num_seqs": 4
+      "max_num_seqs": 4,
+      "model": "/scratch/models/Kimi-K2.5-NVFP4"
      },
      "resolved": {
       "engine_version": "0.22.0",
@@ -3975,8 +4183,10 @@
      "passed": {
       "enable_prefix_caching": false,
       "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": "None",
       "max_model_len": 2304,
-      "max_num_seqs": 64
+      "max_num_seqs": 64,
+      "model": "/scratch/models/Kimi-K2.5-NVFP4"
      },
      "resolved": {
       "engine_version": "0.22.0",
@@ -3988,8 +4198,10 @@
      "passed": {
       "enable_prefix_caching": false,
       "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": "None",
       "max_model_len": 2304,
-      "max_num_seqs": 8
+      "max_num_seqs": 8,
+      "model": "/scratch/models/Kimi-K2.5-NVFP4"
      },
      "resolved": {
       "engine_version": "0.22.0",
@@ -4013,7 +4225,8 @@
       "gpu_memory_utilization": 0.9,
       "max_cudagraph_capture_size": 2,
       "max_model_len": 9472,
-      "max_num_seqs": 1
+      "max_num_seqs": 1,
+      "model": "/data/models/Kimi-K2.5-NVFP4"
      },
      "resolved": {
       "resolved_gpu_kv_tokens": 2980448,
@@ -4026,7 +4239,8 @@
       "gpu_memory_utilization": 0.9,
       "max_cudagraph_capture_size": 256,
       "max_model_len": 9472,
-      "max_num_seqs": 128
+      "max_num_seqs": 128,
+      "model": "/data/models/Kimi-K2.5-NVFP4"
      },
      "resolved": {
       "resolved_gpu_kv_tokens": 2948896,
@@ -4039,7 +4253,8 @@
       "gpu_memory_utilization": 0.9,
       "max_cudagraph_capture_size": 32,
       "max_model_len": 9472,
-      "max_num_seqs": 16
+      "max_num_seqs": 16,
+      "model": "/data/models/Kimi-K2.5-NVFP4"
      },
      "resolved": {
       "resolved_gpu_kv_tokens": 2976032,
@@ -4052,7 +4267,8 @@
       "gpu_memory_utilization": 0.9,
       "max_cudagraph_capture_size": 4,
       "max_model_len": 9472,
-      "max_num_seqs": 2
+      "max_num_seqs": 2,
+      "model": "/data/models/Kimi-K2.5-NVFP4"
      },
      "resolved": {
       "resolved_gpu_kv_tokens": 2979488,
@@ -4065,7 +4281,8 @@
       "gpu_memory_utilization": 0.9,
       "max_cudagraph_capture_size": 64,
       "max_model_len": 9472,
-      "max_num_seqs": 32
+      "max_num_seqs": 32,
+      "model": "/data/models/Kimi-K2.5-NVFP4"
      },
      "resolved": {
       "resolved_gpu_kv_tokens": 2969119,
@@ -4078,7 +4295,8 @@
       "gpu_memory_utilization": 0.9,
       "max_cudagraph_capture_size": 8,
       "max_model_len": 9472,
-      "max_num_seqs": 4
+      "max_num_seqs": 4,
+      "model": "/data/models/Kimi-K2.5-NVFP4"
      },
      "resolved": {
       "resolved_gpu_kv_tokens": 2978496,
@@ -4091,7 +4309,8 @@
       "gpu_memory_utilization": 0.9,
       "max_cudagraph_capture_size": 128,
       "max_model_len": 9472,
-      "max_num_seqs": 64
+      "max_num_seqs": 64,
+      "model": "/data/models/Kimi-K2.5-NVFP4"
      },
      "resolved": {
       "resolved_gpu_kv_tokens": 2961760,
@@ -4104,7 +4323,8 @@
       "gpu_memory_utilization": 0.9,
       "max_cudagraph_capture_size": 16,
       "max_model_len": 9472,
-      "max_num_seqs": 8
+      "max_num_seqs": 8,
+      "model": "/data/models/Kimi-K2.5-NVFP4"
      },
      "resolved": {
       "resolved_gpu_kv_tokens": 2977568,
@@ -4125,8 +4345,10 @@
      "passed": {
       "enable_prefix_caching": false,
       "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": "None",
       "max_model_len": 2304,
-      "max_num_seqs": 1
+      "max_num_seqs": 1,
+      "model": "/scratch/models/Kimi-K2.5-NVFP4"
      },
      "resolved": {
       "engine_version": "0.22.0",
@@ -4138,8 +4360,10 @@
      "passed": {
       "enable_prefix_caching": false,
       "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": "None",
       "max_model_len": 2304,
-      "max_num_seqs": 2
+      "max_num_seqs": 2,
+      "model": "/scratch/models/Kimi-K2.5-NVFP4"
      },
      "resolved": {
       "engine_version": "0.22.0",
@@ -4151,8 +4375,10 @@
      "passed": {
       "enable_prefix_caching": false,
       "gpu_memory_utilization": 0.9,
+      "max_cudagraph_capture_size": "None",
       "max_model_len": 2304,
-      "max_num_seqs": 4
+      "max_num_seqs": 4,
+      "model": "/scratch/models/Kimi-K2.5-NVFP4"
      },
      "resolved": {
       "engine_version": "0.22.0",
@@ -4176,7 +4402,8 @@
       "gpu_memory_utilization": 0.9,
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 2304,
-      "max_num_batched_tokens": 2048
+      "max_num_batched_tokens": 2048,
+      "model": "/lustre/fsw/models/MiniMax-M2.5-NVFP4"
      },
      "resolved": {
       "engine_version": "0.22.0",
@@ -4190,7 +4417,8 @@
       "gpu_memory_utilization": 0.9,
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 2304,
-      "max_num_batched_tokens": 2048
+      "max_num_batched_tokens": 2048,
+      "model": "/lustre/fsw/models/MiniMax-M2.5-NVFP4"
      },
      "resolved": {
       "engine_version": "0.22.0",
@@ -4204,7 +4432,8 @@
       "gpu_memory_utilization": 0.9,
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 2304,
-      "max_num_batched_tokens": 2048
+      "max_num_batched_tokens": 2048,
+      "model": "/lustre/fsw/models/MiniMax-M2.5-NVFP4"
      },
      "resolved": {
       "engine_version": "0.22.0",
@@ -4228,7 +4457,8 @@
       "gpu_memory_utilization": 0.9,
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 9472,
-      "max_num_batched_tokens": 16384
+      "max_num_batched_tokens": 16384,
+      "model": "/lustre/fsw/models/MiniMax-M2.5-NVFP4"
      },
      "resolved": {
       "engine_version": "0.22.0",
@@ -4242,7 +4472,8 @@
       "gpu_memory_utilization": 0.9,
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 9472,
-      "max_num_batched_tokens": 16384
+      "max_num_batched_tokens": 16384,
+      "model": "/lustre/fsw/models/MiniMax-M2.5-NVFP4"
      },
      "resolved": {
       "engine_version": "0.22.0",
@@ -4256,7 +4487,8 @@
       "gpu_memory_utilization": 0.9,
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 9472,
-      "max_num_batched_tokens": 16384
+      "max_num_batched_tokens": 16384,
+      "model": "/lustre/fsw/models/MiniMax-M2.5-NVFP4"
      },
      "resolved": {
       "engine_version": "0.22.0",
@@ -4270,7 +4502,8 @@
       "gpu_memory_utilization": 0.9,
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 9472,
-      "max_num_batched_tokens": 16384
+      "max_num_batched_tokens": 16384,
+      "model": "/lustre/fsw/models/MiniMax-M2.5-NVFP4"
      },
      "resolved": {
       "engine_version": "0.22.0",
@@ -4290,11 +4523,13 @@
    "by_concurrency": {
     "1024": {
      "passed": {
+      "enable_expert_parallel": true,
       "enable_prefix_caching": false,
       "gpu_memory_utilization": 0.9,
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 2304,
-      "max_num_batched_tokens": 2048
+      "max_num_batched_tokens": 2048,
+      "model": "/lustre/fsw/models/MiniMax-M2.5-NVFP4"
      },
      "resolved": {
       "engine_version": "0.22.0",
@@ -4304,11 +4539,13 @@
     },
     "256": {
      "passed": {
+      "enable_expert_parallel": true,
       "enable_prefix_caching": false,
       "gpu_memory_utilization": 0.9,
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 2304,
-      "max_num_batched_tokens": 2048
+      "max_num_batched_tokens": 2048,
+      "model": "/lustre/fsw/models/MiniMax-M2.5-NVFP4"
      },
      "resolved": {
       "engine_version": "0.22.0",
@@ -4318,11 +4555,13 @@
     },
     "512": {
      "passed": {
+      "enable_expert_parallel": true,
       "enable_prefix_caching": false,
       "gpu_memory_utilization": 0.9,
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 2304,
-      "max_num_batched_tokens": 2048
+      "max_num_batched_tokens": 2048,
+      "model": "/lustre/fsw/models/MiniMax-M2.5-NVFP4"
      },
      "resolved": {
       "engine_version": "0.22.0",
@@ -4342,11 +4581,13 @@
    "by_concurrency": {
     "128": {
      "passed": {
+      "enable_expert_parallel": true,
       "enable_prefix_caching": false,
       "gpu_memory_utilization": 0.9,
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 9472,
-      "max_num_batched_tokens": 16384
+      "max_num_batched_tokens": 16384,
+      "model": "/lustre/fsw/models/MiniMax-M2.5-NVFP4"
      },
      "resolved": {
       "engine_version": "0.22.0",
@@ -4356,11 +4597,13 @@
     },
     "256": {
      "passed": {
+      "enable_expert_parallel": true,
       "enable_prefix_caching": false,
       "gpu_memory_utilization": 0.9,
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 9472,
-      "max_num_batched_tokens": 16384
+      "max_num_batched_tokens": 16384,
+      "model": "/lustre/fsw/models/MiniMax-M2.5-NVFP4"
      },
      "resolved": {
       "engine_version": "0.22.0",
@@ -4370,11 +4613,13 @@
     },
     "512": {
      "passed": {
+      "enable_expert_parallel": true,
       "enable_prefix_caching": false,
       "gpu_memory_utilization": 0.9,
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 9472,
-      "max_num_batched_tokens": 16384
+      "max_num_batched_tokens": 16384,
+      "model": "/lustre/fsw/models/MiniMax-M2.5-NVFP4"
      },
      "resolved": {
       "engine_version": "0.22.0",
@@ -4398,7 +4643,8 @@
       "gpu_memory_utilization": 0.9,
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 2304,
-      "max_num_batched_tokens": 2048
+      "max_num_batched_tokens": 2048,
+      "model": "/lustre/fsw/models/MiniMax-M2.5-NVFP4"
      },
      "resolved": {
       "engine_version": "0.22.0",
@@ -4412,7 +4658,8 @@
       "gpu_memory_utilization": 0.9,
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 2304,
-      "max_num_batched_tokens": 2048
+      "max_num_batched_tokens": 2048,
+      "model": "/lustre/fsw/models/MiniMax-M2.5-NVFP4"
      },
      "resolved": {
       "engine_version": "0.22.0",
@@ -4426,7 +4673,8 @@
       "gpu_memory_utilization": 0.9,
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 2304,
-      "max_num_batched_tokens": 2048
+      "max_num_batched_tokens": 2048,
+      "model": "/lustre/fsw/models/MiniMax-M2.5-NVFP4"
      },
      "resolved": {
       "engine_version": "0.22.0",
@@ -4447,9 +4695,11 @@
     "16": {
      "passed": {
       "block_size": 32,
+      "enable_expert_parallel": true,
       "enable_prefix_caching": false,
       "gpu_memory_utilization": 0.95,
-      "max_model_len": 9416
+      "max_model_len": 9416,
+      "model": "MiniMaxAI/MiniMax-M2.5"
      },
      "resolved": {
       "engine_version": "0.17.0",
@@ -4460,9 +4710,11 @@
     "32": {
      "passed": {
       "block_size": 32,
+      "enable_expert_parallel": true,
       "enable_prefix_caching": false,
       "gpu_memory_utilization": 0.95,
-      "max_model_len": 9416
+      "max_model_len": 9416,
+      "model": "MiniMaxAI/MiniMax-M2.5"
      },
      "resolved": {
       "engine_version": "0.17.0",
@@ -4473,9 +4725,11 @@
     "4": {
      "passed": {
       "block_size": 32,
+      "enable_expert_parallel": true,
       "enable_prefix_caching": false,
       "gpu_memory_utilization": 0.95,
-      "max_model_len": 9416
+      "max_model_len": 9416,
+      "model": "MiniMaxAI/MiniMax-M2.5"
      },
      "resolved": {
       "engine_version": "0.17.0",
@@ -4486,9 +4740,11 @@
     "64": {
      "passed": {
       "block_size": 32,
+      "enable_expert_parallel": true,
       "enable_prefix_caching": false,
       "gpu_memory_utilization": 0.95,
-      "max_model_len": 9416
+      "max_model_len": 9416,
+      "model": "MiniMaxAI/MiniMax-M2.5"
      },
      "resolved": {
       "engine_version": "0.17.0",
@@ -4499,9 +4755,11 @@
     "8": {
      "passed": {
       "block_size": 32,
+      "enable_expert_parallel": true,
       "enable_prefix_caching": false,
       "gpu_memory_utilization": 0.95,
-      "max_model_len": 9416
+      "max_model_len": 9416,
+      "model": "MiniMaxAI/MiniMax-M2.5"
      },
      "resolved": {
       "engine_version": "0.17.0",
@@ -4526,7 +4784,8 @@
       "gpu_memory_utilization": 0.9,
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 9472,
-      "max_num_batched_tokens": 16384
+      "max_num_batched_tokens": 16384,
+      "model": "/lustre/fsw/models/MiniMax-M2.5"
      },
      "resolved": {
       "engine_version": "0.22.0",
@@ -4541,7 +4800,8 @@
       "gpu_memory_utilization": 0.9,
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 9472,
-      "max_num_batched_tokens": 16384
+      "max_num_batched_tokens": 16384,
+      "model": "/lustre/fsw/models/MiniMax-M2.5"
      },
      "resolved": {
       "engine_version": "0.22.0",
@@ -4556,7 +4816,8 @@
       "gpu_memory_utilization": 0.9,
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 9472,
-      "max_num_batched_tokens": 16384
+      "max_num_batched_tokens": 16384,
+      "model": "/lustre/fsw/models/MiniMax-M2.5"
      },
      "resolved": {
       "engine_version": "0.22.0",
@@ -4571,7 +4832,8 @@
       "gpu_memory_utilization": 0.9,
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 9472,
-      "max_num_batched_tokens": 16384
+      "max_num_batched_tokens": 16384,
+      "model": "/lustre/fsw/models/MiniMax-M2.5"
      },
      "resolved": {
       "engine_version": "0.22.0",
@@ -4586,7 +4848,8 @@
       "gpu_memory_utilization": 0.9,
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 9472,
-      "max_num_batched_tokens": 16384
+      "max_num_batched_tokens": 16384,
+      "model": "/lustre/fsw/models/MiniMax-M2.5"
      },
      "resolved": {
       "engine_version": "0.22.0",
@@ -4611,7 +4874,8 @@
       "gpu_memory_utilization": 0.9,
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 2304,
-      "max_num_batched_tokens": 2048
+      "max_num_batched_tokens": 2048,
+      "model": "/lustre/fsw/models/MiniMax-M2.5"
      },
      "resolved": {
       "engine_version": "0.22.0",
@@ -4626,7 +4890,8 @@
       "gpu_memory_utilization": 0.9,
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 2304,
-      "max_num_batched_tokens": 2048
+      "max_num_batched_tokens": 2048,
+      "model": "/lustre/fsw/models/MiniMax-M2.5"
      },
      "resolved": {
       "engine_version": "0.22.0",
@@ -4641,7 +4906,8 @@
       "gpu_memory_utilization": 0.9,
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 2304,
-      "max_num_batched_tokens": 2048
+      "max_num_batched_tokens": 2048,
+      "model": "/lustre/fsw/models/MiniMax-M2.5"
      },
      "resolved": {
       "engine_version": "0.22.0",
@@ -4656,7 +4922,8 @@
       "gpu_memory_utilization": 0.9,
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 2304,
-      "max_num_batched_tokens": 2048
+      "max_num_batched_tokens": 2048,
+      "model": "/lustre/fsw/models/MiniMax-M2.5"
      },
      "resolved": {
       "engine_version": "0.22.0",
@@ -4671,7 +4938,8 @@
       "gpu_memory_utilization": 0.9,
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 2304,
-      "max_num_batched_tokens": 2048
+      "max_num_batched_tokens": 2048,
+      "model": "/lustre/fsw/models/MiniMax-M2.5"
      },
      "resolved": {
       "engine_version": "0.22.0",
@@ -4686,7 +4954,8 @@
       "gpu_memory_utilization": 0.9,
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 2304,
-      "max_num_batched_tokens": 2048
+      "max_num_batched_tokens": 2048,
+      "model": "/lustre/fsw/models/MiniMax-M2.5"
      },
      "resolved": {
       "engine_version": "0.22.0",
@@ -4707,9 +4976,11 @@
     "16": {
      "passed": {
       "block_size": 32,
+      "enable_expert_parallel": true,
       "enable_prefix_caching": false,
       "gpu_memory_utilization": 0.95,
-      "max_model_len": 9416
+      "max_model_len": 9416,
+      "model": "MiniMaxAI/MiniMax-M2.5"
      },
      "resolved": {
       "engine_version": "0.17.0",
@@ -4720,9 +4991,11 @@
     "32": {
      "passed": {
       "block_size": 32,
+      "enable_expert_parallel": true,
       "enable_prefix_caching": false,
       "gpu_memory_utilization": 0.95,
-      "max_model_len": 9416
+      "max_model_len": 9416,
+      "model": "MiniMaxAI/MiniMax-M2.5"
      },
      "resolved": {
       "engine_version": "0.17.0",
@@ -4733,9 +5006,11 @@
     "4": {
      "passed": {
       "block_size": 32,
+      "enable_expert_parallel": true,
       "enable_prefix_caching": false,
       "gpu_memory_utilization": 0.95,
-      "max_model_len": 9416
+      "max_model_len": 9416,
+      "model": "MiniMaxAI/MiniMax-M2.5"
      },
      "resolved": {
       "engine_version": "0.17.0",
@@ -4746,9 +5021,11 @@
     "64": {
      "passed": {
       "block_size": 32,
+      "enable_expert_parallel": true,
       "enable_prefix_caching": false,
       "gpu_memory_utilization": 0.95,
-      "max_model_len": 9416
+      "max_model_len": 9416,
+      "model": "MiniMaxAI/MiniMax-M2.5"
      },
      "resolved": {
       "engine_version": "0.17.0",
@@ -4759,9 +5036,11 @@
     "8": {
      "passed": {
       "block_size": 32,
+      "enable_expert_parallel": true,
       "enable_prefix_caching": false,
       "gpu_memory_utilization": 0.95,
-      "max_model_len": 9416
+      "max_model_len": 9416,
+      "model": "MiniMaxAI/MiniMax-M2.5"
      },
      "resolved": {
       "engine_version": "0.17.0",
@@ -4786,7 +5065,8 @@
       "gpu_memory_utilization": 0.9,
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 9472,
-      "max_num_batched_tokens": 16384
+      "max_num_batched_tokens": 16384,
+      "model": "/lustre/fsw/models/MiniMax-M2.5"
      },
      "resolved": {
       "engine_version": "0.22.0",
@@ -4801,7 +5081,8 @@
       "gpu_memory_utilization": 0.9,
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 9472,
-      "max_num_batched_tokens": 16384
+      "max_num_batched_tokens": 16384,
+      "model": "/lustre/fsw/models/MiniMax-M2.5"
      },
      "resolved": {
       "engine_version": "0.22.0",
@@ -4816,7 +5097,8 @@
       "gpu_memory_utilization": 0.9,
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 9472,
-      "max_num_batched_tokens": 16384
+      "max_num_batched_tokens": 16384,
+      "model": "/lustre/fsw/models/MiniMax-M2.5"
      },
      "resolved": {
       "engine_version": "0.22.0",
@@ -4831,7 +5113,8 @@
       "gpu_memory_utilization": 0.9,
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 9472,
-      "max_num_batched_tokens": 16384
+      "max_num_batched_tokens": 16384,
+      "model": "/lustre/fsw/models/MiniMax-M2.5"
      },
      "resolved": {
       "engine_version": "0.22.0",
@@ -4846,7 +5129,8 @@
       "gpu_memory_utilization": 0.9,
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 9472,
-      "max_num_batched_tokens": 16384
+      "max_num_batched_tokens": 16384,
+      "model": "/lustre/fsw/models/MiniMax-M2.5"
      },
      "resolved": {
       "engine_version": "0.22.0",
@@ -4861,7 +5145,8 @@
       "gpu_memory_utilization": 0.9,
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 9472,
-      "max_num_batched_tokens": 16384
+      "max_num_batched_tokens": 16384,
+      "model": "/lustre/fsw/models/MiniMax-M2.5"
      },
      "resolved": {
       "engine_version": "0.22.0",
@@ -4876,7 +5161,8 @@
       "gpu_memory_utilization": 0.9,
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 9472,
-      "max_num_batched_tokens": 16384
+      "max_num_batched_tokens": 16384,
+      "model": "/lustre/fsw/models/MiniMax-M2.5"
      },
      "resolved": {
       "engine_version": "0.22.0",
@@ -4900,7 +5186,8 @@
       "gpu_memory_utilization": 0.9,
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 9472,
-      "max_num_batched_tokens": 16384
+      "max_num_batched_tokens": 16384,
+      "model": "/scratch/models/MiniMax-M2.5-NVFP4"
      },
      "resolved": {
       "engine_version": "0.21.0",
@@ -4914,7 +5201,8 @@
       "gpu_memory_utilization": 0.9,
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 9472,
-      "max_num_batched_tokens": 16384
+      "max_num_batched_tokens": 16384,
+      "model": "/scratch/models/MiniMax-M2.5-NVFP4"
      },
      "resolved": {
       "engine_version": "0.21.0",
@@ -4928,7 +5216,8 @@
       "gpu_memory_utilization": 0.9,
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 9472,
-      "max_num_batched_tokens": 16384
+      "max_num_batched_tokens": 16384,
+      "model": "/scratch/models/MiniMax-M2.5-NVFP4"
      },
      "resolved": {
       "engine_version": "0.21.0",
@@ -4942,7 +5231,8 @@
       "gpu_memory_utilization": 0.9,
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 9472,
-      "max_num_batched_tokens": 16384
+      "max_num_batched_tokens": 16384,
+      "model": "/scratch/models/MiniMax-M2.5-NVFP4"
      },
      "resolved": {
       "engine_version": "0.21.0",
@@ -4956,7 +5246,8 @@
       "gpu_memory_utilization": 0.9,
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 9472,
-      "max_num_batched_tokens": 16384
+      "max_num_batched_tokens": 16384,
+      "model": "/scratch/models/MiniMax-M2.5-NVFP4"
      },
      "resolved": {
       "engine_version": "0.21.0",
@@ -4970,7 +5261,8 @@
       "gpu_memory_utilization": 0.9,
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 9472,
-      "max_num_batched_tokens": 16384
+      "max_num_batched_tokens": 16384,
+      "model": "/scratch/models/MiniMax-M2.5-NVFP4"
      },
      "resolved": {
       "engine_version": "0.21.0",
@@ -4990,11 +5282,13 @@
    "by_concurrency": {
     "1024": {
      "passed": {
+      "enable_expert_parallel": true,
       "enable_prefix_caching": false,
       "gpu_memory_utilization": 0.9,
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 2304,
-      "max_num_batched_tokens": 2048
+      "max_num_batched_tokens": 2048,
+      "model": "/scratch/models/MiniMax-M2.5-NVFP4"
      },
      "resolved": {
       "engine_version": "0.21.0",
@@ -5004,11 +5298,13 @@
     },
     "2048": {
      "passed": {
+      "enable_expert_parallel": true,
       "enable_prefix_caching": false,
       "gpu_memory_utilization": 0.9,
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 2304,
-      "max_num_batched_tokens": 2048
+      "max_num_batched_tokens": 2048,
+      "model": "/scratch/models/MiniMax-M2.5-NVFP4"
      },
      "resolved": {
       "engine_version": "0.21.0",
@@ -5018,11 +5314,13 @@
     },
     "256": {
      "passed": {
+      "enable_expert_parallel": true,
       "enable_prefix_caching": false,
       "gpu_memory_utilization": 0.9,
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 2304,
-      "max_num_batched_tokens": 2048
+      "max_num_batched_tokens": 2048,
+      "model": "/scratch/models/MiniMax-M2.5-NVFP4"
      },
      "resolved": {
       "engine_version": "0.21.0",
@@ -5032,11 +5330,13 @@
     },
     "512": {
      "passed": {
+      "enable_expert_parallel": true,
       "enable_prefix_caching": false,
       "gpu_memory_utilization": 0.9,
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 2304,
-      "max_num_batched_tokens": 2048
+      "max_num_batched_tokens": 2048,
+      "model": "/scratch/models/MiniMax-M2.5-NVFP4"
      },
      "resolved": {
       "engine_version": "0.21.0",
@@ -5058,9 +5358,11 @@
      "passed": {
       "enable_prefix_caching": false,
       "gpu_memory_utilization": 0.95,
+      "max_cudagraph_capture_size": "None",
       "max_model_len": 2304,
       "max_num_batched_tokens": 32768,
-      "max_num_seqs": 512
+      "max_num_seqs": 512,
+      "model": "MiniMaxAI/MiniMax-M2.5"
      },
      "resolved": {
       "engine_version": "0.22.0",
@@ -5072,9 +5374,11 @@
      "passed": {
       "enable_prefix_caching": false,
       "gpu_memory_utilization": 0.95,
+      "max_cudagraph_capture_size": "None",
       "max_model_len": 2304,
       "max_num_batched_tokens": 32768,
-      "max_num_seqs": 512
+      "max_num_seqs": 512,
+      "model": "MiniMaxAI/MiniMax-M2.5"
      },
      "resolved": {
       "engine_version": "0.22.0",
@@ -5086,9 +5390,11 @@
      "passed": {
       "enable_prefix_caching": false,
       "gpu_memory_utilization": 0.95,
+      "max_cudagraph_capture_size": "None",
       "max_model_len": 2304,
       "max_num_batched_tokens": 32768,
-      "max_num_seqs": 512
+      "max_num_seqs": 512,
+      "model": "MiniMaxAI/MiniMax-M2.5"
      },
      "resolved": {
       "engine_version": "0.22.0",
@@ -5100,9 +5406,11 @@
      "passed": {
       "enable_prefix_caching": false,
       "gpu_memory_utilization": 0.95,
+      "max_cudagraph_capture_size": "None",
       "max_model_len": 2304,
       "max_num_batched_tokens": 32768,
-      "max_num_seqs": 512
+      "max_num_seqs": 512,
+      "model": "MiniMaxAI/MiniMax-M2.5"
      },
      "resolved": {
       "engine_version": "0.22.0",
@@ -5114,9 +5422,11 @@
      "passed": {
       "enable_prefix_caching": false,
       "gpu_memory_utilization": 0.95,
+      "max_cudagraph_capture_size": "None",
       "max_model_len": 2304,
       "max_num_batched_tokens": 32768,
-      "max_num_seqs": 512
+      "max_num_seqs": 512,
+      "model": "MiniMaxAI/MiniMax-M2.5"
      },
      "resolved": {
       "engine_version": "0.22.0",
@@ -5128,9 +5438,11 @@
      "passed": {
       "enable_prefix_caching": false,
       "gpu_memory_utilization": 0.95,
+      "max_cudagraph_capture_size": "None",
       "max_model_len": 2304,
       "max_num_batched_tokens": 32768,
-      "max_num_seqs": 512
+      "max_num_seqs": 512,
+      "model": "MiniMaxAI/MiniMax-M2.5"
      },
      "resolved": {
       "engine_version": "0.22.0",
@@ -5142,9 +5454,11 @@
      "passed": {
       "enable_prefix_caching": false,
       "gpu_memory_utilization": 0.95,
+      "max_cudagraph_capture_size": "None",
       "max_model_len": 2304,
       "max_num_batched_tokens": 32768,
-      "max_num_seqs": 512
+      "max_num_seqs": 512,
+      "model": "MiniMaxAI/MiniMax-M2.5"
      },
      "resolved": {
       "engine_version": "0.22.0",
@@ -5156,9 +5470,11 @@
      "passed": {
       "enable_prefix_caching": false,
       "gpu_memory_utilization": 0.95,
+      "max_cudagraph_capture_size": "None",
       "max_model_len": 2304,
       "max_num_batched_tokens": 32768,
-      "max_num_seqs": 512
+      "max_num_seqs": 512,
+      "model": "MiniMaxAI/MiniMax-M2.5"
      },
      "resolved": {
       "engine_version": "0.22.0",
@@ -5170,9 +5486,11 @@
      "passed": {
       "enable_prefix_caching": false,
       "gpu_memory_utilization": 0.95,
+      "max_cudagraph_capture_size": "None",
       "max_model_len": 2304,
       "max_num_batched_tokens": 32768,
-      "max_num_seqs": 512
+      "max_num_seqs": 512,
+      "model": "MiniMaxAI/MiniMax-M2.5"
      },
      "resolved": {
       "engine_version": "0.22.0",
@@ -5193,7 +5511,8 @@
     "16": {
      "passed": {
       "gpu_memory_utilization": 0.95,
-      "max_model_len": 9416
+      "max_model_len": 9416,
+      "model": "MiniMaxAI/MiniMax-M2.5"
      },
      "resolved": {
       "engine_version": "0.16.0",
@@ -5204,7 +5523,8 @@
     "32": {
      "passed": {
       "gpu_memory_utilization": 0.95,
-      "max_model_len": 9416
+      "max_model_len": 9416,
+      "model": "MiniMaxAI/MiniMax-M2.5"
      },
      "resolved": {
       "engine_version": "0.16.0",
@@ -5215,7 +5535,8 @@
     "4": {
      "passed": {
       "gpu_memory_utilization": 0.95,
-      "max_model_len": 9416
+      "max_model_len": 9416,
+      "model": "MiniMaxAI/MiniMax-M2.5"
      },
      "resolved": {
       "engine_version": "0.16.0",
@@ -5226,7 +5547,8 @@
     "64": {
      "passed": {
       "gpu_memory_utilization": 0.95,
-      "max_model_len": 9416
+      "max_model_len": 9416,
+      "model": "MiniMaxAI/MiniMax-M2.5"
      },
      "resolved": {
       "engine_version": "0.16.0",
@@ -5237,7 +5559,8 @@
     "8": {
      "passed": {
       "gpu_memory_utilization": 0.95,
-      "max_model_len": 9416
+      "max_model_len": 9416,
+      "model": "MiniMaxAI/MiniMax-M2.5"
      },
      "resolved": {
       "engine_version": "0.16.0",
@@ -5259,9 +5582,11 @@
      "passed": {
       "enable_prefix_caching": false,
       "gpu_memory_utilization": 0.95,
+      "max_cudagraph_capture_size": "None",
       "max_model_len": 9472,
       "max_num_batched_tokens": 32768,
-      "max_num_seqs": 512
+      "max_num_seqs": 512,
+      "model": "MiniMaxAI/MiniMax-M2.5"
      },
      "resolved": {
       "engine_version": "0.22.0",
@@ -5273,9 +5598,11 @@
      "passed": {
       "enable_prefix_caching": false,
       "gpu_memory_utilization": 0.95,
+      "max_cudagraph_capture_size": "None",
       "max_model_len": 9472,
       "max_num_batched_tokens": 32768,
-      "max_num_seqs": 512
+      "max_num_seqs": 512,
+      "model": "MiniMaxAI/MiniMax-M2.5"
      },
      "resolved": {
       "engine_version": "0.22.0",
@@ -5287,9 +5614,11 @@
      "passed": {
       "enable_prefix_caching": false,
       "gpu_memory_utilization": 0.95,
+      "max_cudagraph_capture_size": "None",
       "max_model_len": 9472,
       "max_num_batched_tokens": 32768,
-      "max_num_seqs": 512
+      "max_num_seqs": 512,
+      "model": "MiniMaxAI/MiniMax-M2.5"
      },
      "resolved": {
       "engine_version": "0.22.0",
@@ -5301,9 +5630,11 @@
      "passed": {
       "enable_prefix_caching": false,
       "gpu_memory_utilization": 0.95,
+      "max_cudagraph_capture_size": "None",
       "max_model_len": 9472,
       "max_num_batched_tokens": 32768,
-      "max_num_seqs": 512
+      "max_num_seqs": 512,
+      "model": "MiniMaxAI/MiniMax-M2.5"
      },
      "resolved": {
       "engine_version": "0.22.0",
@@ -5315,9 +5646,11 @@
      "passed": {
       "enable_prefix_caching": false,
       "gpu_memory_utilization": 0.95,
+      "max_cudagraph_capture_size": "None",
       "max_model_len": 9472,
       "max_num_batched_tokens": 32768,
-      "max_num_seqs": 512
+      "max_num_seqs": 512,
+      "model": "MiniMaxAI/MiniMax-M2.5"
      },
      "resolved": {
       "engine_version": "0.22.0",
@@ -5329,9 +5662,11 @@
      "passed": {
       "enable_prefix_caching": false,
       "gpu_memory_utilization": 0.95,
+      "max_cudagraph_capture_size": "None",
       "max_model_len": 9472,
       "max_num_batched_tokens": 32768,
-      "max_num_seqs": 512
+      "max_num_seqs": 512,
+      "model": "MiniMaxAI/MiniMax-M2.5"
      },
      "resolved": {
       "engine_version": "0.22.0",
@@ -5343,9 +5678,11 @@
      "passed": {
       "enable_prefix_caching": false,
       "gpu_memory_utilization": 0.95,
+      "max_cudagraph_capture_size": "None",
       "max_model_len": 9472,
       "max_num_batched_tokens": 32768,
-      "max_num_seqs": 512
+      "max_num_seqs": 512,
+      "model": "MiniMaxAI/MiniMax-M2.5"
      },
      "resolved": {
       "engine_version": "0.22.0",
@@ -5357,9 +5694,11 @@
      "passed": {
       "enable_prefix_caching": false,
       "gpu_memory_utilization": 0.95,
+      "max_cudagraph_capture_size": "None",
       "max_model_len": 9472,
       "max_num_batched_tokens": 32768,
-      "max_num_seqs": 512
+      "max_num_seqs": 512,
+      "model": "MiniMaxAI/MiniMax-M2.5"
      },
      "resolved": {
       "engine_version": "0.22.0",
@@ -5371,9 +5710,11 @@
      "passed": {
       "enable_prefix_caching": false,
       "gpu_memory_utilization": 0.95,
+      "max_cudagraph_capture_size": "None",
       "max_model_len": 9472,
       "max_num_batched_tokens": 32768,
-      "max_num_seqs": 512
+      "max_num_seqs": 512,
+      "model": "MiniMaxAI/MiniMax-M2.5"
      },
      "resolved": {
       "engine_version": "0.22.0",
@@ -5393,9 +5734,11 @@
    "by_concurrency": {
     "128": {
      "passed": {
+      "enable_expert_parallel": true,
       "enable_prefix_caching": false,
       "gpu_memory_utilization": 0.95,
-      "max_model_len": 2304
+      "max_model_len": 2304,
+      "model": "MiniMaxAI/MiniMax-M2.5"
      },
      "resolved": {
       "engine_version": "0.21.0",
@@ -5405,9 +5748,11 @@
     },
     "16": {
      "passed": {
+      "enable_expert_parallel": true,
       "enable_prefix_caching": false,
       "gpu_memory_utilization": 0.95,
-      "max_model_len": 2304
+      "max_model_len": 2304,
+      "model": "MiniMaxAI/MiniMax-M2.5"
      },
      "resolved": {
       "engine_version": "0.21.0",
@@ -5417,9 +5762,11 @@
     },
     "32": {
      "passed": {
+      "enable_expert_parallel": true,
       "enable_prefix_caching": false,
       "gpu_memory_utilization": 0.95,
-      "max_model_len": 2304
+      "max_model_len": 2304,
+      "model": "MiniMaxAI/MiniMax-M2.5"
      },
      "resolved": {
       "engine_version": "0.21.0",
@@ -5429,9 +5776,11 @@
     },
     "4": {
      "passed": {
+      "enable_expert_parallel": true,
       "enable_prefix_caching": false,
       "gpu_memory_utilization": 0.95,
-      "max_model_len": 2304
+      "max_model_len": 2304,
+      "model": "MiniMaxAI/MiniMax-M2.5"
      },
      "resolved": {
       "engine_version": "0.21.0",
@@ -5441,9 +5790,11 @@
     },
     "64": {
      "passed": {
+      "enable_expert_parallel": true,
       "enable_prefix_caching": false,
       "gpu_memory_utilization": 0.95,
-      "max_model_len": 2304
+      "max_model_len": 2304,
+      "model": "MiniMaxAI/MiniMax-M2.5"
      },
      "resolved": {
       "engine_version": "0.21.0",
@@ -5453,9 +5804,11 @@
     },
     "8": {
      "passed": {
+      "enable_expert_parallel": true,
       "enable_prefix_caching": false,
       "gpu_memory_utilization": 0.95,
-      "max_model_len": 2304
+      "max_model_len": 2304,
+      "model": "MiniMaxAI/MiniMax-M2.5"
      },
      "resolved": {
       "engine_version": "0.21.0",
@@ -5475,9 +5828,11 @@
    "by_concurrency": {
     "128": {
      "passed": {
+      "enable_expert_parallel": true,
       "enable_prefix_caching": false,
       "gpu_memory_utilization": 0.95,
-      "max_model_len": 9416
+      "max_model_len": 9416,
+      "model": "MiniMaxAI/MiniMax-M2.5"
      },
      "resolved": {
       "engine_version": "0.18.0",
@@ -5487,9 +5842,11 @@
     },
     "16": {
      "passed": {
+      "enable_expert_parallel": true,
       "enable_prefix_caching": false,
       "gpu_memory_utilization": 0.95,
-      "max_model_len": 9416
+      "max_model_len": 9416,
+      "model": "MiniMaxAI/MiniMax-M2.5"
      },
      "resolved": {
       "engine_version": "0.18.0",
@@ -5499,9 +5856,11 @@
     },
     "32": {
      "passed": {
+      "enable_expert_parallel": true,
       "enable_prefix_caching": false,
       "gpu_memory_utilization": 0.95,
-      "max_model_len": 9416
+      "max_model_len": 9416,
+      "model": "MiniMaxAI/MiniMax-M2.5"
      },
      "resolved": {
       "engine_version": "0.18.0",
@@ -5511,9 +5870,11 @@
     },
     "4": {
      "passed": {
+      "enable_expert_parallel": true,
       "enable_prefix_caching": false,
       "gpu_memory_utilization": 0.95,
-      "max_model_len": 9416
+      "max_model_len": 9416,
+      "model": "MiniMaxAI/MiniMax-M2.5"
      },
      "resolved": {
       "engine_version": "0.18.0",
@@ -5523,9 +5884,11 @@
     },
     "64": {
      "passed": {
+      "enable_expert_parallel": true,
       "enable_prefix_caching": false,
       "gpu_memory_utilization": 0.95,
-      "max_model_len": 9416
+      "max_model_len": 9416,
+      "model": "MiniMaxAI/MiniMax-M2.5"
      },
      "resolved": {
       "engine_version": "0.18.0",
@@ -5535,9 +5898,11 @@
     },
     "8": {
      "passed": {
+      "enable_expert_parallel": true,
       "enable_prefix_caching": false,
       "gpu_memory_utilization": 0.95,
-      "max_model_len": 9416
+      "max_model_len": 9416,
+      "model": "MiniMaxAI/MiniMax-M2.5"
      },
      "resolved": {
       "engine_version": "0.18.0",
@@ -5557,9 +5922,11 @@
    "by_concurrency": {
     "128": {
      "passed": {
+      "enable_expert_parallel": true,
       "enable_prefix_caching": false,
       "gpu_memory_utilization": 0.95,
-      "max_model_len": 9472
+      "max_model_len": 9472,
+      "model": "MiniMaxAI/MiniMax-M2.5"
      },
      "resolved": {
       "engine_version": "0.21.0",
@@ -5569,9 +5936,11 @@
     },
     "16": {
      "passed": {
+      "enable_expert_parallel": true,
       "enable_prefix_caching": false,
       "gpu_memory_utilization": 0.95,
-      "max_model_len": 9472
+      "max_model_len": 9472,
+      "model": "MiniMaxAI/MiniMax-M2.5"
      },
      "resolved": {
       "engine_version": "0.21.0",
@@ -5581,9 +5950,11 @@
     },
     "32": {
      "passed": {
+      "enable_expert_parallel": true,
       "enable_prefix_caching": false,
       "gpu_memory_utilization": 0.95,
-      "max_model_len": 9472
+      "max_model_len": 9472,
+      "model": "MiniMaxAI/MiniMax-M2.5"
      },
      "resolved": {
       "engine_version": "0.21.0",
@@ -5593,9 +5964,11 @@
     },
     "4": {
      "passed": {
+      "enable_expert_parallel": true,
       "enable_prefix_caching": false,
       "gpu_memory_utilization": 0.95,
-      "max_model_len": 9472
+      "max_model_len": 9472,
+      "model": "MiniMaxAI/MiniMax-M2.5"
      },
      "resolved": {
       "engine_version": "0.21.0",
@@ -5605,9 +5978,11 @@
     },
     "64": {
      "passed": {
+      "enable_expert_parallel": true,
       "enable_prefix_caching": false,
       "gpu_memory_utilization": 0.95,
-      "max_model_len": 9472
+      "max_model_len": 9472,
+      "model": "MiniMaxAI/MiniMax-M2.5"
      },
      "resolved": {
       "engine_version": "0.21.0",
@@ -5617,9 +5992,11 @@
     },
     "8": {
      "passed": {
+      "enable_expert_parallel": true,
       "enable_prefix_caching": false,
       "gpu_memory_utilization": 0.95,
-      "max_model_len": 9472
+      "max_model_len": 9472,
+      "model": "MiniMaxAI/MiniMax-M2.5"
      },
      "resolved": {
       "engine_version": "0.21.0",
@@ -5644,7 +6021,8 @@
       "gpu_memory_utilization": 0.95,
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 2304,
-      "max_num_batched_tokens": 2048
+      "max_num_batched_tokens": 2048,
+      "model": "/scratch/fsw/models/MiniMax-M3-NVFP4"
      },
      "resolved": {
       "resolved_gpu_kv_tokens": 1033728,
@@ -5658,7 +6036,8 @@
       "gpu_memory_utilization": 0.95,
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 2304,
-      "max_num_batched_tokens": 2048
+      "max_num_batched_tokens": 2048,
+      "model": "/scratch/fsw/models/MiniMax-M3-NVFP4"
      },
      "resolved": {
       "resolved_gpu_kv_tokens": 1033728,
@@ -5672,7 +6051,8 @@
       "gpu_memory_utilization": 0.95,
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 2304,
-      "max_num_batched_tokens": 2048
+      "max_num_batched_tokens": 2048,
+      "model": "/scratch/fsw/models/MiniMax-M3-NVFP4"
      },
      "resolved": {
       "resolved_gpu_kv_tokens": 1033728,
@@ -5696,7 +6076,8 @@
       "gpu_memory_utilization": 0.95,
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 9472,
-      "max_num_batched_tokens": 16384
+      "max_num_batched_tokens": 16384,
+      "model": "/scratch/fsw/models/MiniMax-M3-NVFP4"
      },
      "resolved": {
       "resolved_gpu_kv_tokens": 1291264,
@@ -5710,7 +6091,8 @@
       "gpu_memory_utilization": 0.95,
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 9472,
-      "max_num_batched_tokens": 16384
+      "max_num_batched_tokens": 16384,
+      "model": "/scratch/fsw/models/MiniMax-M3-NVFP4"
      },
      "resolved": {
       "resolved_gpu_kv_tokens": 1291264,
@@ -5724,7 +6106,8 @@
       "gpu_memory_utilization": 0.95,
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 9472,
-      "max_num_batched_tokens": 16384
+      "max_num_batched_tokens": 16384,
+      "model": "/scratch/fsw/models/MiniMax-M3-NVFP4"
      },
      "resolved": {
       "resolved_gpu_kv_tokens": 1291264,
@@ -5738,7 +6121,8 @@
       "gpu_memory_utilization": 0.95,
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 9472,
-      "max_num_batched_tokens": 16384
+      "max_num_batched_tokens": 16384,
+      "model": "/scratch/fsw/models/MiniMax-M3-NVFP4"
      },
      "resolved": {
       "resolved_gpu_kv_tokens": 1291264,
@@ -5752,7 +6136,8 @@
       "gpu_memory_utilization": 0.95,
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 9472,
-      "max_num_batched_tokens": 16384
+      "max_num_batched_tokens": 16384,
+      "model": "/scratch/fsw/models/MiniMax-M3-NVFP4"
      },
      "resolved": {
       "resolved_gpu_kv_tokens": 1291264,
@@ -5766,7 +6151,8 @@
       "gpu_memory_utilization": 0.95,
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 9472,
-      "max_num_batched_tokens": 16384
+      "max_num_batched_tokens": 16384,
+      "model": "/scratch/fsw/models/MiniMax-M3-NVFP4"
      },
      "resolved": {
       "resolved_gpu_kv_tokens": 1291264,
@@ -5780,7 +6166,8 @@
       "gpu_memory_utilization": 0.95,
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 9472,
-      "max_num_batched_tokens": 16384
+      "max_num_batched_tokens": 16384,
+      "model": "/scratch/fsw/models/MiniMax-M3-NVFP4"
      },
      "resolved": {
       "resolved_gpu_kv_tokens": 1291264,
@@ -5804,7 +6191,8 @@
       "gpu_memory_utilization": 0.95,
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 2304,
-      "max_num_batched_tokens": 2048
+      "max_num_batched_tokens": 2048,
+      "model": "/scratch/fsw/models/MiniMax-M3-NVFP4"
      },
      "resolved": {
       "resolved_gpu_kv_tokens": 3709184,
@@ -5818,7 +6206,8 @@
       "gpu_memory_utilization": 0.95,
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 2304,
-      "max_num_batched_tokens": 2048
+      "max_num_batched_tokens": 2048,
+      "model": "/scratch/fsw/models/MiniMax-M3-NVFP4"
      },
      "resolved": {
       "resolved_gpu_kv_tokens": 3709184,
@@ -5832,7 +6221,8 @@
       "gpu_memory_utilization": 0.95,
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 2304,
-      "max_num_batched_tokens": 2048
+      "max_num_batched_tokens": 2048,
+      "model": "/scratch/fsw/models/MiniMax-M3-NVFP4"
      },
      "resolved": {
       "resolved_gpu_kv_tokens": 3709184,
@@ -5846,7 +6236,8 @@
       "gpu_memory_utilization": 0.95,
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 2304,
-      "max_num_batched_tokens": 2048
+      "max_num_batched_tokens": 2048,
+      "model": "/scratch/fsw/models/MiniMax-M3-NVFP4"
      },
      "resolved": {
       "resolved_gpu_kv_tokens": 3709184,
@@ -5870,7 +6261,8 @@
       "gpu_memory_utilization": 0.95,
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 9472,
-      "max_num_batched_tokens": 16384
+      "max_num_batched_tokens": 16384,
+      "model": "/scratch/fsw/models/MiniMax-M3-NVFP4"
      },
      "resolved": {
       "resolved_gpu_kv_tokens": 4864127,
@@ -5884,7 +6276,8 @@
       "gpu_memory_utilization": 0.95,
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 9472,
-      "max_num_batched_tokens": 16384
+      "max_num_batched_tokens": 16384,
+      "model": "/scratch/fsw/models/MiniMax-M3-NVFP4"
      },
      "resolved": {
       "resolved_gpu_kv_tokens": 4864127,
@@ -5898,7 +6291,8 @@
       "gpu_memory_utilization": 0.95,
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 9472,
-      "max_num_batched_tokens": 16384
+      "max_num_batched_tokens": 16384,
+      "model": "/scratch/fsw/models/MiniMax-M3-NVFP4"
      },
      "resolved": {
       "resolved_gpu_kv_tokens": 4864127,
@@ -5912,7 +6306,8 @@
       "gpu_memory_utilization": 0.95,
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 9472,
-      "max_num_batched_tokens": 16384
+      "max_num_batched_tokens": 16384,
+      "model": "/scratch/fsw/models/MiniMax-M3-NVFP4"
      },
      "resolved": {
       "resolved_gpu_kv_tokens": 4864127,
@@ -5936,7 +6331,8 @@
       "gpu_memory_utilization": 0.95,
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 2304,
-      "max_num_batched_tokens": 2048
+      "max_num_batched_tokens": 2048,
+      "model": "/scratch/fsw/models/MiniMax-M3-NVFP4"
      },
      "resolved": {
       "resolved_gpu_kv_tokens": 4759424,
@@ -5950,7 +6346,8 @@
       "gpu_memory_utilization": 0.95,
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 2304,
-      "max_num_batched_tokens": 2048
+      "max_num_batched_tokens": 2048,
+      "model": "/scratch/fsw/models/MiniMax-M3-NVFP4"
      },
      "resolved": {
       "resolved_gpu_kv_tokens": 4759424,
@@ -5964,7 +6361,8 @@
       "gpu_memory_utilization": 0.95,
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 2304,
-      "max_num_batched_tokens": 2048
+      "max_num_batched_tokens": 2048,
+      "model": "/scratch/fsw/models/MiniMax-M3-NVFP4"
      },
      "resolved": {
       "resolved_gpu_kv_tokens": 4759424,
@@ -5978,7 +6376,8 @@
       "gpu_memory_utilization": 0.95,
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 2304,
-      "max_num_batched_tokens": 2048
+      "max_num_batched_tokens": 2048,
+      "model": "/scratch/fsw/models/MiniMax-M3-NVFP4"
      },
      "resolved": {
       "resolved_gpu_kv_tokens": 4759424,
@@ -6002,7 +6401,8 @@
       "gpu_memory_utilization": 0.95,
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 9472,
-      "max_num_batched_tokens": 16384
+      "max_num_batched_tokens": 16384,
+      "model": "/scratch/fsw/models/MiniMax-M3-NVFP4"
      },
      "resolved": {
       "resolved_gpu_kv_tokens": 6232320,
@@ -6016,7 +6416,8 @@
       "gpu_memory_utilization": 0.95,
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 9472,
-      "max_num_batched_tokens": 16384
+      "max_num_batched_tokens": 16384,
+      "model": "/scratch/fsw/models/MiniMax-M3-NVFP4"
      },
      "resolved": {
       "resolved_gpu_kv_tokens": 6232320,
@@ -6030,7 +6431,8 @@
       "gpu_memory_utilization": 0.95,
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 9472,
-      "max_num_batched_tokens": 16384
+      "max_num_batched_tokens": 16384,
+      "model": "/scratch/fsw/models/MiniMax-M3-NVFP4"
      },
      "resolved": {
       "resolved_gpu_kv_tokens": 6232320,
@@ -6050,11 +6452,13 @@
     "128": {
      "passed": {
       "block_size": 128,
+      "enable_expert_parallel": true,
       "enable_prefix_caching": false,
       "gpu_memory_utilization": 0.9,
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 2304,
-      "max_num_batched_tokens": 2048
+      "max_num_batched_tokens": 2048,
+      "model": "/scratch/models/MiniMax-M3-NVFP4"
      },
      "resolved": {
       "resolved_gpu_kv_tokens": 1644416,
@@ -6064,11 +6468,13 @@
     "16": {
      "passed": {
       "block_size": 128,
+      "enable_expert_parallel": true,
       "enable_prefix_caching": false,
       "gpu_memory_utilization": 0.9,
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 2304,
-      "max_num_batched_tokens": 2048
+      "max_num_batched_tokens": 2048,
+      "model": "/scratch/models/MiniMax-M3-NVFP4"
      },
      "resolved": {
       "resolved_gpu_kv_tokens": 1644416,
@@ -6078,11 +6484,13 @@
     "32": {
      "passed": {
       "block_size": 128,
+      "enable_expert_parallel": true,
       "enable_prefix_caching": false,
       "gpu_memory_utilization": 0.9,
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 2304,
-      "max_num_batched_tokens": 2048
+      "max_num_batched_tokens": 2048,
+      "model": "/scratch/models/MiniMax-M3-NVFP4"
      },
      "resolved": {
       "resolved_gpu_kv_tokens": 1644416,
@@ -6092,11 +6500,13 @@
     "64": {
      "passed": {
       "block_size": 128,
+      "enable_expert_parallel": true,
       "enable_prefix_caching": false,
       "gpu_memory_utilization": 0.9,
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 2304,
-      "max_num_batched_tokens": 2048
+      "max_num_batched_tokens": 2048,
+      "model": "/scratch/models/MiniMax-M3-NVFP4"
      },
      "resolved": {
       "resolved_gpu_kv_tokens": 1644416,
@@ -6120,7 +6530,8 @@
       "gpu_memory_utilization": 0.95,
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 2304,
-      "max_num_batched_tokens": 2048
+      "max_num_batched_tokens": 2048,
+      "model": "/scratch/models/MiniMax-M3-NVFP4"
      },
      "resolved": {
       "resolved_gpu_kv_tokens": 3031552,
@@ -6134,7 +6545,8 @@
       "gpu_memory_utilization": 0.95,
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 2304,
-      "max_num_batched_tokens": 2048
+      "max_num_batched_tokens": 2048,
+      "model": "/scratch/models/MiniMax-M3-NVFP4"
      },
      "resolved": {
       "resolved_gpu_kv_tokens": 3031552,
@@ -6148,7 +6560,8 @@
       "gpu_memory_utilization": 0.95,
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 2304,
-      "max_num_batched_tokens": 2048
+      "max_num_batched_tokens": 2048,
+      "model": "/scratch/models/MiniMax-M3-NVFP4"
      },
      "resolved": {
       "resolved_gpu_kv_tokens": 3031552,
@@ -6162,7 +6575,8 @@
       "gpu_memory_utilization": 0.95,
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 2304,
-      "max_num_batched_tokens": 2048
+      "max_num_batched_tokens": 2048,
+      "model": "/scratch/models/MiniMax-M3-NVFP4"
      },
      "resolved": {
       "resolved_gpu_kv_tokens": 3031552,
@@ -6176,7 +6590,8 @@
       "gpu_memory_utilization": 0.95,
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 2304,
-      "max_num_batched_tokens": 2048
+      "max_num_batched_tokens": 2048,
+      "model": "/scratch/models/MiniMax-M3-NVFP4"
      },
      "resolved": {
       "resolved_gpu_kv_tokens": 3031552,
@@ -6190,7 +6605,8 @@
       "gpu_memory_utilization": 0.95,
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 2304,
-      "max_num_batched_tokens": 2048
+      "max_num_batched_tokens": 2048,
+      "model": "/scratch/models/MiniMax-M3-NVFP4"
      },
      "resolved": {
       "resolved_gpu_kv_tokens": 3031552,
@@ -6204,7 +6620,8 @@
       "gpu_memory_utilization": 0.95,
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 2304,
-      "max_num_batched_tokens": 2048
+      "max_num_batched_tokens": 2048,
+      "model": "/scratch/models/MiniMax-M3-NVFP4"
      },
      "resolved": {
       "resolved_gpu_kv_tokens": 3031552,
@@ -6228,7 +6645,8 @@
       "gpu_memory_utilization": 0.95,
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 9472,
-      "max_num_batched_tokens": 16384
+      "max_num_batched_tokens": 16384,
+      "model": "/scratch/models/MiniMax-M3-NVFP4"
      },
      "resolved": {
       "resolved_gpu_kv_tokens": 3688320,
@@ -6242,7 +6660,8 @@
       "gpu_memory_utilization": 0.95,
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 9472,
-      "max_num_batched_tokens": 16384
+      "max_num_batched_tokens": 16384,
+      "model": "/scratch/models/MiniMax-M3-NVFP4"
      },
      "resolved": {
       "resolved_gpu_kv_tokens": 3688320,
@@ -6256,7 +6675,8 @@
       "gpu_memory_utilization": 0.95,
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 9472,
-      "max_num_batched_tokens": 16384
+      "max_num_batched_tokens": 16384,
+      "model": "/scratch/models/MiniMax-M3-NVFP4"
      },
      "resolved": {
       "resolved_gpu_kv_tokens": 3688320,
@@ -6270,7 +6690,8 @@
       "gpu_memory_utilization": 0.95,
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 9472,
-      "max_num_batched_tokens": 16384
+      "max_num_batched_tokens": 16384,
+      "model": "/scratch/models/MiniMax-M3-NVFP4"
      },
      "resolved": {
       "resolved_gpu_kv_tokens": 3688320,
@@ -6284,7 +6705,8 @@
       "gpu_memory_utilization": 0.95,
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 9472,
-      "max_num_batched_tokens": 16384
+      "max_num_batched_tokens": 16384,
+      "model": "/scratch/models/MiniMax-M3-NVFP4"
      },
      "resolved": {
       "resolved_gpu_kv_tokens": 3688320,
@@ -6298,7 +6720,8 @@
       "gpu_memory_utilization": 0.95,
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 9472,
-      "max_num_batched_tokens": 16384
+      "max_num_batched_tokens": 16384,
+      "model": "/scratch/models/MiniMax-M3-NVFP4"
      },
      "resolved": {
       "resolved_gpu_kv_tokens": 3688320,
@@ -6312,7 +6735,8 @@
       "gpu_memory_utilization": 0.95,
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 9472,
-      "max_num_batched_tokens": 16384
+      "max_num_batched_tokens": 16384,
+      "model": "/scratch/models/MiniMax-M3-NVFP4"
      },
      "resolved": {
       "resolved_gpu_kv_tokens": 3688320,
@@ -6336,7 +6760,8 @@
       "gpu_memory_utilization": 0.95,
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 2304,
-      "max_num_batched_tokens": 2048
+      "max_num_batched_tokens": 2048,
+      "model": "/scratch/models/MiniMax-M3-NVFP4"
      },
      "resolved": {
       "resolved_gpu_kv_tokens": 6713600,
@@ -6350,7 +6775,8 @@
       "gpu_memory_utilization": 0.95,
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 2304,
-      "max_num_batched_tokens": 2048
+      "max_num_batched_tokens": 2048,
+      "model": "/scratch/models/MiniMax-M3-NVFP4"
      },
      "resolved": {
       "resolved_gpu_kv_tokens": 6713600,
@@ -6364,7 +6790,8 @@
       "gpu_memory_utilization": 0.95,
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 2304,
-      "max_num_batched_tokens": 2048
+      "max_num_batched_tokens": 2048,
+      "model": "/scratch/models/MiniMax-M3-NVFP4"
      },
      "resolved": {
       "resolved_gpu_kv_tokens": 6713600,
@@ -6378,7 +6805,8 @@
       "gpu_memory_utilization": 0.95,
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 2304,
-      "max_num_batched_tokens": 2048
+      "max_num_batched_tokens": 2048,
+      "model": "/scratch/models/MiniMax-M3-NVFP4"
      },
      "resolved": {
       "resolved_gpu_kv_tokens": 6713600,
@@ -6392,7 +6820,8 @@
       "gpu_memory_utilization": 0.95,
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 2304,
-      "max_num_batched_tokens": 2048
+      "max_num_batched_tokens": 2048,
+      "model": "/scratch/models/MiniMax-M3-NVFP4"
      },
      "resolved": {
       "resolved_gpu_kv_tokens": 6713600,
@@ -6406,7 +6835,8 @@
       "gpu_memory_utilization": 0.95,
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 2304,
-      "max_num_batched_tokens": 2048
+      "max_num_batched_tokens": 2048,
+      "model": "/scratch/models/MiniMax-M3-NVFP4"
      },
      "resolved": {
       "resolved_gpu_kv_tokens": 6713600,
@@ -6420,7 +6850,8 @@
       "gpu_memory_utilization": 0.95,
       "max_cudagraph_capture_size": 2048,
       "max_model_len": 2304,
-      "max_num_batched_tokens": 2048
+      "max_num_batched_tokens": 2048,
+      "model": "/scratch/models/MiniMax-M3-NVFP4"
      },
      "resolved": {
       "resolved_gpu_kv_tokens": 6713600,
