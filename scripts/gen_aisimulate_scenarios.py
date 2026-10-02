@@ -46,11 +46,16 @@ COEFFICIENTS = (
 
 # Artifact precision -> the engine's quantization name. bf16 means the checkpoint is served
 # unquantised, which the schema spells as an absent quantization rather than a name.
-QUANT = {"fp4": "nvfp4", "fp8": "fp8", "bf16": None}
+# int4 is a weight-only integer format the checkpoint declares in its own
+# quantization_config, which the graph already read: servedDType returns the CHECKPOINT
+# width for compressed-tensors rather than a flag width, so stating a flag here would add
+# nothing and risk disagreeing with the graph. Kimi-K2.5 is the case in hand --
+# compressed-tensors at group_size 32, which the catalog derives as weight_dtype int4.
+QUANT = {"fp4": "nvfp4", "fp8": "fp8", "bf16": None, "int4": None}
 
 # A KV cache dtype is not stated by the corpus. fp8 KV is the default for the fp8 and fp4
 # arms in these frameworks; bf16 serving keeps an unquantised cache.
-CACHE_DTYPE = {"fp4": "fp8", "fp8": "fp8", "bf16": "auto"}
+CACHE_DTYPE = {"fp4": "fp8", "fp8": "fp8", "bf16": "auto", "int4": "auto"}
 
 GPUS_PER_NODE = 8
 
