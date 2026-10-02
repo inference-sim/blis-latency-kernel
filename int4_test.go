@@ -46,3 +46,42 @@ func TestINT4StoresFourBitsOfPayload(t *testing.T) {
 		t.Error("int4 should be half of fp8")
 	}
 }
+
+// An "auto" KV cache follows the model's COMPUTE dtype, not its weight storage width.
+//
+// A W4A16 checkpoint stores weights at four bits and computes in bf16. Following the
+// storage width gave a half-byte KV element, which rounded to a per-block figure of
+// zero once paged, and the kernel refused twelve Kimi-K2.5 sweeps rather than divide a
+// budget by it. vLLM offers 4-bit KV, but only when named; "auto" never selects one.
+func TestAnAutoCacheFollowsTheComputeWidthNotTheStorageWidth(t *testing.T) {
+	for _, tc := range []struct {
+		served model.DType
+		want   float64
+		why    string
+	}{
+		{model.DTypeINT4, 2, "W4A16 computes in bf16"},
+		{model.DTypeNVFP4, 2, "a 4-bit float is a storage format too"},
+		{model.DTypeMXFP4, 2, "likewise"},
+		{model.DTypeFP8, 1, "fp8 is already a byte wide, so it is its own compute width"},
+		{model.DTypeBF16, 2, "unquantized passes through"},
+		{model.DTypeFP32, 4, "and so does fp32"},
+	} {
+		if got := cacheDTypeBytes("auto", tc.served); got != tc.want {
+			t.Errorf("auto cache on a %s model = %.1f bytes, want %.1f (%s)",
+				tc.served, got, tc.want, tc.why)
+		}
+		// An empty setting means the engine's default, which is auto.
+		if got := cacheDTypeBytes("", tc.served); got != tc.want {
+			t.Errorf("empty cache dtype on a %s model = %.1f, want %.1f",
+				tc.served, got, tc.want)
+		}
+	}
+	// An explicitly named narrow cache is still honoured: the rule above is about what
+	// "auto" resolves to, not a floor on every cache.
+	if got := cacheDTypeBytes("fp8", model.DTypeINT4); got != 1 {
+		t.Errorf("an explicit fp8 cache = %.1f bytes, want 1", got)
+	}
+	if got := cacheDTypeBytes("nvfp4", model.DTypeBF16); got != 0.5 {
+		t.Errorf("an explicit nvfp4 cache = %.1f bytes, want 0.5", got)
+	}
+}

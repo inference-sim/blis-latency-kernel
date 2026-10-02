@@ -484,11 +484,28 @@ func servedDType(checkpoint model.DType, quantization string) (model.DType, erro
 		quantization, checkpoint)
 }
 
-// cacheDTypeBytes resolves the KV or state cache width. "auto" follows the model's weight
-// dtype, which is what an engine does.
+// cacheDTypeBytes resolves the KV or state cache width.
+//
+// "auto" follows the model's COMPUTE dtype, which is what vLLM documents: "If auto,
+// will use model data type" (config/cache.py). That is not the weight storage width on
+// a quantized checkpoint, and the difference is not cosmetic. A W4A16 checkpoint --
+// Kimi-K2.5 is compressed-tensors int4 at group_size 32 -- stores weights at four bits
+// and computes in bf16, so following the weight width gave a half-byte KV element and,
+// once paged, a per-block figure of zero. A budget cannot be divided by that, and the
+// kernel refused twelve sweeps rather than guess.
+//
+// vLLM does offer 4-bit KV (int4_per_token_head, turboquant_4bit_nc), but only when
+// named. "auto" never selects one, so neither does this.
 func cacheDTypeBytes(declared string, fallback model.DType) float64 {
 	switch declared {
 	case "", "auto":
+		// A sub-byte weight format is a storage width, not a compute width. The cache
+		// follows what the kernel computes in, which for every such checkpoint in this
+		// catalog is bf16; a format that is already at least a byte wide is its own
+		// compute width and passes through.
+		if fallback.Bytes() < 1 {
+			return model.DTypeBF16.Bytes()
+		}
 		return fallback.Bytes()
 	case "fp8", "fp8_e4m3", "fp8_e5m2", "fp8_inc", "fp8_ds_mla":
 		return 1
