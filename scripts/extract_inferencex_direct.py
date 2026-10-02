@@ -119,7 +119,7 @@ def rows() -> list[dict]:
            b.isl, b.osl, b.conc,
            (b.metrics->>'mean_tpot')::numeric * 1e6,
            (b.metrics->>'mean_ttft')::numeric * 1e6,
-           b.date, b.config_id,
+           b.date, b.config_id, coalesce(b.image, ''),
            -- The args line, extracted and flattened IN SQL. A whole server log runs
            -- 50 KB to 335 KB and carries tabs, newlines and carriage returns, any of
            -- which splits a row in psql's delimited output: shipping the log whole
@@ -143,9 +143,9 @@ def rows() -> list[dict]:
     """
     out = []
     for r in query(sql):
-        if len(r) < 16:
+        if len(r) < 17:
             continue
-        passed = parse_args_line(r[15])
+        passed = parse_args_line(r[16])
         if not passed:
             continue
         out.append({
@@ -154,7 +154,7 @@ def rows() -> list[dict]:
             "dp_attention": r[7] == "t",
             "isl": int(r[8]), "osl": int(r[9]), "conc": int(r[10]),
             "tpot_us": float(r[11]), "ttft_us": float(r[12]),
-            "date": r[13], "config_id": int(r[14]),
+            "date": r[13], "config_id": int(r[14]), "image": r[15],
             "passed": passed,
         })
     return out
@@ -178,8 +178,14 @@ def main() -> int:
             skipped[f"no coefficients for {r['gpu_raw']}"] += 1
             continue
         conf = tuple(str(r["passed"].get(f)) for f in DEPLOYMENT_FIELDS)
+        # The container image is part of the deployment, not metadata. On config 1776 at
+        # 8k1k one stated configuration across three dates reads 4,289 to 22,389 us at
+        # concurrency 1: three nightlies cluster and the 2026-08-04 one is 5x slower.
+        # That is a build regression, so pooling dates averages two engines. Keying on
+        # it takes the median within-point spread from 1.037x to 1.006x, the worst from
+        # 8.79x to 3.13x, and raises the sweep count because builds separate correctly.
         key = (model, chip, r["precision"], r["tp"], r["ep"], r["dp_attention"],
-               r["isl"], r["osl"], conf)
+               r["isl"], r["osl"], conf, r["image"])
         sw = sweeps.setdefault(key, {
             "model": model,
             "gpu": chip,
@@ -195,6 +201,7 @@ def main() -> int:
                             "moe_tp_size": 1 if r["ep"] > 1 else r["tp"]},
             "stated_config": {f: r["passed"].get(f) for f in DEPLOYMENT_FIELDS
                               if r["passed"].get(f) is not None},
+            "image": r["image"],
             "config_ids": set(),
             "dates": set(),
             "points": {},
@@ -286,12 +293,13 @@ def main() -> int:
         },
         "repeat_agreement": (
             "Where a point's repeated runs agree on every per-point setting, their "
-            "measured TPOT agrees to a median 1.012x over 876 points, 70% within "
-            "5%. Where they disagree on one, the median is 1.493x over 335 points, "
-            "which is the settings differing rather than noise: max_num_seqs and the "
-            "capture size both change performance. Each point records what it ran, "
-            "with a list where its runs disagree, so a consumer can restrict to the "
-            "agreeing set."),
+            "measured TPOT agrees to a median 1.000x over 551 points, 95% within 5%. "
+            "Where they disagree on one, the median is 1.211x over 243 points, which "
+            "is the settings differing rather than noise: max_num_seqs and the capture "
+            "size both change performance. Each point records what it ran, with a list "
+            "where its runs disagree, so a consumer can restrict to the agreeing set. "
+            "The worst remaining cases are all at concurrency 1 or 2, where a few "
+            "requests make the mean noisy."),
         "skipped": dict(skipped),
         "sweeps": out,
     }
