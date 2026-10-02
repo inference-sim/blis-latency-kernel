@@ -49,6 +49,19 @@ MODELS = {
     "minimaxm2.5": "minimax-m2.5",
     "qwen3.5": "qwen3.5-397b-a17b",
     "glm5": "glm-5",
+    # The snapshot measures meta-llama/Meta-Llama-3.1-70B; the catalog carries the Instruct
+    # variant. The mapping is VERIFIED rather than assumed on the grounds that instruction
+    # tuning changes no shape: the base config is gated on HuggingFace, so it was read from
+    # two independent mirrors (unsloth/Meta-Llama-3.1-70B and
+    # NousResearch/Meta-Llama-3.1-70B) and compared field by field against the committed
+    # Instruct config. All thirteen shape fields agree -- 80 layers, 8192 hidden, 28672
+    # intermediate, 64 q heads over 8 kv, 128256 vocab, bfloat16, rope_theta 500000,
+    # 131072 positions, silu, rms_norm_eps 1e-05, tie_word_embeddings false,
+    # LlamaForCausalLM, no head_dim -- with zero differences.
+    #
+    # It is the corpus's largest model at 408 points and its only DENSE one; the other four
+    # are all MoE, so without it the comparison says nothing about dense architectures.
+    "llama70b": "llama-3.1-70b-instruct",
 }
 
 # Artifact GPU slug -> blis-catalog hardware name.
@@ -58,10 +71,16 @@ MIN_POINTS = 3
 
 
 def scenario_name(model: str, gpu: str, precision: str, framework: str, par: dict) -> str:
-    """One file per distinct deployment, named from the fields that define it."""
+    """One file per distinct deployment, named from the fields that define it.
+
+    A DENSE model has no experts, and the snapshot records that as moe_ep_size null rather
+    than 1: every one of llama70b's 81 topologies carries None where an MoE model carries an
+    integer. None is not 1 -- a dense deployment has no expert group at all, where ep=1 means
+    one expert group that is not sharded -- so it is read as absent rather than coerced.
+    """
     ep = par["moe_ep_size"]
     parts = [model, gpu, precision, framework, f"tp{par['tp_size']}"]
-    if ep > 1:
+    if ep is not None and ep > 1:
         parts.append(f"ep{ep}")
     if par["attention_dp_size"] > 1:
         parts.append(f"dp{par['attention_dp_size']}")

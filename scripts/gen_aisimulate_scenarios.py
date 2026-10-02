@@ -72,7 +72,9 @@ def context_length(workloads: set[str]) -> int:
 def emit(dep: dict, workloads: set[str], labels: set[str]) -> str:
     par = dep["parallelism"]
     tp, ep, dp = par["tp_size"], par["moe_ep_size"], par["attention_dp_size"]
-    expert_parallel = ep > 1
+    # A dense model records moe_ep_size as null: it has no expert group, which is a different
+    # thing from one unsharded group (ep=1). Expert parallelism is off either way.
+    expert_parallel = ep is not None and ep > 1
     ranks = tp * dp
     nodes = max(1, -(-ranks // GPUS_PER_NODE))
     quant = QUANT[dep["precision"]]
@@ -153,11 +155,20 @@ def main() -> int:
         name = s["scenario"]
         par = s["parallelism"]
         ep, moe_tp = par["moe_ep_size"], par["moe_tp_size"]
-        # vLLM's expert-sharding rule, asserted rather than assumed.
-        if ep > 1 and moe_tp != 1:
+        # vLLM's expert-sharding rule, asserted rather than assumed. It governs how experts
+        # are sharded, so it says nothing about a DENSE model, which has none: the snapshot
+        # records both fields as null there and the rule is skipped rather than given a
+        # default that would make it pass for the wrong reason.
+        if ep is None and moe_tp is None:
+            pass
+        elif ep is None or moe_tp is None:
+            return fail(f"{name}: moe_ep_size {ep!r} with moe_tp_size {moe_tp!r}; a "
+                        f"deployment states both for an MoE model and neither for a dense "
+                        f"one, so one present and one absent is a corpus error")
+        elif ep > 1 and moe_tp != 1:
             return fail(f"{name}: moe_ep_size {ep} with moe_tp_size {moe_tp}; "
                         f"EP holds whole experts so moe_tp_size must be 1")
-        if ep == 1 and moe_tp != par["tp_size"]:
+        elif ep == 1 and moe_tp != par["tp_size"]:
             return fail(f"{name}: EP off but moe_tp_size {moe_tp} != tp_size "
                         f"{par['tp_size']}; sliced experts span the TP group")
         prior = deps.get(name)

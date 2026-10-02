@@ -101,6 +101,411 @@
    "scenario": "gpt-oss-120b-h200-fp4-trt-tp1.yaml"
   },
   {
+   "label": "1k1k",
+   "reason": "no engine-args log at concurrency [4, 8, 16, 32, 64, 128]",
+   "scenario": "llama-3.1-70b-instruct-b200-fp4-trt-tp1.yaml"
+  },
+  {
+   "label": "1k8k",
+   "reason": "no engine-args log at concurrency [4, 8, 16, 32]",
+   "scenario": "llama-3.1-70b-instruct-b200-fp4-trt-tp1.yaml"
+  },
+  {
+   "label": "8k1k",
+   "reason": "no engine-args log at concurrency [4, 8, 16, 32]",
+   "scenario": "llama-3.1-70b-instruct-b200-fp4-trt-tp1.yaml"
+  },
+  {
+   "label": "1k1k",
+   "reason": "no engine-args log at concurrency [4, 8, 16, 32, 64, 128]",
+   "scenario": "llama-3.1-70b-instruct-b200-fp4-trt-tp2.yaml"
+  },
+  {
+   "label": "1k8k",
+   "reason": "no engine-args log at concurrency [4, 8, 16, 32, 64]",
+   "scenario": "llama-3.1-70b-instruct-b200-fp4-trt-tp2.yaml"
+  },
+  {
+   "label": "8k1k",
+   "reason": "no engine-args log at concurrency [4, 8, 16, 32, 64]",
+   "scenario": "llama-3.1-70b-instruct-b200-fp4-trt-tp2.yaml"
+  },
+  {
+   "label": "1k1k",
+   "reason": "no engine-args log at concurrency [4, 8, 16, 32, 64, 128]",
+   "scenario": "llama-3.1-70b-instruct-b200-fp4-trt-tp4.yaml"
+  },
+  {
+   "label": "1k8k",
+   "reason": "no engine-args log at concurrency [4, 8, 16, 32, 64, 128]",
+   "scenario": "llama-3.1-70b-instruct-b200-fp4-trt-tp4.yaml"
+  },
+  {
+   "label": "8k1k",
+   "reason": "no engine-args log at concurrency [4, 8, 16, 32, 64, 128]",
+   "scenario": "llama-3.1-70b-instruct-b200-fp4-trt-tp4.yaml"
+  },
+  {
+   "label": "1k1k",
+   "reason": "no engine-args log at concurrency [4, 8, 16, 32, 64, 128]",
+   "scenario": "llama-3.1-70b-instruct-b200-fp4-trt-tp8.yaml"
+  },
+  {
+   "label": "1k8k",
+   "reason": "no engine-args log at concurrency [4, 8, 16, 32, 64, 128]",
+   "scenario": "llama-3.1-70b-instruct-b200-fp4-trt-tp8.yaml"
+  },
+  {
+   "label": "8k1k",
+   "reason": "no engine-args log at concurrency [4, 8, 16, 32, 64, 128]",
+   "scenario": "llama-3.1-70b-instruct-b200-fp4-trt-tp8.yaml"
+  },
+  {
+   "label": "1k1k",
+   "reason": "no engine-args log at concurrency [4, 8, 16, 32, 64]",
+   "scenario": "llama-3.1-70b-instruct-b200-fp4-vllm-tp1.yaml"
+  },
+  {
+   "label": "1k8k",
+   "reason": "no engine-args log at concurrency [4, 8, 16, 32]",
+   "scenario": "llama-3.1-70b-instruct-b200-fp4-vllm-tp1.yaml"
+  },
+  {
+   "label": "8k1k",
+   "reason": "no engine-args log at concurrency [4, 8, 16, 32]",
+   "scenario": "llama-3.1-70b-instruct-b200-fp4-vllm-tp1.yaml"
+  },
+  {
+   "label": "1k1k",
+   "reason": "no engine-args log at concurrency [4, 8, 16, 32, 64]",
+   "scenario": "llama-3.1-70b-instruct-b200-fp4-vllm-tp2.yaml"
+  },
+  {
+   "label": "1k8k",
+   "reason": "no engine-args log at concurrency [4, 8, 16, 32, 64]",
+   "scenario": "llama-3.1-70b-instruct-b200-fp4-vllm-tp2.yaml"
+  },
+  {
+   "label": "8k1k",
+   "reason": "no engine-args log at concurrency [4, 8, 16, 32, 64]",
+   "scenario": "llama-3.1-70b-instruct-b200-fp4-vllm-tp2.yaml"
+  },
+  {
+   "label": "1k1k",
+   "reason": "no engine-args log at concurrency [4, 8, 16, 32, 64]",
+   "scenario": "llama-3.1-70b-instruct-b200-fp4-vllm-tp4.yaml"
+  },
+  {
+   "label": "1k8k",
+   "reason": "no engine-args log at concurrency [4, 8, 16, 32, 64]",
+   "scenario": "llama-3.1-70b-instruct-b200-fp4-vllm-tp4.yaml"
+  },
+  {
+   "label": "8k1k",
+   "reason": "no engine-args log at concurrency [4, 8, 16, 32, 64]",
+   "scenario": "llama-3.1-70b-instruct-b200-fp4-vllm-tp4.yaml"
+  },
+  {
+   "label": "1k1k",
+   "reason": "no engine-args log at concurrency [4, 8, 16, 32, 64]",
+   "scenario": "llama-3.1-70b-instruct-b200-fp4-vllm-tp8.yaml"
+  },
+  {
+   "label": "1k8k",
+   "reason": "no engine-args log at concurrency [4, 8, 16, 32, 64]",
+   "scenario": "llama-3.1-70b-instruct-b200-fp4-vllm-tp8.yaml"
+  },
+  {
+   "label": "8k1k",
+   "reason": "no engine-args log at concurrency [4, 8, 16, 32, 64]",
+   "scenario": "llama-3.1-70b-instruct-b200-fp4-vllm-tp8.yaml"
+  },
+  {
+   "label": "1k1k",
+   "reason": "no engine-args log at concurrency [4, 8, 16, 32, 64, 128]",
+   "scenario": "llama-3.1-70b-instruct-b200-fp8-trt-tp1.yaml"
+  },
+  {
+   "label": "1k8k",
+   "reason": "no engine-args log at concurrency [4, 8, 16, 32]",
+   "scenario": "llama-3.1-70b-instruct-b200-fp8-trt-tp1.yaml"
+  },
+  {
+   "label": "8k1k",
+   "reason": "no engine-args log at concurrency [4, 8, 16, 32]",
+   "scenario": "llama-3.1-70b-instruct-b200-fp8-trt-tp1.yaml"
+  },
+  {
+   "label": "1k1k",
+   "reason": "no engine-args log at concurrency [4, 8, 16, 32, 64, 128]",
+   "scenario": "llama-3.1-70b-instruct-b200-fp8-trt-tp2.yaml"
+  },
+  {
+   "label": "1k8k",
+   "reason": "no engine-args log at concurrency [4, 8, 16, 32, 64]",
+   "scenario": "llama-3.1-70b-instruct-b200-fp8-trt-tp2.yaml"
+  },
+  {
+   "label": "8k1k",
+   "reason": "no engine-args log at concurrency [4, 8, 16, 32, 64]",
+   "scenario": "llama-3.1-70b-instruct-b200-fp8-trt-tp2.yaml"
+  },
+  {
+   "label": "1k1k",
+   "reason": "no engine-args log at concurrency [4, 8, 16, 32, 64, 128]",
+   "scenario": "llama-3.1-70b-instruct-b200-fp8-trt-tp4.yaml"
+  },
+  {
+   "label": "1k8k",
+   "reason": "no engine-args log at concurrency [4, 8, 16, 32, 64, 128]",
+   "scenario": "llama-3.1-70b-instruct-b200-fp8-trt-tp4.yaml"
+  },
+  {
+   "label": "8k1k",
+   "reason": "no engine-args log at concurrency [4, 8, 16, 32, 64, 128]",
+   "scenario": "llama-3.1-70b-instruct-b200-fp8-trt-tp4.yaml"
+  },
+  {
+   "label": "1k1k",
+   "reason": "no engine-args log at concurrency [4, 8, 16, 32, 64, 128]",
+   "scenario": "llama-3.1-70b-instruct-b200-fp8-trt-tp8.yaml"
+  },
+  {
+   "label": "1k8k",
+   "reason": "no engine-args log at concurrency [4, 8, 16, 32, 64, 128]",
+   "scenario": "llama-3.1-70b-instruct-b200-fp8-trt-tp8.yaml"
+  },
+  {
+   "label": "8k1k",
+   "reason": "no engine-args log at concurrency [4, 8, 16, 32, 64, 128]",
+   "scenario": "llama-3.1-70b-instruct-b200-fp8-trt-tp8.yaml"
+  },
+  {
+   "label": "1k1k",
+   "reason": "no engine-args log at concurrency [4, 8, 16, 32, 64]",
+   "scenario": "llama-3.1-70b-instruct-b200-fp8-vllm-tp1.yaml"
+  },
+  {
+   "label": "1k8k",
+   "reason": "no engine-args log at concurrency [4, 8, 16, 32]",
+   "scenario": "llama-3.1-70b-instruct-b200-fp8-vllm-tp1.yaml"
+  },
+  {
+   "label": "8k1k",
+   "reason": "no engine-args log at concurrency [4, 8, 16, 32]",
+   "scenario": "llama-3.1-70b-instruct-b200-fp8-vllm-tp1.yaml"
+  },
+  {
+   "label": "1k1k",
+   "reason": "no engine-args log at concurrency [4, 8, 16, 32, 64]",
+   "scenario": "llama-3.1-70b-instruct-b200-fp8-vllm-tp2.yaml"
+  },
+  {
+   "label": "1k8k",
+   "reason": "no engine-args log at concurrency [4, 8, 16, 32, 64]",
+   "scenario": "llama-3.1-70b-instruct-b200-fp8-vllm-tp2.yaml"
+  },
+  {
+   "label": "8k1k",
+   "reason": "no engine-args log at concurrency [4, 8, 16, 32, 64]",
+   "scenario": "llama-3.1-70b-instruct-b200-fp8-vllm-tp2.yaml"
+  },
+  {
+   "label": "1k1k",
+   "reason": "no engine-args log at concurrency [4, 8, 16, 32, 64]",
+   "scenario": "llama-3.1-70b-instruct-b200-fp8-vllm-tp4.yaml"
+  },
+  {
+   "label": "1k8k",
+   "reason": "no engine-args log at concurrency [4, 8, 16, 32, 64]",
+   "scenario": "llama-3.1-70b-instruct-b200-fp8-vllm-tp4.yaml"
+  },
+  {
+   "label": "8k1k",
+   "reason": "no engine-args log at concurrency [4, 8, 16, 32, 64]",
+   "scenario": "llama-3.1-70b-instruct-b200-fp8-vllm-tp4.yaml"
+  },
+  {
+   "label": "1k1k",
+   "reason": "no engine-args log at concurrency [4, 8, 16, 32, 64]",
+   "scenario": "llama-3.1-70b-instruct-b200-fp8-vllm-tp8.yaml"
+  },
+  {
+   "label": "1k8k",
+   "reason": "no engine-args log at concurrency [4, 8, 16, 32, 64]",
+   "scenario": "llama-3.1-70b-instruct-b200-fp8-vllm-tp8.yaml"
+  },
+  {
+   "label": "8k1k",
+   "reason": "no engine-args log at concurrency [4, 8, 16, 32, 64]",
+   "scenario": "llama-3.1-70b-instruct-b200-fp8-vllm-tp8.yaml"
+  },
+  {
+   "label": "1k1k",
+   "reason": "no engine-args log at concurrency [4, 8, 16, 32, 64]",
+   "scenario": "llama-3.1-70b-instruct-h100-fp8-vllm-tp2.yaml"
+  },
+  {
+   "label": "1k8k",
+   "reason": "no engine-args log at concurrency [4, 8, 16]",
+   "scenario": "llama-3.1-70b-instruct-h100-fp8-vllm-tp2.yaml"
+  },
+  {
+   "label": "8k1k",
+   "reason": "no engine-args log at concurrency [4, 8, 16]",
+   "scenario": "llama-3.1-70b-instruct-h100-fp8-vllm-tp2.yaml"
+  },
+  {
+   "label": "1k1k",
+   "reason": "no engine-args log at concurrency [4, 8, 16, 32, 64]",
+   "scenario": "llama-3.1-70b-instruct-h100-fp8-vllm-tp4.yaml"
+  },
+  {
+   "label": "1k8k",
+   "reason": "no engine-args log at concurrency [4, 8, 16, 32, 64]",
+   "scenario": "llama-3.1-70b-instruct-h100-fp8-vllm-tp4.yaml"
+  },
+  {
+   "label": "8k1k",
+   "reason": "no engine-args log at concurrency [4, 8, 16, 32, 64]",
+   "scenario": "llama-3.1-70b-instruct-h100-fp8-vllm-tp4.yaml"
+  },
+  {
+   "label": "1k1k",
+   "reason": "no engine-args log at concurrency [4, 8, 16, 32, 64]",
+   "scenario": "llama-3.1-70b-instruct-h100-fp8-vllm-tp8.yaml"
+  },
+  {
+   "label": "1k8k",
+   "reason": "no engine-args log at concurrency [4, 8, 16, 32, 64]",
+   "scenario": "llama-3.1-70b-instruct-h100-fp8-vllm-tp8.yaml"
+  },
+  {
+   "label": "8k1k",
+   "reason": "no engine-args log at concurrency [4, 8, 16, 32, 64]",
+   "scenario": "llama-3.1-70b-instruct-h100-fp8-vllm-tp8.yaml"
+  },
+  {
+   "label": "1k1k",
+   "reason": "no engine-args log at concurrency [4, 8, 16, 32, 64]",
+   "scenario": "llama-3.1-70b-instruct-h200-fp8-trt-tp1.yaml"
+  },
+  {
+   "label": "1k8k",
+   "reason": "no engine-args log at concurrency [4, 8, 16]",
+   "scenario": "llama-3.1-70b-instruct-h200-fp8-trt-tp1.yaml"
+  },
+  {
+   "label": "8k1k",
+   "reason": "no engine-args log at concurrency [4, 8, 16]",
+   "scenario": "llama-3.1-70b-instruct-h200-fp8-trt-tp1.yaml"
+  },
+  {
+   "label": "1k1k",
+   "reason": "no engine-args log at concurrency [4, 8, 16, 32, 64, 128]",
+   "scenario": "llama-3.1-70b-instruct-h200-fp8-trt-tp2.yaml"
+  },
+  {
+   "label": "1k8k",
+   "reason": "no engine-args log at concurrency [4, 8, 16, 32, 64]",
+   "scenario": "llama-3.1-70b-instruct-h200-fp8-trt-tp2.yaml"
+  },
+  {
+   "label": "8k1k",
+   "reason": "no engine-args log at concurrency [4, 8, 16, 32, 64]",
+   "scenario": "llama-3.1-70b-instruct-h200-fp8-trt-tp2.yaml"
+  },
+  {
+   "label": "1k1k",
+   "reason": "no engine-args log at concurrency [4, 8, 16, 32, 64, 128]",
+   "scenario": "llama-3.1-70b-instruct-h200-fp8-trt-tp4.yaml"
+  },
+  {
+   "label": "1k8k",
+   "reason": "no engine-args log at concurrency [4, 8, 16, 32, 64, 128]",
+   "scenario": "llama-3.1-70b-instruct-h200-fp8-trt-tp4.yaml"
+  },
+  {
+   "label": "8k1k",
+   "reason": "no engine-args log at concurrency [4, 8, 16, 32, 64, 128]",
+   "scenario": "llama-3.1-70b-instruct-h200-fp8-trt-tp4.yaml"
+  },
+  {
+   "label": "1k1k",
+   "reason": "no engine-args log at concurrency [4, 8, 16, 32, 64, 128]",
+   "scenario": "llama-3.1-70b-instruct-h200-fp8-trt-tp8.yaml"
+  },
+  {
+   "label": "1k8k",
+   "reason": "no engine-args log at concurrency [4, 8, 16, 32, 64, 128]",
+   "scenario": "llama-3.1-70b-instruct-h200-fp8-trt-tp8.yaml"
+  },
+  {
+   "label": "8k1k",
+   "reason": "no engine-args log at concurrency [4, 8, 16, 32, 64, 128]",
+   "scenario": "llama-3.1-70b-instruct-h200-fp8-trt-tp8.yaml"
+  },
+  {
+   "label": "1k1k",
+   "reason": "no engine-args log at concurrency [4, 8, 16, 32, 64]",
+   "scenario": "llama-3.1-70b-instruct-h200-fp8-vllm-tp1.yaml"
+  },
+  {
+   "label": "1k8k",
+   "reason": "no engine-args log at concurrency [4, 8, 16]",
+   "scenario": "llama-3.1-70b-instruct-h200-fp8-vllm-tp1.yaml"
+  },
+  {
+   "label": "8k1k",
+   "reason": "no engine-args log at concurrency [4, 8, 16]",
+   "scenario": "llama-3.1-70b-instruct-h200-fp8-vllm-tp1.yaml"
+  },
+  {
+   "label": "1k1k",
+   "reason": "no engine-args log at concurrency [4, 8, 16, 32, 64]",
+   "scenario": "llama-3.1-70b-instruct-h200-fp8-vllm-tp2.yaml"
+  },
+  {
+   "label": "1k8k",
+   "reason": "no engine-args log at concurrency [4, 8, 16, 32, 64]",
+   "scenario": "llama-3.1-70b-instruct-h200-fp8-vllm-tp2.yaml"
+  },
+  {
+   "label": "8k1k",
+   "reason": "no engine-args log at concurrency [4, 8, 16, 32, 64]",
+   "scenario": "llama-3.1-70b-instruct-h200-fp8-vllm-tp2.yaml"
+  },
+  {
+   "label": "1k1k",
+   "reason": "no engine-args log at concurrency [4, 8, 16, 32, 64]",
+   "scenario": "llama-3.1-70b-instruct-h200-fp8-vllm-tp4.yaml"
+  },
+  {
+   "label": "1k8k",
+   "reason": "no engine-args log at concurrency [4, 8, 16, 32, 64]",
+   "scenario": "llama-3.1-70b-instruct-h200-fp8-vllm-tp4.yaml"
+  },
+  {
+   "label": "8k1k",
+   "reason": "no engine-args log at concurrency [4, 8, 16, 32, 64]",
+   "scenario": "llama-3.1-70b-instruct-h200-fp8-vllm-tp4.yaml"
+  },
+  {
+   "label": "1k1k",
+   "reason": "no engine-args log at concurrency [4, 8, 16, 32, 64]",
+   "scenario": "llama-3.1-70b-instruct-h200-fp8-vllm-tp8.yaml"
+  },
+  {
+   "label": "1k8k",
+   "reason": "no engine-args log at concurrency [4, 8, 16, 32, 64]",
+   "scenario": "llama-3.1-70b-instruct-h200-fp8-vllm-tp8.yaml"
+  },
+  {
+   "label": "8k1k",
+   "reason": "no engine-args log at concurrency [4, 8, 16, 32, 64]",
+   "scenario": "llama-3.1-70b-instruct-h200-fp8-vllm-tp8.yaml"
+  },
+  {
    "label": "8k1k",
    "reason": "no engine-args log at concurrency [4, 8, 16, 32]",
    "scenario": "minimax-m2.5-b200-fp4-trt-tp1.yaml"

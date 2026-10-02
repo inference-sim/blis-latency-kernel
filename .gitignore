@@ -10,3 +10,7 @@
 # Go test and coverage output
 *.test
 *.out
+
+# Python bytecode is build output, never source
+__pycache__/
+*.pyc
