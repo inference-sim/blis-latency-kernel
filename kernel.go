@@ -232,7 +232,10 @@ func (k *Kernel) stepTime(b kernel.Batch,
 		}
 		per[kernel.ResourceHost] = host
 		return kernel.StepEstimate{
-			Overlap: host, NoOverlap: host, Bottleneck: kernel.ResourceHost,
+			// Both edges are the host cost on an empty step, so Expected is too: there is
+			// no device work for them to disagree about.
+			Overlap: host, NoOverlap: host, Expected: host,
+			Bottleneck:  kernel.ResourceHost,
 			PerResource: per,
 		}
 	}
@@ -608,6 +611,21 @@ func (k *Kernel) stepTime(b kernel.Batch,
 	}
 	return kernel.StepEstimate{
 		Overlap: overlap, NoOverlap: noOverlap,
+		// Expected is NoOverlap on measured evidence, not preference. Over 219 points of
+		// NVIDIA's FPM whole-forward dataset -- two models, two parts, five parallelism
+		// topologies -- Overlap's SIGNED error is -13.45% against NoOverlap's -3.44%, and
+		// NoOverlap is closer on 158 of them. A one-sided error of that size is a missing
+		// term rather than scatter, and it matches the -13.10% deficit this kernel shows
+		// end to end on an independent serving corpus. The physical reason is PIECEWISE
+		// cudagraph mode: attention runs eagerly between captured segments, so per-layer
+		// overlap is structurally limited.
+		//
+		// A concentration-aware choice belongs here eventually -- where one resource holds
+		// most of a step, per-stage max IS right, and the single dissenting cell in that
+		// evidence is a whole model on two GPUs. Five cells is enough to reject the
+		// optimistic edge as a universal default and not enough to fit a blend, so this
+		// stays a constant until there is more.
+		Expected:   noOverlap,
 		Bottleneck: bottleneck, PerResource: per,
 	}
 }

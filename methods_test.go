@@ -85,8 +85,8 @@ func TestExpertWeightsAreTensorSlicedWithoutExpertParallelism(t *testing.T) {
 	// GLM-5 served fp8: 75 MoE layers, 256 experts, three matrices per expert at
 	// 2048x6144. That is the whole model's expert parameter count.
 	const (
-		moeLayers     = 75.0
-		experts       = 256.0
+		moeLayers      = 75.0
+		experts        = 256.0
 		perExpertBytes = 3.0 * 2048.0 * 6144.0 // fp8, one byte per parameter
 	)
 	whole := moeLayers * experts * perExpertBytes
