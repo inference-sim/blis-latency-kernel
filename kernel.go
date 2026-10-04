@@ -44,11 +44,17 @@ type Kernel struct {
 	// rather than hashing strings.
 	hbmBytesPerSecond     float64
 	computeFLOPsPerSecond float64
-	epsMax, mHalf         float64
-	nvlinkBytesPerSecond  float64
-	nicBytesPerSecond     float64
-	hostBytesPerSecond    float64
-	moeImbalance          float64
+	// nHalf and kHalf extend the efficiency ramp to the GEMM's own shape. Zero means the
+	// registry carries no shape-aware entry for this part and dtype, and the kernel keeps
+	// the token-count ramp -- so a partially migrated registry prices as it did before
+	// rather than pricing a GEMM at zero.
+	nHalf, kHalf         float64
+	gemmShapeAware       bool
+	epsMax, mHalf        float64
+	nvlinkBytesPerSecond float64
+	nicBytesPerSecond    float64
+	hostBytesPerSecond   float64
+	moeImbalance         float64
 
 	// Per-operation collective floors and peak rates, resolved once. Keyed by op
 	// because an all-reduce floor and an all-to-all floor differ by more than 2x on
@@ -308,6 +314,10 @@ func (k *Kernel) stepTime(b kernel.Batch,
 		// attnSeconds is apart from the FLOPs terms because attention is priced by a
 		// measured floor-and-rate form rather than from FLOPs.
 		var flops, routedFLOPs, weightBytes, elementwise, attnSeconds float64
+		// denseShapedSeconds is the dense-GEMM time when each GEMM is priced at its own
+		// shape's efficiency. It replaces the flops-and-one-ramp path, so exactly one of
+		// the two is populated per layer.
+		var denseShapedSeconds float64
 		// The routed-expert term is kept apart from the dense terms because it does NOT
 		// compose with its own compute the way the dense primitives do. See the composition
 		// below.
@@ -321,7 +331,31 @@ func (k *Kernel) stepTime(b kernel.Batch,
 		// rather than from FLOPs.
 		var recurrentSeconds float64
 
-		flops += tokensF * l.DenseFLOPsPerToken / k.tp
+		if k.gemmShapeAware {
+			// Each dense GEMM is priced at its OWN efficiency. A ramp in the token count
+			// alone gives every GEMM in a layer the same fraction of peak, which is wrong
+			// by the k factor: after TP=8 a projection's reduction depth can be 1024 while
+			// an MLP's is 6144, and the sweep says those differ by more than 2x in
+			// achieved efficiency at the same m.
+			for _, g := range l.DenseGEMMs {
+				n, kk := float64(g.N), float64(g.K)
+				// One of the two dimensions is sharded, and which one is a property of the
+				// projection rather than of the deployment. Charging the shard to K is the
+				// conservative choice here: it lowers the k factor, so it never flatters
+				// the model, and a row-parallel GEMM is the case where the narrow
+				// reduction actually occurs.
+				kk /= k.tp
+				eff := price.ShapeEfficiency(tokensF, n, kk,
+					k.epsMax, k.mHalf, k.nHalf, k.kHalf)
+				if eff <= 0 {
+					continue
+				}
+				denseShapedSeconds += tokensF * g.FLOPsPerToken / k.tp /
+					(k.computeFLOPsPerSecond * eff)
+			}
+		} else {
+			flops += tokensF * l.DenseFLOPsPerToken / k.tp
+		}
 		weightBytes += l.DenseWeightBytes / k.tp
 
 		if l.ExpertFLOPsPerTokenPerExpert > 0 {
@@ -479,7 +513,7 @@ func (k *Kernel) stepTime(b kernel.Batch,
 		// for a high-top_k MoE model is the least certain part of this kernel.
 		ramp := price.Efficiency(tokensF, k.epsMax, k.mHalf)
 		denseSM := flops/(k.computeFLOPsPerSecond*ramp)*smDerate +
-			recurrentSeconds + attnSMSeconds
+			denseShapedSeconds*smDerate + recurrentSeconds + attnSMSeconds
 		denseHBM := (weightBytes+kvBytes+elementwise)/k.hbmBytesPerSecond + attnSeconds
 
 		// The routed-expert grouped GEMM composes its compute and memory as a SUM, where

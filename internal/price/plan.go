@@ -44,6 +44,13 @@ type Plan struct {
 	TotalKernels int
 }
 
+// PlannedGEMM is one dense GEMM's shape and the per-token work it contributes, so a
+// shape-aware efficiency can be weighted by the work each shape carries.
+type PlannedGEMM struct {
+	N, K          int
+	FLOPsPerToken float64
+}
+
 // PlannedLayer is one layer kind with its multiplicity and its pre-summed work.
 type PlannedLayer struct {
 	ID    string
@@ -52,6 +59,17 @@ type PlannedLayer struct {
 	// DenseFLOPsPerToken is the projection and dense-MLP work for one token, summed over
 	// every GEMM in the layer. A step multiplies it by the token count.
 	DenseFLOPsPerToken float64
+	// DenseGEMMs is every dense GEMM's shape, kept alongside the FLOPs sum because a
+	// GEMM's efficiency depends on its own n and k and not only on the step's token
+	// count. Measured on AISimulate's vLLM fp8 sweep for H200 at a fixed m of 1024, the
+	// median efficiency rises from 0.007 at k=32 to 0.476 at k=51200 -- so a ramp in m
+	// alone misprices a narrow GEMM by orders of magnitude, and tensor parallelism is
+	// what makes projections narrow. The pre-summed scalar above cannot express that,
+	// which is why the shapes survive planning.
+	//
+	// Sharding is NOT applied here: it depends on tp, which planning does not know.
+	// The consumer divides N or K as the parallelism dictates.
+	DenseGEMMs []PlannedGEMM
 	// DenseWeightBytes is the parameter bytes those GEMMs read, independent of batch.
 	DenseWeightBytes float64
 
@@ -265,7 +283,10 @@ func planNodes(nodes []model.Node, em Emitter, dtypeBytes, stateBytes float64,
 		switch n.Op {
 		case model.OpGEMM:
 			// Two FLOPs per multiply-accumulate, per output element, per token.
-			pl.DenseFLOPsPerToken += 2 * float64(n.N) * float64(n.K)
+			f := 2 * float64(n.N) * float64(n.K)
+			pl.DenseFLOPsPerToken += f
+			pl.DenseGEMMs = append(pl.DenseGEMMs,
+				PlannedGEMM{N: n.N, K: n.K, FLOPsPerToken: f})
 			pl.DenseWeightBytes += float64(n.N) * float64(n.K) * weightBytes(n, dtypeBytes)
 		case model.OpGroupedGEMM:
 			// A gated expert holds three matrices; the node's N is the inner width.

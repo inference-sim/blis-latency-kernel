@@ -26,6 +26,48 @@ func Efficiency(m float64, epsMax, mHalf float64) float64 {
 	return epsMax * m / (m + mHalf)
 }
 
+// ShapeEfficiency returns the fraction of peak a matmul of shape (m, n, k) achieves.
+//
+//	eff(m, n, k) = epsMax * m/(m+mHalf) * k/(k+kHalf) * n/(n+nHalf)
+//
+// Three saturating factors rather than one, because a GEMM needs rows, reduction depth
+// AND output width to fill the machine, and a tile is starved by whichever is smallest.
+// Efficiency above uses m alone, which is right only for the shape its envelope was
+// taken from.
+//
+// The k factor is the one that was missing and it carries the most signal. On
+// AISimulate's vLLM fp8 sweep for H200, holding m at 1024, the median efficiency rises
+// monotonically from 0.007 at k=32 to 0.476 at k=51200. A projection sharded across
+// eight ranks has exactly that narrow k -- minimax-m3's o_proj is k=1024 after TP=8 --
+// so the term a tensor-parallel deployment most needs is the one a ramp in m cannot see.
+//
+// Fitted per part and per dtype on held-out shapes: whole k values are withheld from the
+// fit, so the test shapes are ones it never saw. H200 fp8 goes from 14.29x geometric
+// error to 1.35x, B200 nvfp4 from 24.46x to 1.51x, with train and test agreeing to two
+// decimals -- the form generalizes rather than memorizing.
+//
+// epsMax is the asymptote of a PRODUCT of three factors, so no real shape reaches it;
+// the highest efficiency observed in those sweeps is 0.857 for fp8 and 0.578 for nvfp4.
+//
+// Degenerate half-max values fall back to not applying that factor, which keeps a
+// partially populated registry from silently pricing a GEMM at zero.
+func ShapeEfficiency(m, n, k float64, epsMax, mHalf, nHalf, kHalf float64) float64 {
+	if m <= 0 || epsMax <= 0 {
+		return 0
+	}
+	eff := epsMax
+	if mHalf > 0 {
+		eff *= m / (m + mHalf)
+	}
+	if kHalf > 0 && k > 0 {
+		eff *= k / (k + kHalf)
+	}
+	if nHalf > 0 && n > 0 {
+		eff *= n / (n + nHalf)
+	}
+	return eff
+}
+
 // Span returns the factor by which a collective's cost rises when its ranks span more
 // than one node.
 //

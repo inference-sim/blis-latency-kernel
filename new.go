@@ -149,6 +149,19 @@ func (k *Kernel) lift(c *resolve.Coefficients, g *model.Graph, cacheBytes float6
 		return fmt.Errorf("no efficiency half-max for served dtype %s: %w",
 			k.servedDType, err)
 	}
+	// The shape-aware ramp is opt-in by the presence of its coefficients, and both are
+	// required together: a k factor without an n factor is a different law, not a partial
+	// one, and fitting one of the two leaves the other's work absorbed into epsMax.
+	nHalf, nErr := c.Value("gemm_n_half_" + suffix)
+	kHalf, kErr := c.Value("gemm_k_half_" + suffix)
+	switch {
+	case nErr == nil && kErr == nil:
+		k.nHalf, k.kHalf, k.gemmShapeAware = nHalf, kHalf, true
+	case nErr == nil || kErr == nil:
+		return fmt.Errorf(
+			"served dtype %s has one of gemm_n_half/gemm_k_half but not both; the "+
+				"shape-aware ramp needs both or neither", k.servedDType)
+	}
 
 	k.nvlinkBytesPerSecond = k.chip.IntraNodeBwGBps * 1e9
 	k.nicBytesPerSecond = k.fabric.InterNodeBwGBps * 1e9

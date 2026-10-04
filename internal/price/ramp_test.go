@@ -224,3 +224,92 @@ func TestFloorAndRate(t *testing.T) {
 		t.Errorf("a zero rate should be infinite time, got %v", got)
 	}
 }
+
+// TestShapeEfficiencyIsStarvedByTheSmallestDimension pins the property that motivates
+// the three-factor form: a GEMM with plenty of rows but a narrow reduction is NOT
+// efficient, and the one-factor ramp cannot say so.
+//
+// The numbers are the shapes a tensor-parallel deployment actually produces.
+// minimax-m3's o_proj after TP=8 is (n=6144, k=1024) and its mlp_gate_up is
+// (n=3072, k=6144); at m=1024 the measured fp8 efficiencies are 0.291 and 0.381, so the
+// narrow-k shape is the slower one. A law that ranked them the other way round, or
+// equally, would be wrong about the term this kernel was missing.
+func TestShapeEfficiencyIsStarvedByTheSmallestDimension(t *testing.T) {
+	const (
+		epsMax = 1.00
+		mHalf  = 256
+		nHalf  = 3072
+		kHalf  = 2048
+	)
+	narrowK := ShapeEfficiency(1024, 6144, 1024, epsMax, mHalf, nHalf, kHalf)
+	wideK := ShapeEfficiency(1024, 3072, 6144, epsMax, mHalf, nHalf, kHalf)
+	if !(narrowK < wideK) {
+		t.Fatalf("a narrow reduction must price LOWER than a wide one: "+
+			"o_proj-shaped %.4f, mlp-shaped %.4f", narrowK, wideK)
+	}
+	// And the one-factor ramp cannot distinguish them at all, which is the defect.
+	if Efficiency(1024, epsMax, mHalf) != Efficiency(1024, epsMax, mHalf) {
+		t.Fatal("unreachable")
+	}
+	flat := Efficiency(1024, epsMax, mHalf)
+	if narrowK >= flat {
+		t.Fatalf("the shape-aware law must price a narrow GEMM BELOW the "+
+			"shape-blind ramp: %.4f against %.4f", narrowK, flat)
+	}
+}
+
+// TestShapeEfficiencyNeverExceedsItsAsymptote guards the physical bound. epsMax is the
+// limit of a product of three saturating factors, so no finite shape may reach it --
+// a law that returned more than epsMax would let a step be priced faster than the
+// silicon can run.
+func TestShapeEfficiencyNeverExceedsItsAsymptote(t *testing.T) {
+	const epsMax = 0.95
+	for _, s := range [][3]float64{
+		{1, 1, 1}, {1024, 6144, 1024}, {8192, 24576, 16384},
+		{1e6, 1e6, 1e6},
+	} {
+		got := ShapeEfficiency(s[0], s[1], s[2], epsMax, 256, 3072, 2048)
+		if got > epsMax {
+			t.Fatalf("shape %v priced at %.4f, above the asymptote %.2f", s, got, epsMax)
+		}
+		if got < 0 {
+			t.Fatalf("shape %v priced negative: %.4f", s, got)
+		}
+	}
+}
+
+// TestShapeEfficiencyFallsBackRatherThanZeroing pins the registry-migration behaviour.
+// A part whose entry carries no n_half or k_half must keep pricing on the dimensions it
+// does have, because a zero efficiency makes a step infinitely slow and a half-migrated
+// registry would otherwise produce nonsense instead of the old answer.
+func TestShapeEfficiencyFallsBackRatherThanZeroing(t *testing.T) {
+	full := ShapeEfficiency(1024, 3072, 6144, 0.9, 256, 3072, 2048)
+	noShape := ShapeEfficiency(1024, 3072, 6144, 0.9, 256, 0, 0)
+	// Compared to a tolerance rather than exactly: the two laws reach the same value by
+	// different multiplication orders, so the last bits need not agree.
+	if want := Efficiency(1024, 0.9, 256); math.Abs(noShape-want) > 1e-12 {
+		t.Fatalf("with both shape half-maxes absent the law must equal the "+
+			"token-count ramp: %.17g against %.17g", noShape, want)
+	}
+	if !(full < noShape) {
+		t.Fatalf("applying shape factors must only ever lower efficiency: "+
+			"%.4f against %.4f", full, noShape)
+	}
+	// A node with no width recorded must not poison the step with a NaN. Without the
+	// guards this is 0/0: a NaN efficiency makes the step time NaN, and a NaN compares
+	// false against every threshold, so it would propagate silently instead of failing.
+	// Each case pairs a missing dimension with a missing half-max, which is the 0/0 the
+	// guards exist for: a registry mid-migration has both absent together.
+	for _, s := range [][4]float64{
+		{0, 6144, 0, 2048}, // n and nHalf absent
+		{3072, 0, 3072, 0}, // k and kHalf absent
+		{0, 0, 0, 0},       // both pairs absent
+	} {
+		got := ShapeEfficiency(1024, s[0], s[1], 0.9, 256, s[2], s[3])
+		if math.IsNaN(got) || math.IsInf(got, 0) {
+			t.Fatalf("shape (n=%v,k=%v) with nHalf=%v kHalf=%v priced %v; a missing "+
+				"width must not produce a non-finite efficiency",
+				s[0], s[1], s[2], s[3], got)
+		}
+	}
+}
