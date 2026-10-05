@@ -930,15 +930,23 @@ func TestPrefillAndDecodeAttentionArePricedSeparately(t *testing.T) {
 	delta := longPrefill.PerResource[kernel.ResourceSM].Seconds() -
 		shortPrefill.PerResource[kernel.ResourceSM].Seconds()
 
-	// Attention is quadratic in context at fixed scheduled tokens, so an 8x longer context
-	// costs 8x the attention work. Computed from the measured form.
+	// Attention cost at a fixed chunk width is LINEAR in the already-computed prefix,
+	// and the prefix is not causally masked: a chunk of S tokens resuming on C computed
+	// ones attends to every one of them, giving S*C pairs, plus S^2/2 within the chunk.
+	// So lengthening the context from 2048 to 16384 at S = 2048 adds S * 14336 pairs,
+	// with NO halving.
+	//
+	// An earlier version of this assertion carried a 0.5 on that term, matching an
+	// implementation that halved the prefix. The two agree exactly at Computed == 0,
+	// which is every unchunked prefill, so neither the test nor any other check in this
+	// repository could distinguish them; FPM's mixed rows did, at a factor of 2.0000.
 	eff := k.epsMax * 2048 / (2048 + k.mHalf) * k.attentionPrefillScale
 	var wantDelta float64
 	for _, l := range k.plan.Layers {
 		if l.AttnQHeads == 0 {
 			continue
 		}
-		perContext := 2.0 * 2 * 2048 * 0.5 *
+		perContext := 2.0 * 2 * 2048 *
 			float64(l.AttnQHeads) * float64(l.AttnHeadDim) / k.tp /
 			(k.computeFLOPsPerSecond * eff)
 		wantDelta += perContext * (16384 - 2048) * float64(l.Count)
@@ -1248,5 +1256,67 @@ func TestTheRoutedHalvesAreChargedToTheirOwnResources(t *testing.T) {
 	if wHBM >= nHBM {
 		t.Errorf("HBM at EP=72 (%v) did not fall below EP=16 (%v); the routed memory half is "+
 			"not being charged to HBM", wHBM, nHBM)
+	}
+}
+
+// TestChunkedPrefillChargesTheWholePrefix pins the one case an unchunked prefill cannot
+// reveal: a chunk resuming on an already-computed prefix.
+//
+// Causal masking reduces the pairs WITHIN the chunk, not the pairs against the prefix --
+// every token of the chunk is later than every token of the prefix, so all of them
+// count. A chunk of S tokens on C computed ones is S*C + S^2/2 pairs.
+//
+// The implementation charged S*(C+S)*0.5, halving the prefix term. At C == 0 the two
+// expressions are equal, which is why every prefill check in this repository passed and
+// the error surfaced only against FPM's mixed prefill-plus-context rows, where it is
+// 1.995x low at a 1025-token chunk on a 203,760-token prefix.
+//
+// Asserted two ways that hold whatever the coefficients are. The prefix term must be
+// linear in C, so equal prefix increments cost equally. And the increment from zero to a
+// prefix of C must be C/(S/2) times the chunk's own attention work, which is the full
+// prefix rather than half of it -- checked by comparing two increments whose ratio the
+// halving would change.
+func TestChunkedPrefillChargesTheWholePrefix(t *testing.T) {
+	k := fixture(t, "granite5-h200-tp8-measured.yaml")
+	if k.attentionPrefillScale <= 0 {
+		t.Fatal("no measured prefill attention form resolved")
+	}
+	const chunk = 2048
+	sm := func(prefix int) float64 {
+		b := kernel.Batch{
+			Reqs: []kernel.ReqShape{{
+				Scheduled: chunk, Computed: prefix, PromptLen: prefix + chunk,
+			}},
+			DecodeThreshold: 8,
+		}
+		return k.StepTime(b).PerResource[kernel.ResourceSM].Seconds()
+	}
+	s0, s1, s2 := sm(0), sm(chunk), sm(2*chunk)
+	d1, d2 := s1-s0, s2-s1
+	if d1 <= 0 || d2 <= 0 {
+		t.Fatalf("lengthening the prefix did not raise the SM term: %v, %v", d1, d2)
+	}
+	// Linear in the prefix: two equal increments cost the same.
+	if r := d2 / d1; r < 0.98 || r > 1.02 {
+		t.Fatalf("two equal %d-token prefix increments cost %.9f and %.9f s (%.3fx); "+
+			"the prefix term is not linear in the prefix", chunk, d1, d2, r)
+	}
+	// Absolute scale, which linearity alone does not pin: the halved form is also
+	// linear, just at half the slope. The slope per prefix token, in attention pairs, is
+	// 2*2*S per layer; recomputed here from the measured form so it holds at whatever
+	// the coefficients are.
+	eff := k.epsMax * float64(chunk) / (float64(chunk) + k.mHalf) * k.attentionPrefillScale
+	var want float64
+	for _, l := range k.plan.Layers {
+		if l.AttnQHeads == 0 {
+			continue
+		}
+		want += 2.0 * 2 * float64(chunk) *
+			float64(l.AttnQHeads) * float64(l.AttnHeadDim) / k.tp /
+			(k.computeFLOPsPerSecond * eff) * float64(chunk) * float64(l.Count)
+	}
+	if r := d1 / want; r < 0.95 || r > 1.05 {
+		t.Fatalf("a %d-token prefix added %.9f s where the full-prefix count gives "+
+			"%.9f s (%.3fx); the prefix is being halved", chunk, d1, want, r)
 	}
 }

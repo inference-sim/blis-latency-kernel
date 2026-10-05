@@ -267,7 +267,22 @@ func (k *Kernel) stepTime(b kernel.Batch,
 		}
 		if r.Scheduled > b.DecodeThreshold {
 			prefillRequests++
-			causalFLOPs += 2 * 2 * float64(r.Scheduled) * float64(ctx) * 0.5
+			// Attention pairs for a chunk of `Scheduled` tokens resuming on a prefix of
+			// `Computed` already-computed ones. Every chunk token attends to the WHOLE
+			// prefix -- causal masking does not reduce that, since the prefix is entirely
+			// earlier -- and to its causal share within the chunk:
+			//
+			//	pairs = Scheduled*Computed + Scheduled^2 / 2
+			//
+			// This read `Scheduled * (Computed+Scheduled) * 0.5`, which halves the
+			// prefix term. At Computed == 0 the two agree, so an unchunked prefill
+			// cannot reveal it, and every prefill check in this repository was
+			// unchunked. FPM's mixed rows are what exposed it: at a 1025-token chunk on
+			// a 203,760-token prefix the old count is 1.995x low, and the measured
+			// whole-forward latency grows 5.39x across that context sweep where the
+			// prediction grew 2.85x.
+			sched := float64(r.Scheduled)
+			causalFLOPs += 2 * 2 * (sched*float64(r.Computed) + sched*sched*0.5)
 			continue
 		}
 		decodeRequests++
