@@ -1320,3 +1320,77 @@ func TestChunkedPrefillChargesTheWholePrefix(t *testing.T) {
 			"%.9f s (%.3fx); the prefix is being halved", chunk, d1, want, r)
 	}
 }
+
+// TestRoutedFLOPsAreTensorSlicedWithoutExpertParallelism is the compute counterpart of
+// TestExpertWeightsAreTensorSlicedWithoutExpertParallelism, and it exists because the
+// two paths disagreed: the BYTES divided by expertTensorShards and the FLOPs did not.
+//
+// Under pure tensor parallelism every rank holds every expert, so localExpertShare is 1
+// and the only division available is the tensor slice. vLLM shards the intermediate
+// dimension -- `intermediate_size_per_partition = intermediate_size // tp_size`,
+// vllm/model_executor/layers/fused_moe/config.py:1350 -- so a rank computes its slice of
+// each expert, not every expert whole. Omitting that division over-charged routed
+// compute by the tensor-parallel width, 8x on these fixtures.
+//
+// Invisible to every EP-on test, where expertTensorShards is 1 and the division is a
+// no-op -- the same blind spot the memory-path version of this bug sat in. 400 of the
+// 591 InferenceX scenarios are pure-TP.
+//
+// Asserted against the model's own shape rather than a recorded number, so a
+// coefficient change cannot fail it.
+func TestRoutedFLOPsAreTensorSlicedWithoutExpertParallelism(t *testing.T) {
+	k := fixture(t, "granite5-h200-tp8-measured.yaml")
+	if w := k.Resolved().ExpertParallelWidth; w > 1 {
+		t.Fatalf("fixture has expert parallelism (width %d); this test needs pure TP", w)
+	}
+	if k.expertTensorShards != k.tp {
+		t.Fatalf("expertTensorShards is %.0f on a pure-TP fixture; expected the "+
+			"tensor-parallel width %.0f", k.expertTensorShards, k.tp)
+	}
+
+	// Isolate the routed SM term by differencing two batches. Everything non-routed
+	// scales with the token count the same way in both, and the routed term is the only
+	// one carrying top_k, so the difference is dominated by routed work -- and both
+	// batches sit at a context where attention is priced by its own measured form rather
+	// than from FLOPs.
+	const ctx = 2048
+	sm := func(reqs int) float64 {
+		return k.StepTime(decodeBatch(reqs, 1, ctx)).PerResource[kernel.ResourceSM].Seconds()
+	}
+	delta := sm(64) - sm(32)
+	if delta <= 0 {
+		t.Fatalf("doubling the batch did not raise the SM term")
+	}
+
+	// What that difference must be. 32 extra tokens, each routed to top_k experts, each
+	// expert contributing its per-token FLOPs -- divided by the tensor slice, and by
+	// nothing else, since localExpertShare is 1 here.
+	eff := func(m float64) float64 { return k.epsMax * m / (m + k.mHalf) }
+	var want float64
+	for _, l := range k.plan.Layers {
+		if l.ExpertFLOPsPerTokenPerExpert <= 0 {
+			continue
+		}
+		for _, tokens := range []float64{64, 32} {
+			routed := tokens * float64(l.TopK) * k.localExpertShare /
+				k.expertTensorShards * l.ExpertFLOPsPerTokenPerExpert * k.moeImbalance
+			term := routed / (k.computeFLOPsPerSecond * eff(tokens)) * float64(l.Count)
+			if tokens == 64 {
+				want += term
+			} else {
+				want -= term
+			}
+		}
+	}
+	if want <= 0 {
+		t.Fatal("the model has no routed experts; this test needs an MoE fixture")
+	}
+	// Generous bound: the difference also carries the dense and head terms' response to
+	// the token count, which is small at this batch but not zero. A missing tensor-slice
+	// division would be a factor of 8, far outside it.
+	if r := delta / want; r < 0.5 || r > 2.0 {
+		t.Fatalf("doubling the batch moved the SM term by %.6f s where routed work "+
+			"sliced over %.0f ranks gives %.6f s (%.2fx); the tensor slice is not "+
+			"being applied to routed FLOPs", delta, k.expertTensorShards, want, r)
+	}
+}

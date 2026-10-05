@@ -378,8 +378,23 @@ func (k *Kernel) stepTime(b kernel.Batch,
 		weightBytes += l.DenseWeightBytes / k.tp
 
 		if l.ExpertFLOPsPerTokenPerExpert > 0 {
-			// A rank computes only the tokens routed to the experts it holds.
-			routedPerRank := tokensF * float64(l.TopK) * k.localExpertShare
+			// A rank computes only the tokens routed to the experts it holds, and only
+			// its own tensor slice of each one. Both divisions are needed and they are
+			// alternatives: vLLM sets ep_size = tp with tp_size = 1 when expert
+			// parallelism is on and the reverse when it is off (fused_moe/config.py), so
+			// exactly one of localExpertShare and expertTensorShards is ever not 1.
+			//
+			// The slice division was missing. Under pure tensor parallelism
+			// localExpertShare is 1 -- every rank does hold every expert -- so the FLOPs
+			// were charged as if each rank computed every expert WHOLE, a factor of tp.
+			// vLLM shards the intermediate dimension,
+			// `intermediate_size_per_partition = intermediate_size // tp_size`
+			// (fused_moe/config.py:1350), so a rank's routed work is its slice's.
+			//
+			// The bytes already divided by it on the line below, which is why the two
+			// disagreed: expert weights were per-slice while expert FLOPs were per-whole.
+			routedPerRank := tokensF * float64(l.TopK) * k.localExpertShare /
+				k.expertTensorShards
 			routedFLOPs += routedPerRank * l.ExpertFLOPsPerTokenPerExpert * k.moeImbalance
 			// Expert weights read: the DISTINCT local experts this step touches, times
 			// each one's per-rank bytes. Two things are separate and vLLM keeps them
