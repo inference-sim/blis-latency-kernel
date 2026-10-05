@@ -433,7 +433,7 @@ func (k *Kernel) groupWidth(op model.Op) int {
 	return best
 }
 
-// dtypeFit maps a weight dtype// dtypeFit maps a weight dtype to its coefficient-name suffix and the chip's peak rate for
+// dtypeFit maps a weight dtype to its coefficient-name suffix and the chip's peak rate for
 // it. A format the chip does not support natively has no peak here: pricing it at a
 // nominal rate the hardware reaches only through a dequantize path would overstate it.
 func dtypeFit(d model.DType, c hardware.Chip) (suffix string, peak float64) {
@@ -447,7 +447,12 @@ func dtypeFit(d model.DType, c hardware.Chip) (suffix string, peak float64) {
 		return "bf16", c.BF16Peak * 1e12
 	case model.DTypeNVFP4, model.DTypeMXFP4:
 		if c.NVFP4Peak > 0 {
-			return "fp8", c.NVFP4Peak * 1e12
+			// The nvfp4 suffix, not fp8. This returned "fp8" while the registry carried
+			// six fitted gemm_*_nvfp4 entries, so those were never read and a four-bit
+			// deployment was priced with the fp8 asymptote -- 0.717 against the 0.504
+			// fitted for nvfp4 on B200 and 0.441 on B300, over-pricing efficiency by
+			// 1.42x and 1.73x on top of the NVFP4 peak those fractions are taken of.
+			return "nvfp4", c.NVFP4Peak * 1e12
 		}
 		// Four-bit weights on a part without native support are dequantized to a wider
 		// format before the matmul, so the achievable rate is that wider format's.
