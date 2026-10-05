@@ -531,11 +531,13 @@ func (k *Kernel) stepTime(b kernel.Batch,
 		//
 		// The cost model's §2.1 argues the grouped GEMM should see a smaller argument — the
 		// rows routed to one expert rather than the whole batch — and the reasoning is
-		// sound for a model like Granite-5, which routes to 8 of 224 experts. Scored
-		// against four published deployments the per-expert argument is worse overall: it
-		// improves Granite-5 on H200 (31% to 18% MAPE) and Kimi-K3 (64% to 41%) and ruins
-		// Nemotron-3-Ultra (87% to 158%), which routes each token to 22 of 512 experts. The
-		// aggregate goes from 48% to 56%.
+		// sound for a LOW-top_k model, one routing to 8 of a few hundred experts. Scored
+		// against four published deployments the per-expert argument was worse overall: it
+		// improved the two low-top_k arms (31% to 18% MAPE on one, 64% to 41% on Kimi-K3)
+		// and ruined Nemotron-3-Ultra (87% to 158%), which routes each token to 22 of 512
+		// experts. The aggregate went from 48% to 56%. Two of those four arms have since
+		// left the corpus with their model, so the figures are kept as the record of why
+		// this choice was made rather than as a re-runnable result.
 		//
 		// The reason the per-expert argument fails at high top_k is visible in its own
 		// arithmetic: at one token routed to 22 experts it gives one row per expert and
@@ -807,18 +809,20 @@ func (k *Kernel) hostPerStep() time.Duration {
 // work each kernel does.
 //
 // This is the term that dominates a single-request decode step, and an earlier version of
-// this model omitted it entirely. Two published Granite-5 runs make the case: ITL at one
-// concurrent request is 6.02 ms on H200 at 8k context and 6.13 ms on H100 at 707 tokens.
-// Those parts differ in memory bandwidth by 1.43x and the contexts by 10x, and the
-// measurement barely moves — so the step is dominated by something independent of both,
-// which is dispatch. The residual against the rest of the model is 43.7 and 46.0
-// microseconds per layer respectively, agreeing to 5% across that variation.
+// this model omitted it entirely. Two published runs of one 230B MoE model made the case:
+// ITL at one concurrent request was 6.02 ms on H200 at 8k context and 6.13 ms on H100 at
+// 707 tokens. Those parts differ in memory bandwidth by 1.43x and the contexts by 10x, and
+// the measurement barely moved — so the step is dominated by something independent of
+// both, which is dispatch. The residual against the rest of the model was 43.7 and 46.0
+// microseconds per layer respectively, agreeing to 5% across that variation. Those reports
+// are no longer in the corpus; the reasoning is recorded here because it is why the term
+// exists, and the term is still checked by TestHostTermIsChargedOnEveryStep.
 //
 // Charged per KERNEL rather than per layer, because that is the quantity a deeper or
 // shallower model scales with: the plan counts each layer's launches from its surviving
-// graph nodes. Over Granite-5's roughly 20 launches per MoE layer the implied per-launch
-// cost is about 2.3 microseconds, which is the conventional captured-graph dispatch figure
-// the registry already cites for a single launch.
+// graph nodes. Over roughly 20 launches per MoE layer the implied per-launch cost is about
+// 2.3 microseconds, which is the conventional captured-graph dispatch figure the registry
+// already cites for a single launch.
 //
 // It does NOT overlap with device work, and that is the point rather than a simplification:
 // a dispatch that has not happened cannot have its kernel running. At large batch the

@@ -20,9 +20,6 @@
 // The reports were written to compare deployments, not to calibrate a cost model, so no
 // report states everything a prediction needs. They divide by what they omit:
 //
-//	Granite-5 reports state the input length per level but not the resident batch, so
-//	the batch is taken as the client concurrency — correct only while nothing queues.
-//
 //	The Nemotron sweep states the resident batch (`running`) and the preemption count but
 //	no input length, so context is derived from the reported input and output token rates.
 //
@@ -196,10 +193,6 @@ Conditions, and what the corpus does not state:
   * NO report states gpu_memory_utilization, so the KV budget each engine actually had
     is unknown. Every scenario assumes 0.9. This does not enter an ITL prediction
     directly; it decides which concurrencies were feasible at all.
-
-  * Granite reports state input length but not the resident batch, so the batch is the
-    client concurrency. That holds only while nothing queues, which their own TTFT
-    series says fails above c=32 — those points are out of scope below.
 
   * The Nemotron sweep states the resident batch and zero preemptions but no input
     length, so context is derived from the input and output token rates. A derived

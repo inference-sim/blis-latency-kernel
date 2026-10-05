@@ -35,7 +35,7 @@ type row struct {
 
 // Every row is a deployment the InferenceX vLLM corpus actually measured, named by
 // its own scenario file under testdata/direct. An earlier version of this table priced
-// granite5 on H200 at EP=16 and EP=72, which is not an InferenceX deployment: a worked
+// a withheld preview model at EP=16 and EP=72, which is not an InferenceX deployment: a worked
 // table whose configuration nothing measured cannot be checked against a measurement.
 //
 // The selection spans what the corpus varies: both chip families (Hopper runs FA3,

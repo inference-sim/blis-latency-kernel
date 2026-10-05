@@ -19,12 +19,12 @@ import (
 // --- Memory occupancy ---------------------------------------------------------
 
 func TestFixedBytesAccountsForTheWholeModelAcrossRanks(t *testing.T) {
-	k := fixture(t, "granite5-h200-ep16.yaml")
+	k := fixture(t, "minimax-m25-h200-ep16.yaml")
 	fixed := k.FixedBytes()
 	if fixed.Weights <= 0 {
 		t.Fatalf("no weight bytes reported")
 	}
-	// Granite-5 is 230B parameters served fp8, so roughly 230 GB across the whole
+	// The fixture is a ~230B-parameter MoE served fp8, so roughly 230 GB across the whole
 	// deployment. One rank of 16 holds its expert shard plus a TP slice of the dense
 	// layers, which must land within an order of magnitude of 230/16 GB. A rank holding
 	// the whole model, or a thousandth of it, means a sharding term is wrong.
@@ -42,13 +42,13 @@ func TestFixedBytesAccountsForTheWholeModelAcrossRanks(t *testing.T) {
 }
 
 func TestWiderExpertParallelismHoldsFewerWeightsPerRank(t *testing.T) {
-	narrow := fixture(t, "granite5-h200-ep16.yaml").FixedBytes()
-	wide := fixture(t, "granite5-h200-ep72.yaml").FixedBytes()
+	narrow := fixture(t, "minimax-m25-h200-ep16.yaml").FixedBytes()
+	wide := fixture(t, "minimax-m25-h200-ep72.yaml").FixedBytes()
 	if wide.Weights >= narrow.Weights {
 		t.Errorf("EP=72 holds %d bytes per rank against EP=16's %d; widening the "+
 			"expert group must shrink the shard", wide.Weights, narrow.Weights)
 	}
-	// The ratio, not just the direction. Granite-5 is 99% expert parameters, so a rank's
+	// The ratio, not just the direction. This model is 99% expert parameters, so a rank's
 	// weights are dominated by its expert shard: 14 experts at EP=16 against 3 at EP=72
 	// is a 4.67x reduction, and the dense remainder only softens it slightly. A test
 	// that checked the direction alone would pass while the expert term was not sharded
@@ -118,7 +118,7 @@ func TestExpertWeightsAreTensorSlicedWithoutExpertParallelism(t *testing.T) {
 // read once per step -- so they must divide them the same way. A fix applied to one and not
 // the other would leave the two disagreeing, which is how the defect above arose.
 func TestMemoryAndStepTimeAgreeOnExpertSharding(t *testing.T) {
-	for _, f := range []string{"glm5-h200-tp8.yaml", "granite5-h200-ep16.yaml"} {
+	for _, f := range []string{"glm5-h200-tp8.yaml", "minimax-m25-h200-ep16.yaml"} {
 		k := fixture(t, f)
 		shards := k.expertTensorShards
 		want := 1.0
@@ -137,9 +137,9 @@ func TestExpertWeightsScaleWithTheLocalExpertCount(t *testing.T) {
 	// The single most load-bearing memory term: it sets both occupancy and the decode
 	// step's HBM traffic. Checked against the model's own arithmetic rather than a
 	// recorded byte count, so a coefficient change does not fail it.
-	k := fixture(t, "granite5-h200-ep16.yaml")
+	k := fixture(t, "minimax-m25-h200-ep16.yaml")
 	weights := float64(k.FixedBytes().Weights)
-	// One expert of Granite-5: gate and up fused into n=1536 plus down, over a
+	// One expert of the fixture model: gate and up fused into n=1536 plus down, over a
 	// hidden size of 3072, at one byte per fp8 parameter.
 	const perExpert = (2*1536*3072 + 1536*3072) * 1.0
 	expertBytes := perExpert * k.expertsPerRank * float64(k.plan.TotalLayers)
@@ -150,7 +150,7 @@ func TestExpertWeightsScaleWithTheLocalExpertCount(t *testing.T) {
 }
 
 func TestSequenceVariableBytesGrowsWithContextAndQuantizesToPages(t *testing.T) {
-	k := fixture(t, "granite5-h200-ep16.yaml")
+	k := fixture(t, "minimax-m25-h200-ep16.yaml")
 	if k.SequenceVariableBytes(0) != 0 {
 		t.Error("a sequence with no tokens occupies no KV")
 	}
@@ -175,9 +175,9 @@ func TestSequenceVariableBytesGrowsWithContextAndQuantizesToPages(t *testing.T) 
 }
 
 func TestSequenceFixedBytesIsZeroForAPureAttentionModel(t *testing.T) {
-	// Granite-5 is MoE but not hybrid: it carries no recurrent state, so there is no
+	// The fixture is MoE but not hybrid: it carries no recurrent state, so there is no
 	// per-sequence occupancy independent of context length.
-	k := fixture(t, "granite5-h200-ep16.yaml")
+	k := fixture(t, "minimax-m25-h200-ep16.yaml")
 	if got := k.SequenceFixedBytes(); got != 0 {
 		t.Errorf("a pure-attention model reported %d bytes of recurrent state", got)
 	}
@@ -186,7 +186,7 @@ func TestSequenceFixedBytesIsZeroForAPureAttentionModel(t *testing.T) {
 // --- Step time ----------------------------------------------------------------
 
 func TestStepTimeIsZeroWorkForAnEmptyBatchButNotFree(t *testing.T) {
-	k := fixture(t, "granite5-h200-ep16.yaml")
+	k := fixture(t, "minimax-m25-h200-ep16.yaml")
 	e := k.StepTime(kernel.Batch{})
 	if e.Overlap <= 0 {
 		t.Error("an empty step still costs the host its per-step work")
@@ -197,7 +197,7 @@ func TestStepTimeIsZeroWorkForAnEmptyBatchButNotFree(t *testing.T) {
 }
 
 func TestStepTimeGrowsWithTokensAndWithContext(t *testing.T) {
-	k := fixture(t, "granite5-h200-ep16.yaml")
+	k := fixture(t, "minimax-m25-h200-ep16.yaml")
 	// Compared on the HBM term rather than on Overlap. At small batch every collective
 	// is floor-bound and the floors dominate the step, so Overlap is flat in context
 	// there — which is correct behaviour, not a defect, and asserting on Overlap would
@@ -228,7 +228,7 @@ func TestStepTimeGrowsWithTokensAndWithContext(t *testing.T) {
 func TestOverlapNeverExceedsNoOverlap(t *testing.T) {
 	// The two bracket the estimate: the max over resources cannot exceed their sum.
 	// Property-checked over a spread of shapes rather than asserted on one.
-	k := fixture(t, "granite5-h200-ep16.yaml")
+	k := fixture(t, "minimax-m25-h200-ep16.yaml")
 	for _, b := range []kernel.Batch{
 		{}, decodeBatch(1, 1, 1), decodeBatch(1, 2048, 2048),
 		decodeBatch(256, 2, 8192), decodeBatch(4, 2048, 32768),
@@ -260,7 +260,7 @@ func TestOverlapNeverExceedsNoOverlap(t *testing.T) {
 func TestStepTimeIsPureAndSafeUnderConcurrency(t *testing.T) {
 	// Purity is the interface's central claim: it is what lets a simulator call this at
 	// any simulated instant from any goroutine. Repeated calls must agree exactly.
-	k := fixture(t, "granite5-h200-ep16.yaml")
+	k := fixture(t, "minimax-m25-h200-ep16.yaml")
 	b := decodeBatch(37, 2, 4096)
 	want := k.StepTime(b)
 	results := make(chan time.Duration, 64)
@@ -276,7 +276,7 @@ func TestStepTimeIsPureAndSafeUnderConcurrency(t *testing.T) {
 }
 
 func TestFewerSMsCostMoreOnlyWhenComputeBinds(t *testing.T) {
-	k := fixture(t, "granite5-h200-ep16.yaml")
+	k := fixture(t, "minimax-m25-h200-ep16.yaml")
 	// A decode step here is HBM-bound, so withholding the 12 SMs an offload fetch takes must
 	// be almost entirely absorbed — that is the max-over-resources rule doing its work.
 	//
@@ -317,7 +317,7 @@ func TestFewerSMsCostMoreOnlyWhenComputeBinds(t *testing.T) {
 // --- Offload tiers ------------------------------------------------------------
 
 func TestTierTimeOrdersTiersBySpeedAndDirection(t *testing.T) {
-	k := fixture(t, "granite5-h200-ep16.yaml")
+	k := fixture(t, "minimax-m25-h200-ep16.yaml")
 	const bytes = 64 << 20
 	dram := k.TierTime("cpu_dram", kernel.DirectionFromTier, bytes, 1)
 	nvme := k.TierTime("nvme_gen4", kernel.DirectionFromTier, bytes, 1)
@@ -334,7 +334,7 @@ func TestTierTimeOrdersTiersBySpeedAndDirection(t *testing.T) {
 }
 
 func TestTierTimeChargesForConcurrencyAndForSize(t *testing.T) {
-	k := fixture(t, "granite5-h200-ep16.yaml")
+	k := fixture(t, "minimax-m25-h200-ep16.yaml")
 	one := k.TierTime("nvme_gen4", kernel.DirectionFromTier, 64<<20, 1)
 	eight := k.TierTime("nvme_gen4", kernel.DirectionFromTier, 64<<20, 8)
 	if eight <= one {
@@ -351,7 +351,7 @@ func TestTierTimeChargesForConcurrencyAndForSize(t *testing.T) {
 func TestAnUnknownTierIsNotAFreeTransfer(t *testing.T) {
 	// Returning zero would make an unmodelled tier look costless, which is the opposite
 	// of what not knowing means.
-	k := fixture(t, "granite5-h200-ep16.yaml")
+	k := fixture(t, "minimax-m25-h200-ep16.yaml")
 	got := k.TierTime("tier-that-does-not-exist", kernel.DirectionFromTier, 1<<20, 1)
 	known := k.TierTime("s3", kernel.DirectionFromTier, 1<<20, 1)
 	if got <= known {
@@ -363,7 +363,7 @@ func TestAnUnknownTierIsNotAFreeTransfer(t *testing.T) {
 // --- PD transfer --------------------------------------------------------------
 
 func TestPDTransferGrowsWithTokensAndCostsMoreAcrossNodes(t *testing.T) {
-	k := fixture(t, "granite5-h200-ep16.yaml")
+	k := fixture(t, "minimax-m25-h200-ep16.yaml")
 	onNode := kernel.Placement{Node: 0, Rack: 0}
 	sameNode := kernel.Placement{Node: 0, Rack: 0}
 	otherNode := kernel.Placement{Node: 1, Rack: 0}
@@ -386,7 +386,7 @@ func TestPDTransferGrowsWithTokensAndCostsMoreAcrossNodes(t *testing.T) {
 // --- Host overheads -----------------------------------------------------------
 
 func TestHostOverheadsScaleWithWhatTheyProcess(t *testing.T) {
-	k := fixture(t, "granite5-h200-ep16.yaml")
+	k := fixture(t, "minimax-m25-h200-ep16.yaml")
 	if k.AdmissionOverhead(0) != 0 {
 		t.Error("admitting an empty prompt costs nothing")
 	}
@@ -410,7 +410,7 @@ func TestHostOverheadsScaleWithWhatTheyProcess(t *testing.T) {
 // --- Provenance and resolution ------------------------------------------------
 
 func TestProvenanceNamesEveryCoefficientAndItsEvidence(t *testing.T) {
-	k := fixture(t, "granite5-h200-ep16.yaml")
+	k := fixture(t, "minimax-m25-h200-ep16.yaml")
 	origins := k.Provenance()
 	if len(origins) == 0 {
 		t.Fatal("no coefficients reported")
@@ -440,7 +440,7 @@ func TestProvenanceNamesEveryCoefficientAndItsEvidence(t *testing.T) {
 }
 
 func TestResolvedReportsWhatWillActuallyRun(t *testing.T) {
-	k := fixture(t, "granite5-h200-ep16.yaml")
+	k := fixture(t, "minimax-m25-h200-ep16.yaml")
 	r := k.Resolved()
 	if r.ExpertParallelWidth != 16 {
 		t.Errorf("expert-parallel width resolved to %d, not the scenario's 16",
@@ -449,7 +449,7 @@ func TestResolvedReportsWhatWillActuallyRun(t *testing.T) {
 	if r.AllReduceBackend == "" {
 		t.Error("no all-reduce backend named")
 	}
-	wide := fixture(t, "granite5-h200-ep72.yaml").Resolved()
+	wide := fixture(t, "minimax-m25-h200-ep72.yaml").Resolved()
 	if wide.ExpertParallelWidth != 72 {
 		t.Errorf("the 9-node scenario resolved to width %d, not 72",
 			wide.ExpertParallelWidth)
@@ -462,8 +462,8 @@ func TestTwoKernelsFromOneScenarioAgreeEverywhere(t *testing.T) {
 	// §7's first sense of idempotence: equal inputs yield equivalent kernels. A kernel
 	// that resolved differently on a second construction would make a simulation depend
 	// on construction order.
-	a := fixture(t, "granite5-h200-ep16.yaml")
-	b := fixture(t, "granite5-h200-ep16.yaml")
+	a := fixture(t, "minimax-m25-h200-ep16.yaml")
+	b := fixture(t, "minimax-m25-h200-ep16.yaml")
 	for _, batch := range []kernel.Batch{
 		decodeBatch(1, 1, 128), decodeBatch(256, 2, 8192), decodeBatch(4, 2048, 2048),
 	} {
@@ -492,20 +492,25 @@ func TestTwoKernelsFromOneScenarioAgreeEverywhere(t *testing.T) {
 // recorded millisecond figure. They fail when a divisor goes missing and survive a
 // coefficient update, which is the distinction that makes them worth having.
 
-// granite5 shape, from the committed graph. Restated here so a test failure names a
-// concrete quantity rather than pointing at a YAML file.
+// minimax-m2.5 shape, read off the committed graph in blis-catalog. Restated here so a
+// test failure names a concrete quantity rather than pointing at a YAML file.
+//
+// These constants previously described a model that is no longer in blis-catalog.
+// MiniMax-M2.5 keeps the two properties the arithmetic below depends on -- hidden_size
+// 3072 and an expert intermediate of 1536 -- and keeps 8 KV heads so a tp=8 rank still
+// holds exactly one, which is what the KV-sharding assertion needs.
 const (
 	g5Hidden          = 3072
-	g5Layers          = 72
-	g5QKVOut          = 4096
+	g5Layers          = 62
+	g5QKVOut          = 8192
 	g5OProjOut        = 3072
 	g5ExpertInter     = 1536
-	g5Experts         = 224
+	g5Experts         = 256
 	g5TopK            = 8
 	g5QHeads          = 48
 	g5KVHeads         = 8
-	g5HeadDim         = 64
-	g5Vocab           = 100352
+	g5HeadDim         = 128
+	g5Vocab           = 200064
 	g5ParamsPerExpert = 2*g5ExpertInter*g5Hidden + g5ExpertInter*g5Hidden
 	g5DensePerLayer   = g5Hidden*g5QKVOut + g5OProjOut*g5Hidden
 )
@@ -533,7 +538,7 @@ func hbmSeconds(k *Kernel, requests, tokens, context int) float64 {
 }
 
 func TestHBMTermMatchesTheModelsOwnArithmetic(t *testing.T) {
-	k := fixture(t, "granite5-h200-ep16.yaml")
+	k := fixture(t, "minimax-m25-h200-ep16.yaml")
 	// Decode shapes only. A prefill request's attention is priced against compute, so its
 	// bytes are not in the HBM term at all — which this arithmetic does not model and
 	// should not pretend to.
@@ -556,7 +561,7 @@ func TestHBMTermMatchesTheModelsOwnArithmetic(t *testing.T) {
 func TestKVTermScalesWithTheShardedHeadCount(t *testing.T) {
 	// With 8 KV heads and TP=8 each rank holds one head, so the KV read is 1/8 of the
 	// unsharded figure. Dropping the divisor is a mutation that monotonicity cannot see.
-	k := fixture(t, "granite5-h200-ep16.yaml")
+	k := fixture(t, "minimax-m25-h200-ep16.yaml")
 	const requests, context = 128, 8192
 	perToken := 2 * 1.0 * g5HeadDim * g5Layers // one KV head per rank, fp8 cache
 	want := float64(requests*context) * perToken
@@ -572,8 +577,8 @@ func TestRoutedComputeScalesWithTheLocalExpertShare(t *testing.T) {
 	// The routed term is the largest compute term, and it divides by the expert-parallel
 	// width rather than by TP. Comparing two widths at one batch isolates it: the dense
 	// and attention terms are identical between them, so the whole difference is routed.
-	narrow := fixture(t, "granite5-h200-ep16.yaml")
-	wide := fixture(t, "granite5-h200-ep72.yaml")
+	narrow := fixture(t, "minimax-m25-h200-ep16.yaml")
+	wide := fixture(t, "minimax-m25-h200-ep72.yaml")
 	batch := decodeBatch(256, 2, 8192)
 	sm16 := narrow.StepTime(batch).PerResource[kernel.ResourceSM].Seconds()
 	sm72 := wide.StepTime(batch).PerResource[kernel.ResourceSM].Seconds()
@@ -599,7 +604,7 @@ func TestAttentionTermScalesWithContextLength(t *testing.T) {
 	// because HBM dominates these batches.
 	// Attention is an HBM term now, not an SM one: it is priced by a measured floor and
 	// bandwidth rather than from FLOPs, so a context increase lands there.
-	k := fixture(t, "granite5-h200-ep16.yaml")
+	k := fixture(t, "minimax-m25-h200-ep16.yaml")
 	short := k.StepTime(decodeBatch(64, 1, 2048)).PerResource[kernel.ResourceHBM]
 	long := k.StepTime(decodeBatch(64, 1, 32768)).PerResource[kernel.ResourceHBM]
 	if long <= short {
@@ -625,7 +630,7 @@ func TestCrossNodeCollectivesCostMoreThanOnNodeOnes(t *testing.T) {
 	// TP=8 the reductions stay on the node and pay none. Removing the span check entirely
 	// is a mutation that no ordering test catches, because the NIC term merely becomes
 	// the NVLink term.
-	k := fixture(t, "granite5-h200-ep16.yaml")
+	k := fixture(t, "minimax-m25-h200-ep16.yaml")
 	e := k.StepTime(decodeBatch(256, 2, 8192))
 	nic := e.PerResource[kernel.ResourceNIC]
 	nvlink := e.PerResource[kernel.ResourceNVLink]
@@ -649,7 +654,7 @@ func TestCrossNodeCollectivesCostMoreThanOnNodeOnes(t *testing.T) {
 func TestHostTermIsChargedOnEveryStep(t *testing.T) {
 	// The host term is small against a decode step and it is not zero. A step that
 	// dropped it would report a NoOverlap below the sum of its parts.
-	k := fixture(t, "granite5-h200-ep16.yaml")
+	k := fixture(t, "minimax-m25-h200-ep16.yaml")
 	e := k.StepTime(decodeBatch(32, 2, 8192))
 	host := e.PerResource[kernel.ResourceHost]
 	if host <= 0 {
@@ -675,7 +680,7 @@ func TestHostTermIsChargedOnEveryStep(t *testing.T) {
 func TestRoutingImbalanceIsApplied(t *testing.T) {
 	// EP=16 rather than EP=72: a rank holds 14 experts there against 3, so routed work
 	// is a far larger share of the compute term and a 5.6% factor on it is detectable.
-	k := fixture(t, "granite5-h200-ep16.yaml")
+	k := fixture(t, "minimax-m25-h200-ep16.yaml")
 	if k.moeImbalance <= 1.0 || k.moeImbalance > 2.0 {
 		t.Fatalf("routing imbalance resolved to %.4f; it should be a median above one "+
 			"and well below the tail", k.moeImbalance)
@@ -742,7 +747,7 @@ func TestRoutingImbalanceIsApplied(t *testing.T) {
 // accepts. So this prices one collective both ways from the resolved coefficients and
 // requires the step's collective term to match the three-parameter figure.
 func TestCollectivesUseTheTransitionRate(t *testing.T) {
-	k := fixture(t, "granite5-h200-ep16.yaml")
+	k := fixture(t, "minimax-m25-h200-ep16.yaml")
 	if k.collectiveTransitions[model.OpAllReduce] <= 0 {
 		t.Fatal("no transition rate resolved for the tensor-parallel reduction")
 	}
@@ -786,7 +791,7 @@ func TestCollectivesUseTheTransitionRate(t *testing.T) {
 // A simulator choosing StepTimeInto for speed would otherwise be choosing different
 // numbers, and the choice would be invisible.
 func TestStepTimeIntoAgreesWithStepTime(t *testing.T) {
-	k := fixture(t, "granite5-h200-ep16.yaml")
+	k := fixture(t, "minimax-m25-h200-ep16.yaml")
 	per := make(map[kernel.Resource]time.Duration, 8)
 	for _, b := range []kernel.Batch{
 		{}, decodeBatch(1, 1, 1), decodeBatch(1, 2048, 2048),
@@ -816,7 +821,7 @@ func TestStepTimeIntoAgreesWithStepTime(t *testing.T) {
 // And the reused map must be cleared, so a resource that fell out between steps does not
 // linger from the previous call.
 func TestStepTimeIntoClearsStaleResources(t *testing.T) {
-	k := fixture(t, "granite5-h200-ep16.yaml")
+	k := fixture(t, "minimax-m25-h200-ep16.yaml")
 	per := make(map[kernel.Resource]time.Duration, 8)
 	k.StepTimeInto(decodeBatch(256, 2, 8192), per)
 	busy := len(per)
@@ -834,12 +839,12 @@ func TestStepTimeIntoClearsStaleResources(t *testing.T) {
 // missing entirely until two published runs exposed it. These pin the mechanism rather than
 // the value, so a recalibration does not fail them.
 func TestDispatchCostScalesWithTheKernelCount(t *testing.T) {
-	k := fixture(t, "granite5-h200-tp8-measured.yaml")
+	k := fixture(t, "minimax-m25-h200-tp8.yaml")
 	if k.plan.TotalKernels < k.plan.TotalLayers {
 		t.Fatalf("%d kernels for %d layers; every layer launches at least one",
 			k.plan.TotalKernels, k.plan.TotalLayers)
 	}
-	// Granite-5's layer is nine graph primitives, several of which imply more than one
+	// The fixture's layer is nine graph primitives, several of which imply more than one
 	// launch, so the count per layer must exceed the primitive count.
 	perLayer := float64(k.plan.TotalKernels) / float64(k.plan.TotalLayers)
 	if perLayer < 9 || perLayer > 30 {
@@ -885,7 +890,7 @@ func TestDispatchCostScalesWithTheKernelCount(t *testing.T) {
 func TestDispatchCostIsIndependentOfBatchAndContext(t *testing.T) {
 	// The term is per kernel, and the kernel count is a property of the model rather than
 	// of the batch. If it moved with either, it would be absorbing something else.
-	k := fixture(t, "granite5-h200-tp8-measured.yaml")
+	k := fixture(t, "minimax-m25-h200-tp8.yaml")
 	want := k.launchSeconds()
 	for _, b := range []kernel.Batch{
 		decodeBatch(1, 1, 128), decodeBatch(1, 1, 32768), decodeBatch(512, 1, 8192),
@@ -903,7 +908,7 @@ func TestDispatchCostIsIndependentOfBatchAndContext(t *testing.T) {
 // regime's floor survived every other test in this file, because no other test puts a
 // prefill-sized request through the kernel.
 func TestPrefillAndDecodeAttentionArePricedSeparately(t *testing.T) {
-	k := fixture(t, "granite5-h200-tp8-measured.yaml")
+	k := fixture(t, "minimax-m25-h200-tp8.yaml")
 	if k.attentionPrefillScale <= 0 || k.attentionPrefillFloor <= 0 {
 		t.Fatal("no measured prefill attention form resolved")
 	}
@@ -994,7 +999,7 @@ func TestPrefillAndDecodeAttentionArePricedSeparately(t *testing.T) {
 // A mixed batch — some requests prefilling, some decoding — must pay both regimes, because
 // the engine launches a kernel for each. Charging only the larger would understate the step.
 func TestMixedBatchPaysBothAttentionRegimes(t *testing.T) {
-	k := fixture(t, "granite5-h200-tp8-measured.yaml")
+	k := fixture(t, "minimax-m25-h200-tp8.yaml")
 	decodeOnly := k.StepTime(decodeBatch(32, 1, 4096))
 	mixed := decodeBatch(32, 1, 4096)
 	mixed.Reqs = append(mixed.Reqs, kernel.ReqShape{
@@ -1196,7 +1201,7 @@ func TestAKindWithoutAFitFallsBackToThePartWideTerms(t *testing.T) {
 // and halving the SM budget moved it 1.2%, which a max-composed kernel also does through its
 // own SM term. The mutation reverting the sum to a max survived it.
 func TestTheRoutedExpertTermComposesAsASumNotAMax(t *testing.T) {
-	k := fixture(t, "granite5-h200-ep16.yaml")
+	k := fixture(t, "minimax-m25-h200-ep16.yaml")
 	b := decodeBatch(32, 2, 8192)
 	e := k.StepTime(b)
 
@@ -1240,8 +1245,8 @@ func TestTheRoutedExpertTermComposesAsASumNotAMax(t *testing.T) {
 // and three existing tests caught it -- including one asserting routed compute falls as the
 // expert group widens.
 func TestTheRoutedHalvesAreChargedToTheirOwnResources(t *testing.T) {
-	narrow := fixture(t, "granite5-h200-ep16.yaml")
-	wide := fixture(t, "granite5-h200-ep72.yaml")
+	narrow := fixture(t, "minimax-m25-h200-ep16.yaml")
+	wide := fixture(t, "minimax-m25-h200-ep72.yaml")
 	b := decodeBatch(32, 2, 8192)
 
 	// Widening the expert group gives each rank fewer experts, so both routed halves fall.
@@ -1277,7 +1282,7 @@ func TestTheRoutedHalvesAreChargedToTheirOwnResources(t *testing.T) {
 // prefix rather than half of it -- checked by comparing two increments whose ratio the
 // halving would change.
 func TestChunkedPrefillChargesTheWholePrefix(t *testing.T) {
-	k := fixture(t, "granite5-h200-tp8-measured.yaml")
+	k := fixture(t, "minimax-m25-h200-tp8.yaml")
 	if k.attentionPrefillScale <= 0 {
 		t.Fatal("no measured prefill attention form resolved")
 	}
