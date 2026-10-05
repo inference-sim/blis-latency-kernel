@@ -49,6 +49,20 @@ type Plan struct {
 type PlannedGEMM struct {
 	N, K          int
 	FLOPsPerToken float64
+	// ShardN is true when tensor parallelism splits the OUTPUT width rather than the
+	// reduction, which is what decides the shape a rank actually runs.
+	//
+	// Derived from the graph rather than assumed, because the two cases shard opposite
+	// dimensions and a shape-aware efficiency reads both. A column-parallel GEMM takes
+	// the full hidden state and splits its output, so its K equals hidden_size; a
+	// row-parallel GEMM consumes a sharded activation and reduces to the full hidden
+	// state, so its N equals hidden_size. On minimax-m3 at hidden 6144 that classifies
+	// qkv_proj (k=6144) and mlp_gate_up (k=6144) as column-parallel and o_proj (n=6144)
+	// and mlp_down (n=6144) as row-parallel, which is what those projections are.
+	//
+	// Sharding the wrong axis is not a small error: mlp_gate_up is the widest GEMM in
+	// the layer, and dividing its K by tp would price a 6144-deep reduction as 768-deep.
+	ShardN bool
 }
 
 // PlannedLayer is one layer kind with its multiplicity and its pre-summed work.
@@ -285,8 +299,12 @@ func planNodes(nodes []model.Node, em Emitter, dtypeBytes, stateBytes float64,
 			// Two FLOPs per multiply-accumulate, per output element, per token.
 			f := 2 * float64(n.N) * float64(n.K)
 			pl.DenseFLOPsPerToken += f
-			pl.DenseGEMMs = append(pl.DenseGEMMs,
-				PlannedGEMM{N: n.N, K: n.K, FLOPsPerToken: f})
+			// hidden == 0 means the caller did not supply it; then neither test fires and
+			// the consumer shards K, which is the pre-existing behaviour.
+			pl.DenseGEMMs = append(pl.DenseGEMMs, PlannedGEMM{
+				N: n.N, K: n.K, FLOPsPerToken: f,
+				ShardN: hidden > 0 && n.K == hidden && n.N != hidden,
+			})
 			pl.DenseWeightBytes += float64(n.N) * float64(n.K) * weightBytes(n, dtypeBytes)
 		case model.OpGroupedGEMM:
 			// A gated expert holds three matrices; the node's N is the inner width.

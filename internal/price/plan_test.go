@@ -426,3 +426,62 @@ func TestAnAbsentNodeDTypeLeavesEveryFigureUnchanged(t *testing.T) {
 		t.Fatal("no expert layer in the plan")
 	}
 }
+
+// TestDenseGEMMShardAxisComesFromTheGraph pins the classification that decides which
+// dimension tensor parallelism divides. Getting it backwards is not a rounding error:
+// minimax-m3's mlp_gate_up is (n=24576, k=6144) at hidden 6144, so sharding K instead
+// of N would price its 6144-deep reduction as 768-deep at TP=8 -- on the widest GEMM in
+// the layer, where a shape-aware efficiency is most sensitive.
+//
+// The rule is a property of the projection, readable from the shape: a column-parallel
+// GEMM takes the whole hidden state and splits its output, so K == hidden; a
+// row-parallel GEMM consumes a shard and reduces to the whole hidden state, so
+// N == hidden.
+func TestDenseGEMMShardAxisComesFromTheGraph(t *testing.T) {
+	const hidden = 6144
+	nodes := []model.Node{
+		{Op: model.OpGEMM, Role: "qkv_proj", N: 9216, K: hidden},
+		{Op: model.OpGEMM, Role: "o_proj", N: hidden, K: 8192},
+		{Op: model.OpGEMM, Role: "mlp_gate_up", N: 24576, K: hidden},
+		{Op: model.OpGEMM, Role: "mlp_down", N: hidden, K: 12288},
+		// minimax-m3's indexer projection: column-parallel (K == hidden) yet NARROWER
+		// than its reduction. It is here because it separates the rule from a
+		// coincidence -- "shard whichever dimension is larger" classifies the other four
+		// shapes correctly and this one wrongly.
+		{Op: model.OpGEMM, Role: "index_qk_proj", N: 640, K: hidden},
+	}
+	pl, err := planNodes(nodes, emitAll{}, 1, 1, hidden)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pl.DenseGEMMs) != len(nodes) {
+		t.Fatalf("planned %d GEMMs, want %d", len(pl.DenseGEMMs), len(nodes))
+	}
+	want := map[string]bool{
+		"qkv_proj": true, "mlp_gate_up": true, // column-parallel: shard the output
+		"o_proj": false, "mlp_down": false, // row-parallel: shard the reduction
+		"index_qk_proj": true, // column-parallel despite N < K
+	}
+	for i, g := range pl.DenseGEMMs {
+		role := nodes[i].Role
+		if g.ShardN != want[role] {
+			t.Errorf("%s (n=%d k=%d): ShardN=%v, want %v",
+				role, g.N, g.K, g.ShardN, want[role])
+		}
+	}
+}
+
+// TestDenseGEMMShardAxisFallsBackWithoutHidden pins the degenerate case. A graph with no
+// hidden size recorded must not claim a classification it cannot make: the consumer then
+// shards the reduction, which is what it did before this field existed.
+func TestDenseGEMMShardAxisFallsBackWithoutHidden(t *testing.T) {
+	pl, err := planNodes([]model.Node{
+		{Op: model.OpGEMM, Role: "unknown", N: 4096, K: 4096},
+	}, emitAll{}, 1, 1, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pl.DenseGEMMs[0].ShardN {
+		t.Fatal("with no hidden size the plan must not assert a column-parallel split")
+	}
+}

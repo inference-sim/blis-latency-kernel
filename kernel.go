@@ -338,13 +338,17 @@ func (k *Kernel) stepTime(b kernel.Batch,
 			// an MLP's is 6144, and the sweep says those differ by more than 2x in
 			// achieved efficiency at the same m.
 			for _, g := range l.DenseGEMMs {
+				// Tensor parallelism splits ONE of the two dimensions, and which one is
+				// a property of the projection. The plan classifies it from the graph:
+				// a column-parallel GEMM splits its output width, a row-parallel one its
+				// reduction. Sharding the wrong axis would price mlp_gate_up's 6144-deep
+				// reduction as 768-deep at TP=8, which is the widest GEMM in the layer.
 				n, kk := float64(g.N), float64(g.K)
-				// One of the two dimensions is sharded, and which one is a property of the
-				// projection rather than of the deployment. Charging the shard to K is the
-				// conservative choice here: it lowers the k factor, so it never flatters
-				// the model, and a row-parallel GEMM is the case where the narrow
-				// reduction actually occurs.
-				kk /= k.tp
+				if g.ShardN {
+					n /= k.tp
+				} else {
+					kk /= k.tp
+				}
 				eff := price.ShapeEfficiency(tokensF, n, kk,
 					k.epsMax, k.mHalf, k.nHalf, k.kHalf)
 				if eff <= 0 {
