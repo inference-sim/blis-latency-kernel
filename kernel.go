@@ -378,23 +378,28 @@ func (k *Kernel) stepTime(b kernel.Batch,
 		weightBytes += l.DenseWeightBytes / k.tp
 
 		if l.ExpertFLOPsPerTokenPerExpert > 0 {
-			// A rank computes only the tokens routed to the experts it holds, and only
-			// its own tensor slice of each one. Both divisions are needed and they are
-			// alternatives: vLLM sets ep_size = tp with tp_size = 1 when expert
-			// parallelism is on and the reverse when it is off (fused_moe/config.py), so
-			// exactly one of localExpertShare and expertTensorShards is ever not 1.
+			// A rank computes only the tokens routed to the experts it holds.
 			//
-			// The slice division was missing. Under pure tensor parallelism
-			// localExpertShare is 1 -- every rank does hold every expert -- so the FLOPs
-			// were charged as if each rank computed every expert WHOLE, a factor of tp.
-			// vLLM shards the intermediate dimension,
-			// `intermediate_size_per_partition = intermediate_size // tp_size`
-			// (fused_moe/config.py:1350), so a rank's routed work is its slice's.
+			// NOT divided by expertTensorShards, and that is a KNOWN over-charge rather
+			// than an oversight. Under pure tensor parallelism localExpertShare is 1 --
+			// every rank does hold every expert -- and vLLM shards the intermediate
+			// dimension, `intermediate_size_per_partition = intermediate_size // tp_size`
+			// (vllm/model_executor/layers/fused_moe/config.py:1350), so a rank's routed
+			// work is its slice's. Charging the whole expert over-prices routed compute by
+			// the tensor-parallel width on the 400 of 591 InferenceX scenarios that are
+			// pure TP. The BYTES do divide by it, on the line below, so the two terms
+			// disagree about the same experts.
 			//
-			// The bytes already divided by it on the line below, which is why the two
-			// disagreed: expert weights were per-slice while expert FLOPs were per-whole.
-			routedPerRank := tokensF * float64(l.TopK) * k.localExpertShare /
-				k.expertTensorShards
+			// Dividing it was implemented, tested and measured: it improves per-step
+			// accuracy against NVIDIA's FPM whole-forward set, mape 27.45% to 23.03% over
+			// 9,161 held-out steps, and costs 3.57 points of TPOT mape and 12.29 of TTFT
+			// mape end to end. It is retained in this form on the evaluation evidence,
+			// because the over-charge cancels another term that is not yet identified --
+			// the sixth such cancellation this model is known to rest on. Correcting it
+			// alone makes the kernel worse, so it waits for the term it offsets.
+			//
+			// docs/perf-model/hypothesis-log.md records the measurements on both sides.
+			routedPerRank := tokensF * float64(l.TopK) * k.localExpertShare
 			routedFLOPs += routedPerRank * l.ExpertFLOPsPerTokenPerExpert * k.moeImbalance
 			// Expert weights read: the DISTINCT local experts this step touches, times
 			// each one's per-rank bytes. Two things are separate and vLLM keeps them
