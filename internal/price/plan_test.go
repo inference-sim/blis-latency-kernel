@@ -485,3 +485,73 @@ func TestDenseGEMMShardAxisFallsBackWithoutHidden(t *testing.T) {
 		t.Fatal("with no hidden size the plan must not assert a column-parallel split")
 	}
 }
+
+// TestConsecutiveColumnParallelGEMMsFuse pins the grouping that matches what the engine
+// launches. vLLM concatenates column-parallel projections of the same hidden state along
+// the OUTPUT dimension -- QKVParallelLinear and MergedColumnParallelLinear, both in
+// vllm/model_executor/layers/linear.py -- so they are one matmul with the widths summed.
+//
+// It matters because efficiency is strongly non-linear in output width: on AISimulate's
+// vLLM fp8 sweep for H200 at 256 rows, measured efficiency is 0.0008 at n=16 against
+// 0.0138 at n=256. minimax-m3's layer-1 indexer projection is n=640, which sharded over
+// eight ranks is n=80 -- pricing it as its own kernel charges for a fragmentation vLLM
+// has already removed.
+//
+// Three cases, because the rule has three parts and each can be dropped independently.
+func TestConsecutiveColumnParallelGEMMsFuse(t *testing.T) {
+	const hidden = 6144
+	plan := func(nodes ...model.Node) PlannedLayer {
+		t.Helper()
+		pl, err := planNodes(nodes, emitAll{}, 1, 1, hidden)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return pl
+	}
+
+	// Adjacent, both column-parallel, same K: fused, widths summed, FLOPs preserved.
+	got := plan(
+		model.Node{Op: model.OpGEMM, Role: "qkv_proj", N: 9216, K: hidden},
+		model.Node{Op: model.OpGEMM, Role: "index_qk_proj", N: 640, K: hidden},
+	)
+	if len(got.DenseGEMMs) != 1 {
+		t.Fatalf("adjacent column-parallel GEMMs on the same K did not fuse: %d GEMMs",
+			len(got.DenseGEMMs))
+	}
+	if got.DenseGEMMs[0].N != 9216+640 {
+		t.Fatalf("fused width %d, want %d", got.DenseGEMMs[0].N, 9216+640)
+	}
+	wantFLOPs := 2.0 * (9216*hidden + 640*hidden)
+	if f := got.DenseGEMMs[0].FLOPsPerToken; f != wantFLOPs {
+		t.Fatalf("fusing changed the work: %.0f against %.0f", f, wantFLOPs)
+	}
+
+	// Separated by an op the engine cannot fuse across: NOT fused, even though both are
+	// column-parallel on the same K. This is minimax-m3's layer-0, where qkv_proj and
+	// mlp_gate_up sit either side of the attention.
+	got = plan(
+		model.Node{Op: model.OpGEMM, Role: "qkv_proj", N: 9216, K: hidden},
+		model.Node{Op: model.OpAttention, NumQHeads: 64, NumKVHeads: 4, HeadDim: 128},
+		model.Node{Op: model.OpGEMM, Role: "mlp_gate_up", N: 24576, K: hidden},
+	)
+	if len(got.DenseGEMMs) != 2 {
+		t.Fatalf("GEMMs separated by attention fused: %d GEMMs, want 2",
+			len(got.DenseGEMMs))
+	}
+
+	// A row-parallel GEMM never fuses into a column-parallel one: they shard opposite
+	// dimensions, so concatenating their outputs is not something the engine can do.
+	//
+	// The K values here are deliberately EQUAL. A row-parallel projection usually has a
+	// different K, so a rule that tested only "same K" would pass this case by accident
+	// -- and one did: dropping the ShardN conditions survived an earlier version of this
+	// test, where o_proj carried k=8192 against the column GEMM's k=6144.
+	got = plan(
+		model.Node{Op: model.OpGEMM, Role: "col", N: 9216, K: hidden},
+		model.Node{Op: model.OpGEMM, Role: "row", N: hidden, K: hidden},
+	)
+	if len(got.DenseGEMMs) != 2 {
+		t.Fatalf("a row-parallel GEMM on the same K fused into a column-parallel one: "+
+			"%d GEMMs, want 2", len(got.DenseGEMMs))
+	}
+}
