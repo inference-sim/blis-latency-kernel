@@ -395,9 +395,16 @@ func TestHostOverheadsScaleWithWhatTheyProcess(t *testing.T) {
 		t.Errorf("a 100x longer prompt did not cost more to admit: %v against %v",
 			long, short)
 	}
-	// Admission is linear in prompt length, so the ratio should track the token ratio.
-	if ratio := float64(long) / float64(short); ratio < 90 || ratio > 110 {
-		t.Errorf("admission scaled %.1fx over a 100x token range", ratio)
+	// Admission is an intercept plus a per-token slope, so the DIFFERENCE over a token
+	// range is the slope alone and the ratio is not the token ratio. This test asserted
+	// a 90-110x ratio while the registry shipped no intercept; it now pins the two
+	// components separately, which is what distinguishes them.
+	perToken := float64(long-short) / float64(10000-100)
+	if perToken <= 0 {
+		t.Errorf("per-token admission slope is not positive: %v", perToken)
+	}
+	if intercept := float64(short) - perToken*100; intercept < 0 {
+		t.Errorf("implied admission intercept is negative: %v", intercept)
 	}
 	if k.OutputTokenOverhead() <= 0 {
 		t.Error("emitting a token costs host time")
