@@ -399,7 +399,21 @@ func (k *Kernel) stepTime(b kernel.Batch,
 			// alone makes the kernel worse, so it waits for the term it offsets.
 			//
 			// docs/perf-model/hypothesis-log.md records the measurements on both sides.
-			routedPerRank := tokensF * float64(l.TopK) * k.localExpertShare
+			// ATTENTION-DP FUNNEL. With attention data parallelism every DP rank's
+			// tokens are concatenated before expert routing, so the grouped GEMM sees
+			// the whole replica group's tokens rather than one rank's. vLLM states it
+			// for the naive dispatch -- "all DP ranks' tokens are concatenated before
+			// routing" (fused_moe/routed_experts_capturer.py) -- and
+			// allgather_reducescatter, the default (config/parallel.py), is that path.
+			// NVIDIA's own simulator applies the same factor exactly once before its
+			// perf lookup (crates/core/src/perfmodel/operators/moe.rs,
+			// `num_tokens.saturating_mul(self.attention_dp_size.max(1))`).
+			//
+			// Omitting it under-prices the routed term by the DP width, which is what
+			// FPM's mixed rows measure: on MiniMax-M2.7 h200 the signed error runs
+			// -14.9% at dp=1 tep2, -34.0% at dp=2 and -46.7% at dp=4, ordering by dp.
+			routedTokens := tokensF * k.moeDPFunnel()
+			routedPerRank := routedTokens * float64(l.TopK) * k.localExpertShare
 			routedFLOPs += routedPerRank * l.ExpertFLOPsPerTokenPerExpert * k.moeImbalance
 			// Expert weights read: the DISTINCT local experts this step touches, times
 			// each one's per-rank bytes. Two things are separate and vLLM keeps them
@@ -770,6 +784,22 @@ func (k *Kernel) routedAll2All() bool {
 		return false
 	}
 	return true
+}
+
+// moeDPFunnel is how many replica groups' tokens reach one rank's experts.
+//
+// Attention data parallelism replicates attention across DP ranks but SHARES the expert
+// pool: each rank routes its own tokens and then every rank's tokens are gathered before
+// the grouped GEMM, so the experts see dp times one rank's token count. Without expert
+// parallelism there is no shared pool to gather into and the factor is one.
+//
+// Returns 1 rather than 0 when DP is unset, so a scenario that omits it prices as it did
+// before this term existed.
+func (k *Kernel) moeDPFunnel() float64 {
+	if k.layout.ExpertWidth <= 1 || k.layout.DP <= 1 {
+		return 1
+	}
+	return float64(k.layout.DP)
 }
 
 // hostPerStep returns the host cost of one step.

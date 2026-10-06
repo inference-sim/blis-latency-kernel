@@ -574,26 +574,43 @@ func TestKVTermScalesWithTheShardedHeadCount(t *testing.T) {
 }
 
 func TestRoutedComputeScalesWithTheLocalExpertShare(t *testing.T) {
-	// The routed term is the largest compute term, and it divides by the expert-parallel
-	// width rather than by TP. Comparing two widths at one batch isolates it: the dense
-	// and attention terms are identical between them, so the whole difference is routed.
+	// The routed term divides by the number of experts a rank HOLDS and multiplies by
+	// the number of replica groups whose tokens reach those experts. Both move when EP
+	// widens, and which way the net goes depends on HOW it widens.
+	//
+	// These two fixtures widen EP by adding DP ranks: ep16 is tp8/dp2, ep72 is tp8/dp9.
+	// So localExpertShare falls 4.67x (14 local experts against 3) while the
+	// attention-DP funnel grows 4.5x (dp 2 to 9), and the two nearly cancel. That is
+	// vLLM's actual behaviour, not an artefact: adding a DP rank adds a replica of
+	// attention AND its tokens to the shared expert pool, so per-rank routed work is
+	// roughly preserved.
+	//
+	// An earlier version of this test asserted SM must FALL by 1.2x to 4.67x across
+	// this pair, which encoded the localExpertShare half of that and omitted the
+	// funnel. It passed only while the funnel was missing from the model.
 	narrow := fixture(t, "minimax-m25-h200-ep16.yaml")
 	wide := fixture(t, "minimax-m25-h200-ep72.yaml")
 	batch := decodeBatch(256, 2, 8192)
 	sm16 := narrow.StepTime(batch).PerResource[kernel.ResourceSM].Seconds()
 	sm72 := wide.StepTime(batch).PerResource[kernel.ResourceSM].Seconds()
-	if sm72 >= sm16 {
-		t.Fatalf("SM at EP=72 (%.3f ms) did not fall below EP=16 (%.3f ms)",
-			sm72*1e3, sm16*1e3)
+
+	// The two effects are each large and they oppose, so the net must be SMALL. A
+	// mutation that drops either one leaves a 4.5x-4.67x swing, which this rejects.
+	if ratio := sm16 / sm72; ratio < 0.7 || ratio > 1.5 {
+		t.Errorf("SM moved %.2fx between EP=16 (dp2) and EP=72 (dp9); localExpertShare "+
+			"falls 4.67x and the DP funnel rises 4.5x, so the net belongs in 0.7x..1.5x. "+
+			"A swing this large means one of the two terms is missing", ratio)
 	}
-	// 14 local experts against 3 is a 4.67x reduction in routed work, partly offset
-	// because the wider group presents more rows per expert and so runs at a higher
-	// point on the efficiency ramp. The net must land between the two effects.
-	ratio := sm16 / sm72
-	if ratio < 1.2 || ratio > 4.67 {
-		t.Errorf("SM fell %.2fx between EP=16 and EP=72; the routed term's 4.67x "+
-			"reduction net of the ramp's improvement should land inside 1.2x..4.67x",
-			ratio)
+
+	// And the share itself must still bite, isolated from the funnel: at equal DP a
+	// wider expert group holds fewer experts per rank and must cost less.
+	if narrow.localExpertShare <= wide.localExpertShare {
+		t.Errorf("localExpertShare did not fall with EP width: %.4f at EP=16 against "+
+			"%.4f at EP=72", narrow.localExpertShare, wide.localExpertShare)
+	}
+	if narrow.moeDPFunnel() >= wide.moeDPFunnel() {
+		t.Errorf("the DP funnel did not rise with DP width: %.1f at dp2 against %.1f "+
+			"at dp9", narrow.moeDPFunnel(), wide.moeDPFunnel())
 	}
 }
 
@@ -681,9 +698,25 @@ func TestRoutingImbalanceIsApplied(t *testing.T) {
 	// EP=16 rather than EP=72: a rank holds 14 experts there against 3, so routed work
 	// is a far larger share of the compute term and a 5.6% factor on it is detectable.
 	k := fixture(t, "minimax-m25-h200-ep16.yaml")
-	if k.moeImbalance <= 1.0 || k.moeImbalance > 2.0 {
-		t.Fatalf("routing imbalance resolved to %.4f; it should be a median above one "+
-			"and well below the tail", k.moeImbalance)
+	// The multiplier is a MEDIAN ratio of skewed to balanced latency, so the band it must
+	// fall in is set by the measurement, not by an assumption that skew always costs
+	// extra. On vLLM's own expert kernels -- Triton, FlashInfer-Cutlass, Marlin -- mild
+	// skew is close to free and the ratio is symmetric about one (49.7% of 18,144 paired
+	// shapes above it on h200), where TRT-LLM's generic `moe_torch_flow_cutlass` path
+	// showed a systematic 1.066. The penalty lives in the tail, which p90 records at
+	// 1.394 and which this coefficient deliberately does not carry.
+	//
+	// The band therefore admits a near-unity median and still rejects the two failures
+	// that matter: a missing coefficient falling back to exactly 1.0 (ValueOr's default,
+	// which would mean the registry entry was not found at all), and a tail value
+	// substituted for the median.
+	if k.moeImbalance == 1.0 {
+		t.Fatalf("routing imbalance is exactly 1.0, which is ValueOr's fallback: the " +
+			"coefficient did not resolve from the registry")
+	}
+	if k.moeImbalance < 0.9 || k.moeImbalance > 1.3 {
+		t.Fatalf("routing imbalance resolved to %.4f, outside the measured median band "+
+			"[0.9, 1.3]; a p90 tail value or a unit slip would land here", k.moeImbalance)
 	}
 	found := false
 	for _, o := range k.Provenance() {
@@ -725,18 +758,32 @@ func TestRoutingImbalanceIsApplied(t *testing.T) {
 	routed := routedFLOPs / (k.computeFLOPsPerSecond * eff(rowsPerExpert))
 
 	withMultiplier := nonRouted + routed*k.moeImbalance
-	without := nonRouted + routed
-	// The two candidates must be far enough apart for the comparison to mean something.
-	if spread := withMultiplier/without - 1; spread < 0.01 {
-		t.Fatalf("the two candidate totals differ by only %.2f%%, too little to "+
-			"distinguish; the routed term is too small a share of this batch", spread*100)
-	}
-	if math.Abs(sm-without) <= math.Abs(sm-withMultiplier) {
-		t.Errorf("the SM term %.4f ms is no closer to routed work priced WITH the "+
-			"imbalance multiplier (%.4f ms) than without it (%.4f ms); the coefficient "+
-			"is resolved but not applied", sm*1e3, withMultiplier*1e3, without*1e3)
+
+	// The SM term must be the same ORDER as the arithmetic above. This is a sanity bound,
+	// not an equality: the composition also charges terms this local calculation omits
+	// (the index projection, elementwise work, the launch floor), so the measured term is
+	// legitimately larger. A 1.49x gap is normal here; a 10x gap would mean a sharding or
+	// unit error.
+	if ratio := sm / withMultiplier; ratio < 0.5 || ratio > 3.0 {
+		t.Errorf("the SM term is %.4f ms against %.4f ms of dense + routed + head work "+
+			"(%.3fx); that is too far apart to be the omitted small terms",
+			sm*1e3, withMultiplier*1e3, ratio)
 	}
 
+	// THE LOAD-BEARING CHECK, and it is unconditional. An earlier version compared two
+	// candidate totals -- routed work with and without the factor -- and asked which the
+	// measurement sat closer to. That only discriminates while the multiplier is far from
+	// one, and on the vLLM lane it is 0.999, which put the candidates 0.06% apart and
+	// made the comparison vacuous. Scaling the resolved coefficient and requiring the
+	// step to move with it does not depend on the fitted value at all.
+	scaled := *k
+	scaled.moeImbalance = k.moeImbalance * 1.5
+	smScaled := scaled.StepTime(batch).PerResource[kernel.ResourceSM].Seconds()
+	if smScaled <= sm*1.001 {
+		t.Errorf("scaling the imbalance multiplier by 1.5 moved the SM term from "+
+			"%.4f to %.4f ms; the coefficient is resolved but not applied",
+			sm*1e3, smScaled*1e3)
+	}
 }
 
 // TestCollectivesUseTheTransitionRate checks that the three-parameter form reaches the
