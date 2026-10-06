@@ -431,8 +431,16 @@ func (k *Kernel) stepTime(b kernel.Batch,
 			// the batch sizes the "all local experts are read at decode" assumption was
 			// written for that is all of them; below those it is not, since one token
 			// reaches at most top_k.
+			// The token count driving coverage is the SAME funnelled count that drives
+			// the routed FLOPs above: with attention data parallelism a rank's experts
+			// receive every DP rank's tokens, so they are reached by `routedTokens`
+			// tokens, not by one rank's. Using the unfunnelled count here while the
+			// FLOPs term uses the funnelled one is an internal inconsistency, and it
+			// under-reads expert weights exactly where coverage is partial -- at the
+			// batch 1-4 prefill rows that make up FPM's attention-DP cells.
 			routedWeightBytes += l.ExpertWeightBytesPerExpert / k.expertTensorShards *
-				price.ExpertsTouched(tokens, k.totalExperts, l.TopK, k.expertsPerRank)
+				price.ExpertsTouched(int(routedTokens+0.5), k.totalExperts, l.TopK,
+					k.expertsPerRank)
 			// A shared expert is dense: every token pays it, sharded like any projection.
 			flops += tokensF * l.SharedExpertFLOPsPerToken / k.tp
 			weightBytes += l.SharedExpertWeightBytes / k.tp
