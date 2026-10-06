@@ -258,6 +258,10 @@ func (k *Kernel) stepTime(b kernel.Batch,
 	// causalFLOPs halves the naive count because attention attends only to earlier
 	// positions. decodeKVTokens is the context those requests read.
 	var causalFLOPs, decodeKVTokens float64
+	// Each prefill chunk's shape is kept so a sliding-window layer can be charged its
+	// own bounded pair count. causalFLOPs is the unwindowed total, which is what a
+	// full-attention layer pays.
+	var prefillChunks []chunk
 	var prefillRequests, decodeRequests int
 	for i := range b.Reqs {
 		r := &b.Reqs[i]
@@ -283,6 +287,7 @@ func (k *Kernel) stepTime(b kernel.Batch,
 			// prediction grew 2.85x.
 			sched := float64(r.Scheduled)
 			causalFLOPs += 2 * 2 * (sched*float64(r.Computed) + sched*sched*0.5)
+			prefillChunks = append(prefillChunks, chunk{sched: r.Scheduled, prefix: r.Computed})
 			continue
 		}
 		decodeRequests++
@@ -462,16 +467,24 @@ func (k *Kernel) stepTime(b kernel.Batch,
 				// the floor is lost. Provenance says the entries are missing.
 				kvFallback = true
 			}
+			// A sliding-window layer attends within its window, not over the whole
+			// prefix. The window is a per-LAYER property -- gpt-oss-120b alternates a
+			// 128-token swa layer with a full gqa one -- so it cannot be applied to the
+			// batch-wide causalFLOPs computed before this loop.
+			layerCausalFLOPs := causalFLOPs
+			if l.AttnWindow > 0 {
+				layerCausalFLOPs = windowedCausalFLOPs(prefillChunks, l.AttnWindow)
+			}
 			if prefillRequests > 0 && k.attentionPrefillScale > 0 {
 				scale := price.Efficiency(tokensF, k.epsMax, k.mHalf) *
 					k.attentionPrefillScale
 				attnSMSeconds += k.attentionPrefillFloor.Seconds() +
-					causalFLOPs*float64(l.AttnQHeads)*float64(l.AttnHeadDim)/k.tp/
+					layerCausalFLOPs*float64(l.AttnQHeads)*float64(l.AttnHeadDim)/k.tp/
 						(k.computeFLOPsPerSecond*scale)*smDerate
 			} else if prefillRequests > 0 {
 				// No measured prefill form: fall back to the ramp unmodified, which the
 				// sweeps say understates by over ten times.
-				flops += causalFLOPs * float64(l.AttnQHeads) *
+				flops += layerCausalFLOPs * float64(l.AttnQHeads) *
 					float64(l.AttnHeadDim) / k.tp
 			}
 
@@ -784,6 +797,55 @@ func (k *Kernel) routedAll2All() bool {
 		return false
 	}
 	return true
+}
+
+// chunk is one prefill request's shape within a step: `sched` new tokens resuming on a
+// prefix of `prefix` already-computed ones.
+type chunk struct {
+	sched  int
+	prefix int
+}
+
+// windowedCausalFLOPs is the attention FLOPs a sliding-window layer pays for these
+// prefill chunks. A query at absolute position p attends keys in [p-window+1, p], so it
+// reads min(p+1, window) of them rather than the whole prefix.
+//
+// For a chunk of `s` tokens resuming at prefix `c`, the queries whose own position still
+// fits inside the window are the first max(0, min(s, window-c)); each later query reads
+// exactly `window` keys. Summing the two regimes:
+//
+//	nSmall = max(0, min(s, window-c))
+//	pairs  = nSmall*(c+1) + nSmall*(nSmall-1)/2 + (s-nSmall)*window
+//
+// The 2*2 factor matches the unwindowed term above: two FLOPs per multiply-accumulate,
+// and two matmuls (scores, then the value-weighted sum).
+//
+// The bound SATURATES at s*window however long the prefix grows, where the unwindowed
+// count grows linearly in the prefix without bound. The over-charge this corrects is
+// therefore governed by PREFIX length, not chunk size: about 4x at an 8,192-token prefix
+// for a 1,024-token chunk with a 2,176 window, 15x at 32,768 and 60x at 131,072.
+// docs/perf-model/hypothesis-log.md records the brute-force verification.
+func windowedCausalFLOPs(chunks []chunk, window int) float64 {
+	if window <= 0 {
+		return 0
+	}
+	w := float64(window)
+	var pairs float64
+	for _, c := range chunks {
+		s, prefix := float64(c.sched), float64(c.prefix)
+		nSmall := math.Min(s, w-prefix)
+		if nSmall < 0 {
+			nSmall = 0
+		}
+		// Queries still inside the window read their whole prefix plus themselves;
+		// the rest read exactly `window`. The 0.5*nSmall subtraction drops the
+		// diagonal's half-token so this matches the unwindowed term's continuum
+		// convention (s*c + s^2/2) rather than exceeding it by s/2 when the window
+		// is wide enough to be inactive.
+		pairs += nSmall*(prefix+1) + nSmall*(nSmall-1)*0.5 - nSmall*0.5
+		pairs += (s - nSmall) * w
+	}
+	return 2 * 2 * pairs
 }
 
 // moeDPFunnel is how many replica groups' tokens reach one rank's experts.
