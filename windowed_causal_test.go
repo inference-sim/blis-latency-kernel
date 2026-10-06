@@ -1,6 +1,9 @@
 package latencykernel
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 // bruteWindowed counts attention pairs one query at a time, in the kernel's continuum
 // convention: a query at absolute position p reads keys in [p-window+1, p], and the
@@ -87,5 +90,39 @@ func TestWindowedCausalFLOPsIsZeroForUnsetWindow(t *testing.T) {
 		if got := windowedCausalFLOPs([]chunk{{sched: 512, prefix: 4096}}, w); got != 0 {
 			t.Fatalf("window=%d: got %.1f, want 0", w, got)
 		}
+	}
+}
+
+// AdmissionOverhead carries a length-independent per-request term alongside the
+// per-token slope. The two have different dimensions and the registry ships only the
+// slope today, so an absent per-request coefficient must leave the total unchanged.
+func TestAdmissionOverheadIsUnchangedWhenPerRequestIsUnset(t *testing.T) {
+	k := &Kernel{admissionPerToken: 350 * time.Nanosecond}
+	for _, tokens := range []int{1, 1024, 8192} {
+		want := time.Duration(float64(k.admissionPerToken) * float64(tokens))
+		if got := k.AdmissionOverhead(tokens); got != want {
+			t.Fatalf("tokens=%d: got %v want %v", tokens, got, want)
+		}
+	}
+}
+
+// With both set, the per-request term is additive and length-independent: the
+// difference between two prompt lengths is the slope alone.
+func TestAdmissionOverheadAddsThePerRequestTermOnce(t *testing.T) {
+	k := &Kernel{admissionPerToken: 350 * time.Nanosecond, admissionPerRequest: 40 * time.Millisecond}
+	short, long := k.AdmissionOverhead(1024), k.AdmissionOverhead(8192)
+	if d := long - short; d != time.Duration(350*float64(8192-1024)) {
+		t.Fatalf("slope between lengths = %v, want the per-token term only", d)
+	}
+	if short < 40*time.Millisecond {
+		t.Fatalf("per-request term missing: %v", short)
+	}
+}
+
+// A zero-token request is free regardless of the per-request term: nothing was admitted.
+func TestAdmissionOverheadIsZeroForNoTokens(t *testing.T) {
+	k := &Kernel{admissionPerToken: 350 * time.Nanosecond, admissionPerRequest: 40 * time.Millisecond}
+	if got := k.AdmissionOverhead(0); got != 0 {
+		t.Fatalf("got %v want 0", got)
 	}
 }

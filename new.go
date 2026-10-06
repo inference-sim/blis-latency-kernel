@@ -248,6 +248,8 @@ func (k *Kernel) lift(c *resolve.Coefficients, g *model.Graph, cacheBytes float6
 
 	k.admissionPerToken = time.Duration(
 		c.ValueOr("host_admission_per_token", 0) * float64(time.Microsecond))
+	k.admissionPerRequest = time.Duration(
+		c.ValueOr("host_admission_per_request", 0) * float64(time.Microsecond))
 	k.outputTokenCost = time.Duration(
 		c.ValueOr("host_output_token", 0) * float64(time.Microsecond))
 	k.completionCost = time.Duration(

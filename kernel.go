@@ -109,13 +109,19 @@ type Kernel struct {
 
 	// Host overheads.
 	admissionPerToken time.Duration
-	outputTokenCost   time.Duration
-	completionCost    time.Duration
-	launchPerLayer    time.Duration
-	launchPerKernel   time.Duration
-	replayPerStep     time.Duration
-	graphCaptured     bool
-	graphMode         graphMode
+	// admissionPerRequest is the length-INDEPENDENT host cost before a request can be
+	// scheduled. Separate from admissionPerToken because the two have different
+	// dimensions: InferenceX's c=1 anchors scale as L^0.575 between 1k and 8k inputs,
+	// so the deficit is not proportional to prompt length and charging it per token
+	// adds steepness to a prefill term that is already linear in L.
+	admissionPerRequest time.Duration
+	outputTokenCost     time.Duration
+	completionCost      time.Duration
+	launchPerLayer      time.Duration
+	launchPerKernel     time.Duration
+	replayPerStep       time.Duration
+	graphCaptured       bool
+	graphMode           graphMode
 
 	// Fixed occupancy, computed once.
 	fixed kernel.MemoryBreakdown
@@ -997,7 +1003,8 @@ func (k *Kernel) AdmissionOverhead(promptTokens int) time.Duration {
 	if promptTokens <= 0 {
 		return 0
 	}
-	return time.Duration(float64(k.admissionPerToken) * float64(promptTokens))
+	return k.admissionPerRequest +
+		time.Duration(float64(k.admissionPerToken)*float64(promptTokens))
 }
 
 // OutputTokenOverhead returns host time per emitted token.
