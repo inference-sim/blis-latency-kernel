@@ -44,11 +44,17 @@ type Kernel struct {
 	// rather than hashing strings.
 	hbmBytesPerSecond     float64
 	computeFLOPsPerSecond float64
-	epsMax, mHalf         float64
-	nvlinkBytesPerSecond  float64
-	nicBytesPerSecond     float64
-	hostBytesPerSecond    float64
-	moeImbalance          float64
+	// nHalf and kHalf extend the efficiency ramp to the GEMM's own shape. Zero means the
+	// registry carries no shape-aware entry for this part and dtype, and the kernel keeps
+	// the token-count ramp -- so a partially migrated registry prices as it did before
+	// rather than pricing a GEMM at zero.
+	nHalf, kHalf         float64
+	gemmShapeAware       bool
+	epsMax, mHalf        float64
+	nvlinkBytesPerSecond float64
+	nicBytesPerSecond    float64
+	hostBytesPerSecond   float64
+	moeImbalance         float64
 
 	// Per-operation collective floors and peak rates, resolved once. Keyed by op
 	// because an all-reduce floor and an all-to-all floor differ by more than 2x on
@@ -103,13 +109,19 @@ type Kernel struct {
 
 	// Host overheads.
 	admissionPerToken time.Duration
-	outputTokenCost   time.Duration
-	completionCost    time.Duration
-	launchPerLayer    time.Duration
-	launchPerKernel   time.Duration
-	replayPerStep     time.Duration
-	graphCaptured     bool
-	graphMode         graphMode
+	// admissionPerRequest is the length-INDEPENDENT host cost before a request can be
+	// scheduled. Separate from admissionPerToken because the two have different
+	// dimensions: InferenceX's c=1 anchors scale as L^0.575 between 1k and 8k inputs,
+	// so the deficit is not proportional to prompt length and charging it per token
+	// adds steepness to a prefill term that is already linear in L.
+	admissionPerRequest time.Duration
+	outputTokenCost     time.Duration
+	completionCost      time.Duration
+	launchPerLayer      time.Duration
+	launchPerKernel     time.Duration
+	replayPerStep       time.Duration
+	graphCaptured       bool
+	graphMode           graphMode
 
 	// Fixed occupancy, computed once.
 	fixed kernel.MemoryBreakdown
@@ -232,7 +244,10 @@ func (k *Kernel) stepTime(b kernel.Batch,
 		}
 		per[kernel.ResourceHost] = host
 		return kernel.StepEstimate{
-			Overlap: host, NoOverlap: host, Bottleneck: kernel.ResourceHost,
+			// Both edges are the host cost on an empty step, so Expected is too: there is
+			// no device work for them to disagree about.
+			Overlap: host, NoOverlap: host, Expected: host,
+			Bottleneck:  kernel.ResourceHost,
 			PerResource: per,
 		}
 	}
@@ -249,6 +264,10 @@ func (k *Kernel) stepTime(b kernel.Batch,
 	// causalFLOPs halves the naive count because attention attends only to earlier
 	// positions. decodeKVTokens is the context those requests read.
 	var causalFLOPs, decodeKVTokens float64
+	// Each prefill chunk's shape is kept so a sliding-window layer can be charged its
+	// own bounded pair count. causalFLOPs is the unwindowed total, which is what a
+	// full-attention layer pays.
+	var prefillChunks []chunk
 	var prefillRequests, decodeRequests int
 	for i := range b.Reqs {
 		r := &b.Reqs[i]
@@ -258,7 +277,23 @@ func (k *Kernel) stepTime(b kernel.Batch,
 		}
 		if r.Scheduled > b.DecodeThreshold {
 			prefillRequests++
-			causalFLOPs += 2 * 2 * float64(r.Scheduled) * float64(ctx) * 0.5
+			// Attention pairs for a chunk of `Scheduled` tokens resuming on a prefix of
+			// `Computed` already-computed ones. Every chunk token attends to the WHOLE
+			// prefix -- causal masking does not reduce that, since the prefix is entirely
+			// earlier -- and to its causal share within the chunk:
+			//
+			//	pairs = Scheduled*Computed + Scheduled^2 / 2
+			//
+			// This read `Scheduled * (Computed+Scheduled) * 0.5`, which halves the
+			// prefix term. At Computed == 0 the two agree, so an unchunked prefill
+			// cannot reveal it, and every prefill check in this repository was
+			// unchunked. FPM's mixed rows are what exposed it: at a 1025-token chunk on
+			// a 203,760-token prefix the old count is 1.995x low, and the measured
+			// whole-forward latency grows 5.39x across that context sweep where the
+			// prediction grew 2.85x.
+			sched := float64(r.Scheduled)
+			causalFLOPs += 2 * 2 * (sched*float64(r.Computed) + sched*sched*0.5)
+			prefillChunks = append(prefillChunks, chunk{sched: r.Scheduled, prefix: r.Computed})
 			continue
 		}
 		decodeRequests++
@@ -305,6 +340,10 @@ func (k *Kernel) stepTime(b kernel.Batch,
 		// attnSeconds is apart from the FLOPs terms because attention is priced by a
 		// measured floor-and-rate form rather than from FLOPs.
 		var flops, routedFLOPs, weightBytes, elementwise, attnSeconds float64
+		// denseShapedSeconds is the dense-GEMM time when each GEMM is priced at its own
+		// shape's efficiency. It replaces the flops-and-one-ramp path, so exactly one of
+		// the two is populated per layer.
+		var denseShapedSeconds float64
 		// The routed-expert term is kept apart from the dense terms because it does NOT
 		// compose with its own compute the way the dense primitives do. See the composition
 		// below.
@@ -318,12 +357,74 @@ func (k *Kernel) stepTime(b kernel.Batch,
 		// rather than from FLOPs.
 		var recurrentSeconds float64
 
-		flops += tokensF * l.DenseFLOPsPerToken / k.tp
+		if k.gemmShapeAware {
+			// Each dense GEMM is priced at its OWN efficiency. A ramp in the token count
+			// alone gives every GEMM in a layer the same fraction of peak, which is wrong
+			// by the k factor: after TP=8 a projection's reduction depth can be 1024 while
+			// an MLP's is 6144, and the sweep says those differ by more than 2x in
+			// achieved efficiency at the same m.
+			for _, g := range l.DenseGEMMs {
+				// Tensor parallelism splits ONE of the two dimensions, and which one is
+				// a property of the projection. The plan classifies it from the graph:
+				// a column-parallel GEMM splits its output width, a row-parallel one its
+				// reduction. Sharding the wrong axis would price mlp_gate_up's 6144-deep
+				// reduction as 768-deep at TP=8, which is the widest GEMM in the layer.
+				n, kk := float64(g.N), float64(g.K)
+				if g.ShardN {
+					n /= k.tp
+				} else {
+					kk /= k.tp
+				}
+				eff := price.ShapeEfficiency(tokensF, n, kk,
+					k.epsMax, k.mHalf, k.nHalf, k.kHalf)
+				if eff <= 0 {
+					continue
+				}
+				denseShapedSeconds += tokensF * g.FLOPsPerToken / k.tp /
+					(k.computeFLOPsPerSecond * eff)
+			}
+		} else {
+			flops += tokensF * l.DenseFLOPsPerToken / k.tp
+		}
 		weightBytes += l.DenseWeightBytes / k.tp
 
 		if l.ExpertFLOPsPerTokenPerExpert > 0 {
 			// A rank computes only the tokens routed to the experts it holds.
-			routedPerRank := tokensF * float64(l.TopK) * k.localExpertShare
+			//
+			// NOT divided by expertTensorShards, and that is a KNOWN over-charge rather
+			// than an oversight. Under pure tensor parallelism localExpertShare is 1 --
+			// every rank does hold every expert -- and vLLM shards the intermediate
+			// dimension, `intermediate_size_per_partition = intermediate_size // tp_size`
+			// (vllm/model_executor/layers/fused_moe/config.py:1350), so a rank's routed
+			// work is its slice's. Charging the whole expert over-prices routed compute by
+			// the tensor-parallel width on the 400 of 591 InferenceX scenarios that are
+			// pure TP. The BYTES do divide by it, on the line below, so the two terms
+			// disagree about the same experts.
+			//
+			// Dividing it was implemented, tested and measured: it improves per-step
+			// accuracy against NVIDIA's FPM whole-forward set, mape 27.45% to 23.03% over
+			// 9,161 held-out steps, and costs 3.57 points of TPOT mape and 12.29 of TTFT
+			// mape end to end. It is retained in this form on the evaluation evidence,
+			// because the over-charge cancels another term that is not yet identified --
+			// the sixth such cancellation this model is known to rest on. Correcting it
+			// alone makes the kernel worse, so it waits for the term it offsets.
+			//
+			// docs/perf-model/hypothesis-log.md records the measurements on both sides.
+			// ATTENTION-DP FUNNEL. With attention data parallelism every DP rank's
+			// tokens are concatenated before expert routing, so the grouped GEMM sees
+			// the whole replica group's tokens rather than one rank's. vLLM states it
+			// for the naive dispatch -- "all DP ranks' tokens are concatenated before
+			// routing" (fused_moe/routed_experts_capturer.py) -- and
+			// allgather_reducescatter, the default (config/parallel.py), is that path.
+			// NVIDIA's own simulator applies the same factor exactly once before its
+			// perf lookup (crates/core/src/perfmodel/operators/moe.rs,
+			// `num_tokens.saturating_mul(self.attention_dp_size.max(1))`).
+			//
+			// Omitting it under-prices the routed term by the DP width, which is what
+			// FPM's mixed rows measure: on MiniMax-M2.7 h200 the signed error runs
+			// -14.9% at dp=1 tep2, -34.0% at dp=2 and -46.7% at dp=4, ordering by dp.
+			routedTokens := tokensF * k.moeDPFunnel()
+			routedPerRank := routedTokens * float64(l.TopK) * k.localExpertShare
 			routedFLOPs += routedPerRank * l.ExpertFLOPsPerTokenPerExpert * k.moeImbalance
 			// Expert weights read: the DISTINCT local experts this step touches, times
 			// each one's per-rank bytes. Two things are separate and vLLM keeps them
@@ -336,8 +437,16 @@ func (k *Kernel) stepTime(b kernel.Batch,
 			// the batch sizes the "all local experts are read at decode" assumption was
 			// written for that is all of them; below those it is not, since one token
 			// reaches at most top_k.
+			// The token count driving coverage is the SAME funnelled count that drives
+			// the routed FLOPs above: with attention data parallelism a rank's experts
+			// receive every DP rank's tokens, so they are reached by `routedTokens`
+			// tokens, not by one rank's. Using the unfunnelled count here while the
+			// FLOPs term uses the funnelled one is an internal inconsistency, and it
+			// under-reads expert weights exactly where coverage is partial -- at the
+			// batch 1-4 prefill rows that make up FPM's attention-DP cells.
 			routedWeightBytes += l.ExpertWeightBytesPerExpert / k.expertTensorShards *
-				price.ExpertsTouched(tokens, k.totalExperts, l.TopK, k.expertsPerRank)
+				price.ExpertsTouched(int(routedTokens+0.5), k.totalExperts, l.TopK,
+					k.expertsPerRank)
 			// A shared expert is dense: every token pays it, sharded like any projection.
 			flops += tokensF * l.SharedExpertFLOPsPerToken / k.tp
 			weightBytes += l.SharedExpertWeightBytes / k.tp
@@ -372,16 +481,24 @@ func (k *Kernel) stepTime(b kernel.Batch,
 				// the floor is lost. Provenance says the entries are missing.
 				kvFallback = true
 			}
+			// A sliding-window layer attends within its window, not over the whole
+			// prefix. The window is a per-LAYER property -- gpt-oss-120b alternates a
+			// 128-token swa layer with a full gqa one -- so it cannot be applied to the
+			// batch-wide causalFLOPs computed before this loop.
+			layerCausalFLOPs := causalFLOPs
+			if l.AttnWindow > 0 {
+				layerCausalFLOPs = windowedCausalFLOPs(prefillChunks, l.AttnWindow)
+			}
 			if prefillRequests > 0 && k.attentionPrefillScale > 0 {
 				scale := price.Efficiency(tokensF, k.epsMax, k.mHalf) *
 					k.attentionPrefillScale
 				attnSMSeconds += k.attentionPrefillFloor.Seconds() +
-					causalFLOPs*float64(l.AttnQHeads)*float64(l.AttnHeadDim)/k.tp/
+					layerCausalFLOPs*float64(l.AttnQHeads)*float64(l.AttnHeadDim)/k.tp/
 						(k.computeFLOPsPerSecond*scale)*smDerate
 			} else if prefillRequests > 0 {
 				// No measured prefill form: fall back to the ramp unmodified, which the
 				// sweeps say understates by over ten times.
-				flops += causalFLOPs * float64(l.AttnQHeads) *
+				flops += layerCausalFLOPs * float64(l.AttnQHeads) *
 					float64(l.AttnHeadDim) / k.tp
 			}
 
@@ -455,11 +572,13 @@ func (k *Kernel) stepTime(b kernel.Batch,
 		//
 		// The cost model's §2.1 argues the grouped GEMM should see a smaller argument — the
 		// rows routed to one expert rather than the whole batch — and the reasoning is
-		// sound for a model like Granite-5, which routes to 8 of 224 experts. Scored
-		// against four published deployments the per-expert argument is worse overall: it
-		// improves Granite-5 on H200 (31% to 18% MAPE) and Kimi-K3 (64% to 41%) and ruins
-		// Nemotron-3-Ultra (87% to 158%), which routes each token to 22 of 512 experts. The
-		// aggregate goes from 48% to 56%.
+		// sound for a LOW-top_k model, one routing to 8 of a few hundred experts. Scored
+		// against four published deployments the per-expert argument was worse overall: it
+		// improved the two low-top_k arms (31% to 18% MAPE on one, 64% to 41% on Kimi-K3)
+		// and ruined Nemotron-3-Ultra (87% to 158%), which routes each token to 22 of 512
+		// experts. The aggregate went from 48% to 56%. Two of those four arms have since
+		// left the corpus with their model, so the figures are kept as the record of why
+		// this choice was made rather than as a re-runnable result.
 		//
 		// The reason the per-expert argument fails at high top_k is visible in its own
 		// arithmetic: at one token routed to 22 experts it gives one row per expert and
@@ -476,7 +595,7 @@ func (k *Kernel) stepTime(b kernel.Batch,
 		// for a high-top_k MoE model is the least certain part of this kernel.
 		ramp := price.Efficiency(tokensF, k.epsMax, k.mHalf)
 		denseSM := flops/(k.computeFLOPsPerSecond*ramp)*smDerate +
-			recurrentSeconds + attnSMSeconds
+			denseShapedSeconds*smDerate + recurrentSeconds + attnSMSeconds
 		denseHBM := (weightBytes+kvBytes+elementwise)/k.hbmBytesPerSecond + attnSeconds
 
 		// The routed-expert grouped GEMM composes its compute and memory as a SUM, where
@@ -608,6 +727,21 @@ func (k *Kernel) stepTime(b kernel.Batch,
 	}
 	return kernel.StepEstimate{
 		Overlap: overlap, NoOverlap: noOverlap,
+		// Expected is NoOverlap on measured evidence, not preference. Over 219 points of
+		// NVIDIA's FPM whole-forward dataset -- two models, two parts, five parallelism
+		// topologies -- Overlap's SIGNED error is -13.45% against NoOverlap's -3.44%, and
+		// NoOverlap is closer on 158 of them. A one-sided error of that size is a missing
+		// term rather than scatter, and it matches the -13.10% deficit this kernel shows
+		// end to end on an independent serving corpus. The physical reason is PIECEWISE
+		// cudagraph mode: attention runs eagerly between captured segments, so per-layer
+		// overlap is structurally limited.
+		//
+		// A concentration-aware choice belongs here eventually -- where one resource holds
+		// most of a step, per-stage max IS right, and the single dissenting cell in that
+		// evidence is a whole model on two GPUs. Five cells is enough to reject the
+		// optimistic edge as a universal default and not enough to fit a blend, so this
+		// stays a constant until there is more.
+		Expected:   noOverlap,
 		Bottleneck: bottleneck, PerResource: per,
 	}
 }
@@ -679,6 +813,71 @@ func (k *Kernel) routedAll2All() bool {
 	return true
 }
 
+// chunk is one prefill request's shape within a step: `sched` new tokens resuming on a
+// prefix of `prefix` already-computed ones.
+type chunk struct {
+	sched  int
+	prefix int
+}
+
+// windowedCausalFLOPs is the attention FLOPs a sliding-window layer pays for these
+// prefill chunks. A query at absolute position p attends keys in [p-window+1, p], so it
+// reads min(p+1, window) of them rather than the whole prefix.
+//
+// For a chunk of `s` tokens resuming at prefix `c`, the queries whose own position still
+// fits inside the window are the first max(0, min(s, window-c)); each later query reads
+// exactly `window` keys. Summing the two regimes:
+//
+//	nSmall = max(0, min(s, window-c))
+//	pairs  = nSmall*(c+1) + nSmall*(nSmall-1)/2 + (s-nSmall)*window
+//
+// The 2*2 factor matches the unwindowed term above: two FLOPs per multiply-accumulate,
+// and two matmuls (scores, then the value-weighted sum).
+//
+// The bound SATURATES at s*window however long the prefix grows, where the unwindowed
+// count grows linearly in the prefix without bound. The over-charge this corrects is
+// therefore governed by PREFIX length, not chunk size: about 4x at an 8,192-token prefix
+// for a 1,024-token chunk with a 2,176 window, 15x at 32,768 and 60x at 131,072.
+// docs/perf-model/hypothesis-log.md records the brute-force verification.
+func windowedCausalFLOPs(chunks []chunk, window int) float64 {
+	if window <= 0 {
+		return 0
+	}
+	w := float64(window)
+	var pairs float64
+	for _, c := range chunks {
+		s, prefix := float64(c.sched), float64(c.prefix)
+		nSmall := math.Min(s, w-prefix)
+		if nSmall < 0 {
+			nSmall = 0
+		}
+		// Queries still inside the window read their whole prefix plus themselves;
+		// the rest read exactly `window`. The 0.5*nSmall subtraction drops the
+		// diagonal's half-token so this matches the unwindowed term's continuum
+		// convention (s*c + s^2/2) rather than exceeding it by s/2 when the window
+		// is wide enough to be inactive.
+		pairs += nSmall*(prefix+1) + nSmall*(nSmall-1)*0.5 - nSmall*0.5
+		pairs += (s - nSmall) * w
+	}
+	return 2 * 2 * pairs
+}
+
+// moeDPFunnel is how many replica groups' tokens reach one rank's experts.
+//
+// Attention data parallelism replicates attention across DP ranks but SHARES the expert
+// pool: each rank routes its own tokens and then every rank's tokens are gathered before
+// the grouped GEMM, so the experts see dp times one rank's token count. Without expert
+// parallelism there is no shared pool to gather into and the factor is one.
+//
+// Returns 1 rather than 0 when DP is unset, so a scenario that omits it prices as it did
+// before this term existed.
+func (k *Kernel) moeDPFunnel() float64 {
+	if k.layout.ExpertWidth <= 1 || k.layout.DP <= 1 {
+		return 1
+	}
+	return float64(k.layout.DP)
+}
+
 // hostPerStep returns the host cost of one step.
 //
 // The graph mode decides how many launches a step makes, and PIECEWISE — vLLM's default
@@ -716,18 +915,20 @@ func (k *Kernel) hostPerStep() time.Duration {
 // work each kernel does.
 //
 // This is the term that dominates a single-request decode step, and an earlier version of
-// this model omitted it entirely. Two published Granite-5 runs make the case: ITL at one
-// concurrent request is 6.02 ms on H200 at 8k context and 6.13 ms on H100 at 707 tokens.
-// Those parts differ in memory bandwidth by 1.43x and the contexts by 10x, and the
-// measurement barely moves — so the step is dominated by something independent of both,
-// which is dispatch. The residual against the rest of the model is 43.7 and 46.0
-// microseconds per layer respectively, agreeing to 5% across that variation.
+// this model omitted it entirely. Two published runs of one 230B MoE model made the case:
+// ITL at one concurrent request was 6.02 ms on H200 at 8k context and 6.13 ms on H100 at
+// 707 tokens. Those parts differ in memory bandwidth by 1.43x and the contexts by 10x, and
+// the measurement barely moved — so the step is dominated by something independent of
+// both, which is dispatch. The residual against the rest of the model was 43.7 and 46.0
+// microseconds per layer respectively, agreeing to 5% across that variation. Those reports
+// are no longer in the corpus; the reasoning is recorded here because it is why the term
+// exists, and the term is still checked by TestHostTermIsChargedOnEveryStep.
 //
 // Charged per KERNEL rather than per layer, because that is the quantity a deeper or
 // shallower model scales with: the plan counts each layer's launches from its surviving
-// graph nodes. Over Granite-5's roughly 20 launches per MoE layer the implied per-launch
-// cost is about 2.3 microseconds, which is the conventional captured-graph dispatch figure
-// the registry already cites for a single launch.
+// graph nodes. Over roughly 20 launches per MoE layer the implied per-launch cost is about
+// 2.3 microseconds, which is the conventional captured-graph dispatch figure the registry
+// already cites for a single launch.
 //
 // It does NOT overlap with device work, and that is the point rather than a simplification:
 // a dispatch that has not happened cannot have its kernel running. At large batch the
@@ -802,7 +1003,8 @@ func (k *Kernel) AdmissionOverhead(promptTokens int) time.Duration {
 	if promptTokens <= 0 {
 		return 0
 	}
-	return time.Duration(float64(k.admissionPerToken) * float64(promptTokens))
+	return k.admissionPerRequest +
+		time.Duration(float64(k.admissionPerToken)*float64(promptTokens))
 }
 
 // OutputTokenOverhead returns host time per emitted token.

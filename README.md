@@ -25,6 +25,14 @@ Nothing on that path is a table lookup. The kernel evaluates closed-form laws, w
 lets it price a part or a shape that was never measured — and also what bounds its accuracy
 against an interpolating model on shapes that were.
 
+The model it prices arrives as a `ModelGraph`: a DAG of nine cost primitives, defined in
+[`blis-schemas`](https://github.com/inference-sim/blis-schemas) (`spec/model`) and
+instantiated in [`blis-catalog`](https://github.com/inference-sim/blis-catalog) as
+`models/<name>/graph.yaml`. This kernel consumes graphs; it neither defines nor stores
+them, and its library code contains no model names — dispatch is on the primitives, so a
+model's identity never reaches a branch. See
+[The BLIS Repositories](https://github.com/inference-sim/inference-sim/blob/main/docs/concepts/blis-repositories.md).
+
 ## Layout
 
 | Path | Owns |

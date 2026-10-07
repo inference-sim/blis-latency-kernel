@@ -5,6 +5,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	latencykernel "github.com/inference-sim/blis-latency-kernel"
@@ -158,7 +159,7 @@ func TestSpeculationDividesTheStepByAcceptedTokens(t *testing.T) {
 	// An accepted draft token costs no extra step, so a step serves more than one token per
 	// request and the observed interval falls below the step time. Omitting this would make
 	// every speculative arm look slow.
-	k := scoreFixture(t, "granite5-h200-tp8-measured.yaml")
+	k := scoreFixture(t, "minimax-m25-h200-tp8.yaml")
 	if k == nil {
 		return
 	}
@@ -180,7 +181,7 @@ func TestSpeculationDividesTheStepByAcceptedTokens(t *testing.T) {
 func TestPredictionIncludesThePerTokenHostCost(t *testing.T) {
 	// The output processor runs off the forward pass but its cost still lands on the
 	// interval between tokens, so a prediction that omitted it would understate every point.
-	k := scoreFixture(t, "granite5-h200-tp8-measured.yaml")
+	k := scoreFixture(t, "minimax-m25-h200-tp8.yaml")
 	if k == nil {
 		return
 	}
@@ -195,7 +196,7 @@ func TestPredictionIncludesThePerTokenHostCost(t *testing.T) {
 }
 
 func TestBatchForBuildsOneRequestPerResidentRequest(t *testing.T) {
-	k := scoreFixture(t, "granite5-h200-tp8-measured.yaml")
+	k := scoreFixture(t, "minimax-m25-h200-tp8.yaml")
 	if k == nil {
 		return
 	}
@@ -223,8 +224,12 @@ func TestTheCommittedCorpusIsWellFormed(t *testing.T) {
 	if err := json.Unmarshal(raw, &points); err != nil {
 		t.Fatalf("corpus does not parse: %v", err)
 	}
-	if len(points) < 30 {
-		t.Errorf("%d points; the corpus held 35", len(points))
+	// The corpus held 35 points until 27 were dropped: they named a scenario whose
+	// model is not in blis-catalog, so the scenario could not be loaded and cmd/score
+	// failed outright rather than scoring what it could. The floor is the count that
+	// remains, so a further silent shrink still fails.
+	if len(points) < 8 {
+		t.Errorf("%d points; the corpus holds 8", len(points))
 	}
 	seen := map[string]bool{}
 	for _, p := range points {
@@ -255,9 +260,19 @@ func TestTheCommittedCorpusIsWellFormed(t *testing.T) {
 	for _, p := range points {
 		scenarios[p.Scenario] = true
 	}
-	if len(scenarios) < 3 {
+	// Two scenarios, two models: Kimi-K3 and Nemotron-3-Ultra. Two is thin but it is
+	// more than one, which is the property that matters:
+	// a single model would let a model-specific error look like a general one.
+	if len(scenarios) < 2 {
 		t.Errorf("the corpus covers %d scenarios; scoring one model proves little",
 			len(scenarios))
+	}
+	models := map[string]bool{}
+	for _, p := range points {
+		models[strings.SplitN(p.Scenario, "-", 2)[0]] = true
+	}
+	if len(models) < 2 {
+		t.Errorf("the corpus covers %d model families; one is a weak test", len(models))
 	}
 }
 

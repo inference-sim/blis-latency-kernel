@@ -6,6 +6,7 @@
 /worked-table
 /kernelscore
 /overlap-probe
+/bandprobe
 
 # Go test and coverage output
 *.test

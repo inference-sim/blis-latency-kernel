@@ -20,8 +20,8 @@
 //
 // It measures the SHAPE of the concurrency response: how step time grows as a batch widens at
 // a fixed model, hardware and parallelism. That is the property this kernel's error is worst
-// on — against published Granite runs its error grows monotonically with concurrency — so a
-// ratio across concurrency isolates that error rather than cancelling it.
+// on — against the published report corpus its error grows monotonically with concurrency —
+// so a ratio across concurrency isolates that error rather than cancelling it.
 //
 // It does NOT measure level. A model uniformly thirty percent low scores perfectly here. The
 // absolute question stays open and is answered by cmd/score, which carries the level and the
@@ -144,10 +144,11 @@ true curve, so an over-prediction growing with concurrency is the signature.
 
 What this run found. The kernel over-predicts at every point and the excess grows with
 concurrency, which is that signature. It is also the OPPOSITE sign to the same kernel's error
-against the published Granite runs in cmd/score, where it under-predicts by 30 to 57 percent
-and the shortfall likewise grows with concurrency. One kernel cannot be both too steep and too
+against the published report corpus in cmd/score, where it under-predicts on every point and
+the shortfall likewise grows with concurrency: -6.2%, -18.3%, -38.8% on Nemotron-3-Ultra and
+-44.3%, -49.8%, -72.6% on Kimi-K3 at c=8/16/32. One kernel cannot be both too steep and too
 shallow in the same term, so the two residuals are not one mechanism, and the batch assumption
-is the term they disagree about: cmd/score's Granite arms state no resident batch either.
+is the term they disagree about: neither corpus arm states a resident batch.
 
 A cross-model test of the batch hypothesis fails. The Nemotron sweep is the only corpus arm
 that reports both client concurrency and resident batch, and its resident count grows

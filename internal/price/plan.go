@@ -44,6 +44,27 @@ type Plan struct {
 	TotalKernels int
 }
 
+// PlannedGEMM is one dense GEMM's shape and the per-token work it contributes, so a
+// shape-aware efficiency can be weighted by the work each shape carries.
+type PlannedGEMM struct {
+	N, K          int
+	FLOPsPerToken float64
+	// ShardN is true when tensor parallelism splits the OUTPUT width rather than the
+	// reduction, which is what decides the shape a rank actually runs.
+	//
+	// Derived from the graph rather than assumed, because the two cases shard opposite
+	// dimensions and a shape-aware efficiency reads both. A column-parallel GEMM takes
+	// the full hidden state and splits its output, so its K equals hidden_size; a
+	// row-parallel GEMM consumes a sharded activation and reduces to the full hidden
+	// state, so its N equals hidden_size. On minimax-m3 at hidden 6144 that classifies
+	// qkv_proj (k=6144) and mlp_gate_up (k=6144) as column-parallel and o_proj (n=6144)
+	// and mlp_down (n=6144) as row-parallel, which is what those projections are.
+	//
+	// Sharding the wrong axis is not a small error: mlp_gate_up is the widest GEMM in
+	// the layer, and dividing its K by tp would price a 6144-deep reduction as 768-deep.
+	ShardN bool
+}
+
 // PlannedLayer is one layer kind with its multiplicity and its pre-summed work.
 type PlannedLayer struct {
 	ID    string
@@ -52,6 +73,17 @@ type PlannedLayer struct {
 	// DenseFLOPsPerToken is the projection and dense-MLP work for one token, summed over
 	// every GEMM in the layer. A step multiplies it by the token count.
 	DenseFLOPsPerToken float64
+	// DenseGEMMs is every dense GEMM's shape, kept alongside the FLOPs sum because a
+	// GEMM's efficiency depends on its own n and k and not only on the step's token
+	// count. Measured on AISimulate's vLLM fp8 sweep for H200 at a fixed m of 1024, the
+	// median efficiency rises from 0.007 at k=32 to 0.476 at k=51200 -- so a ramp in m
+	// alone misprices a narrow GEMM by orders of magnitude, and tensor parallelism is
+	// what makes projections narrow. The pre-summed scalar above cannot express that,
+	// which is why the shapes survive planning.
+	//
+	// Sharding is NOT applied here: it depends on tp, which planning does not know.
+	// The consumer divides N or K as the parallelism dictates.
+	DenseGEMMs []PlannedGEMM
 	// DenseWeightBytes is the parameter bytes those GEMMs read, independent of batch.
 	DenseWeightBytes float64
 
@@ -243,6 +275,12 @@ func weightBytes(n model.Node, global float64) float64 {
 func planNodes(nodes []model.Node, em Emitter, dtypeBytes, stateBytes float64,
 	hidden int) (PlannedLayer, error) {
 	var pl PlannedLayer
+	// fusable is the index in DenseGEMMs of the GEMM emitted by the IMMEDIATELY preceding
+	// node, or -1 when the previous node was anything else. Fusion needs adjacency in the
+	// node sequence, not in DenseGEMMs: minimax-m3's layer-0 has qkv_proj and mlp_gate_up
+	// both column-parallel on the same K with the attention op between them, and vLLM
+	// cannot fuse across that.
+	fusable := -1
 	for _, n := range nodes {
 		if n.Emit != model.EmitAlways {
 			if !em.Recognizes(n.Emit) {
@@ -262,10 +300,57 @@ func planNodes(nodes []model.Node, em Emitter, dtypeBytes, stateBytes float64,
 		} else {
 			pl.Kernels++
 		}
+		// Any node that is not a dense GEMM breaks a fusion chain: the engine fuses
+		// projections of one hidden state, and an op between them consumes that state.
+		// Set before the switch so every other case resets it without having to say so.
+		wasFusable := fusable
+		fusable = -1
+
 		switch n.Op {
 		case model.OpGEMM:
 			// Two FLOPs per multiply-accumulate, per output element, per token.
-			pl.DenseFLOPsPerToken += 2 * float64(n.N) * float64(n.K)
+			f := 2 * float64(n.N) * float64(n.K)
+			pl.DenseFLOPsPerToken += f
+			// hidden == 0 means the caller did not supply it; then neither test fires and
+			// the consumer shards K, which is the pre-existing behaviour.
+			g := PlannedGEMM{
+				N: n.N, K: n.K, FLOPsPerToken: f,
+				ShardN: hidden > 0 && n.K == hidden && n.N != hidden,
+			}
+			// Fuse into the previous GEMM when the engine would. vLLM concatenates
+			// column-parallel projections that share an input ALONG THE OUTPUT
+			// DIMENSION -- QKVParallelLinear and MergedColumnParallelLinear, both in
+			// vllm/model_executor/layers/linear.py -- so three projections of the same
+			// hidden state are one matmul with the output widths summed, not three
+			// matmuls.
+			//
+			// The condition is CONSECUTIVE, column-parallel, and the same K. Consecutive
+			// matters: minimax-m3's layer-1 has qkv_proj (n=9216) immediately followed by
+			// index_qk_proj (n=640) on the same k=6144, which vLLM fuses; its layer-0 has
+			// qkv_proj and mlp_gate_up both column-parallel on k=6144 but separated by
+			// the attention op, which it cannot.
+			//
+			// This matters because efficiency is strongly non-linear in output width. On
+			// AISimulate's vLLM fp8 sweep for H200 at 256 rows, measured efficiency is
+			// 0.0008 at n=16 and 0.0138 at n=256, so a 640-wide projection priced as its
+			// own kernel costs far more than the same work folded into a 9216-wide one --
+			// and sharded over 8 ranks that 640 becomes 80.
+			merged := false
+			if wasFusable >= 0 {
+				prev := &pl.DenseGEMMs[wasFusable]
+				if prev.ShardN && g.ShardN && prev.K == g.K {
+					prev.N += g.N
+					prev.FLOPsPerToken += g.FLOPsPerToken
+					fusable = wasFusable
+					merged = true
+				}
+			}
+			if !merged {
+				pl.DenseGEMMs = append(pl.DenseGEMMs, g)
+				fusable = len(pl.DenseGEMMs) - 1
+			}
+			// Weight bytes are per node whether or not the launches fuse: fusing changes
+			// how many kernels read the parameters, not how many parameters there are.
 			pl.DenseWeightBytes += float64(n.N) * float64(n.K) * weightBytes(n, dtypeBytes)
 		case model.OpGroupedGEMM:
 			// A gated expert holds three matrices; the node's N is the inner width.

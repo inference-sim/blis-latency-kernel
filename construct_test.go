@@ -3,7 +3,7 @@ package latencykernel
 import "testing"
 
 func TestConstructsFromCommittedArtifacts(t *testing.T) {
-	k := fixture(t, "granite5-h200-ep16.yaml")
+	k := fixture(t, "minimax-m25-h200-ep16.yaml")
 	r := k.Resolved()
 	t.Logf("ep width %d, allreduce %s, sp-moe %v, overrides %d",
 		r.ExpertParallelWidth, r.AllReduceBackend, r.SequenceParallelMoE,

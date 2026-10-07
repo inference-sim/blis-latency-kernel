@@ -33,12 +33,30 @@ type row struct {
 	context  int
 }
 
+// Every row is a deployment the InferenceX vLLM corpus actually measured, named by
+// its own scenario file under testdata/direct. An earlier version of this table priced
+// a withheld preview model at EP=16 and EP=72, which is not an InferenceX deployment: a worked
+// table whose configuration nothing measured cannot be checked against a measurement.
+//
+// The selection spans what the corpus varies: both chip families (Hopper runs FA3,
+// Blackwell runs FlashInfer -- vllm/v1/attention/backends/fa_utils.py:99-107), pure
+// tensor parallelism against expert parallelism, and both regimes, since prefill and
+// decode dispatch differently (a prefill step's token count exceeds the cudagraph
+// capture ceiling on 88.9% of corpus cells and so runs eager, while a decode step
+// never does).
 var rows = []row{
-	{"256 req × `q=2` (MTP), ctx 8k, `EP=16`", "granite5-h200-ep16.yaml", 256, 2, 8192},
-	{"Same at `EP=72`", "granite5-h200-ep72.yaml", 256, 2, 8192},
-	{"32 req × `q=2`, ctx 8k, `EP=16`", "granite5-h200-ep16.yaml", 32, 2, 8192},
-	{"1 req × 2048-token prefill, `EP=16`", "granite5-h200-ep16.yaml", 1, 2048, 2048},
-	{"4 × 2048-token prefill, `EP=72`", "granite5-h200-ep72.yaml", 4, 2048, 2048},
+	{"1 req × 1024-token prefill, deepseek-v4-pro b200 `TP=8`",
+		"deepseek-v4-pro-b200-fp4-vllm-tp8-cfg1.yaml", 1, 1024, 1024},
+	{"1 req × 8192-token prefill, same deployment",
+		"deepseek-v4-pro-b200-fp4-vllm-tp8-cfg1.yaml", 1, 8192, 8192},
+	{"1 req × 1024-token prefill, minimax-m3 h200 `TP=8 EP=8`",
+		"minimax-m3-h200-fp8-vllm-tp8-ep8-cfg1.yaml", 1, 1024, 1024},
+	{"32 req × `q=1` decode, ctx 1k, minimax-m3 h200 `TP=8 EP=8`",
+		"minimax-m3-h200-fp8-vllm-tp8-ep8-cfg1.yaml", 32, 1, 1024},
+	{"256 req × `q=1` decode, ctx 1k, same deployment",
+		"minimax-m3-h200-fp8-vllm-tp8-ep8-cfg1.yaml", 256, 1, 1024},
+	{"256 req × `q=1` decode, ctx 1k, minimax-m3 b200 `TP=8 EP=8`",
+		"minimax-m3-b200-fp4-vllm-tp8-ep8-cfg1.yaml", 256, 1, 1024},
 }
 
 func main() {
@@ -46,7 +64,8 @@ func main() {
 		"blis-catalog checkout")
 	registry := flag.String("registry", "/Users/sri/Documents/Projects/blis-registry",
 		"blis-registry checkout")
-	testdata := flag.String("testdata", "testdata", "scenario fixtures")
+	testdata := flag.String("testdata", "testdata/direct",
+		"scenario fixtures; the InferenceX vLLM deployments live under testdata/direct")
 	format := flag.String("format", "table", "table or markdown")
 	flag.Parse()
 
