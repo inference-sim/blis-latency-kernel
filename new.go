@@ -289,8 +289,11 @@ func (k *Kernel) lift(c *resolve.Coefficients, g *model.Graph, cacheBytes float6
 	// Communicator reservation and engine workspace, both stated per part by
 	// NVIDIA's own descriptor. These replace order-of-magnitude constants an earlier
 	// version of this kernel carried; the communicator figure is per rank count.
+	// This family is keyed on rank count but comes from NVIDIA's descriptor rather
+	// than a sweep, so it has its own widths and its own probe: the collective
+	// triple's widths say nothing about which communicator sizes were declared.
 	k.commBytes = int64(c.ValueOr(fmt.Sprintf("nccl_communicator_bytes_%drank",
-		k.groupWidth(model.OpAllReduce)), 0))
+		communicatorWidth(c, k.layout.TP)), 0))
 	k.workspaceBytes = int64(c.ValueOr("engine_workspace_bytes", 0))
 
 	// Expert geometry, derived once.
@@ -377,12 +380,14 @@ func (k *Kernel) liftCollectiveFloors(c *resolve.Coefficients) error {
 		model.OpReduceScatter: "reduce_scatter",
 		model.OpAll2All:       "alltoall",
 	} {
-		// The rank count a collective spans: the group width, clamped to the widths
-		// the sweep measured. A group wider than any measured width resolves to the
-		// widest, which understates its floor — recorded in provenance rather than
-		// silently corrected, because the alternative is refusing to price a
-		// deployment the data merely does not reach.
-		ranks := k.groupWidth(op)
+		// The rank count a collective spans, snapped to a width this chip was
+		// actually measured at. The widths come from the registry rather than from a
+		// constant here, so a part swept at 2 and 4 ranks only (a Grace-Blackwell
+		// tray is four GPUs) is not asked for an 8-rank figure that does not exist.
+		ranks, err := k.groupWidth(c, op, measured, dtype, chip)
+		if err != nil {
+			return err
+		}
 		stem := fmt.Sprintf("%s_%s_%drank_%s", measured, dtype, ranks, chip)
 		floor, err := c.Value("collective_floor_" + stem)
 		if err != nil {
@@ -412,27 +417,107 @@ func (k *Kernel) liftCollectiveFloors(c *resolve.Coefficients) error {
 	return nil
 }
 
-// measuredRankWidths are the group widths AISimulate's NCCL sweeps cover.
-var measuredRankWidths = []int{2, 4, 8}
-
-// groupWidth returns the rank count a collective spans, snapped to a measured width.
-func (k *Kernel) groupWidth(op model.Op) int {
-	width := k.layout.TP
-	if op == model.OpAll2All {
-		width = k.layout.ExpertWidth
+// communicatorWidth snaps a tensor-parallel width to a declared communicator size.
+//
+// Separate from groupWidth because the quantity is different: these bytes come from
+// NVIDIA's own `systems/<sku>.yaml` descriptor, which declares a buffer size per rank
+// count, not from a measured sweep. The caller treats an absent figure as zero
+// (ValueOr), so this clamps to the widest declared size rather than erroring — a
+// communicator reservation that is slightly small is a memory-accounting detail, not
+// a mispriced latency term.
+func communicatorWidth(c *resolve.Coefficients, width int) int {
+	declared := make([]int, 0, len(candidateRankWidths))
+	for _, w := range candidateRankWidths {
+		if c.Has(fmt.Sprintf("nccl_communicator_bytes_%drank", w)) {
+			declared = append(declared, w)
+		}
 	}
-	if width < measuredRankWidths[0] {
-		return measuredRankWidths[0]
+	if len(declared) == 0 {
+		return width
 	}
-	// The largest measured width at or below the group's, so a 16-rank group is
-	// priced at the 8-rank floor rather than extrapolated past the data.
-	best := measuredRankWidths[0]
-	for _, w := range measuredRankWidths {
+	best := declared[0]
+	for _, w := range declared {
 		if w <= width {
 			best = w
 		}
 	}
 	return best
+}
+
+// candidateRankWidths are the group widths any AISimulate comm sweep in this project
+// has ever carried. It is a search space, not a claim about any one part: which of
+// these a given chip was measured at is read from the registry, per operation and
+// dtype, by measuredWidths below.
+var candidateRankWidths = []int{2, 4, 8, 16}
+
+// measuredWidths returns the widths this chip carries a complete coefficient triple
+// for, ascending. Completeness matters: liftCollectiveFloors needs floor, peak rate
+// AND transition rate, and a width holding only some of the three cannot price a
+// collective, so it is not a measured width for this purpose.
+func measuredWidths(c *resolve.Coefficients, measured, dtype, chip string) []int {
+	var out []int
+	for _, w := range candidateRankWidths {
+		stem := fmt.Sprintf("%s_%s_%drank_%s", measured, dtype, w, chip)
+		if c.Has("collective_floor_"+stem) &&
+			c.Has("collective_peak_rate_"+stem) &&
+			c.Has("collective_transition_rate_"+stem) {
+			out = append(out, w)
+		}
+	}
+	return out
+}
+
+// groupWidth returns the rank count a collective spans, snapped to a width this chip
+// was measured at.
+//
+// Two cases, and the discriminator is the SEARCH SPACE rather than this part's own
+// widths. A group wider than every width any sweep in this project covers
+// (candidateRankWidths) is past all available data: it is priced at the widest
+// measured figure, which understates its floor, and the clamp is recorded in
+// provenance because refusing would decline to price a deployment the data merely
+// does not reach. A group whose width IS in the search space but was not swept for
+// this part is an error. That is the rack-scale case — a Grace-Blackwell tray is four
+// GPUs, so GB200 and GB300 carry 2- and 4-rank sweeps while an 8-rank group is a
+// routine tp=8 deployment — and substituting the 4-rank floor there understates an
+// 8-rank all-reduce by 1.53x to 1.91x across the seven parts measured at both widths.
+// Making that substitution silently is what liftCollectiveFloors' doc comment
+// promises not to do.
+func (k *Kernel) groupWidth(
+	c *resolve.Coefficients, op model.Op, measured, dtype, chip string,
+) (int, error) {
+	width := k.layout.TP
+	if op == model.OpAll2All {
+		width = k.layout.ExpertWidth
+	}
+	widths := measuredWidths(c, measured, dtype, chip)
+	if len(widths) == 0 {
+		return 0, fmt.Errorf(
+			"no measured %s widths at all for %s on %s: the registry carries no "+
+				"complete floor/peak/transition triple for any rank count",
+			measured, dtype, k.chip.Name)
+	}
+	// Narrower than anything measured: the narrowest is the only defensible figure,
+	// and a 1-rank group does no collective the caller reaches this path for.
+	if width <= widths[0] {
+		return widths[0], nil
+	}
+	// Exact hit on a width this part was swept at.
+	for _, w := range widths {
+		if w == width {
+			return width, nil
+		}
+	}
+	// Past the whole search space: clamp to this part's widest measured figure.
+	if width > candidateRankWidths[len(candidateRankWidths)-1] {
+		return widths[len(widths)-1], nil
+	}
+	return 0, fmt.Errorf(
+		"no %d-rank %s measurement for %s: the registry carries %v-rank figures for "+
+			"this part, and borrowing a narrower width's floor understates an 8-rank "+
+			"all_reduce by 1.53x to 1.91x across the parts measured at both widths. "+
+			"Fit a %d-rank %s coefficient for %s, or run this deployment at a "+
+			"measured width",
+		width, measured, k.chip.Name, widths, width, measured, k.chip.Name)
 }
 
 // dtypeFit maps a weight dtype to its coefficient-name suffix and the chip's peak rate for
