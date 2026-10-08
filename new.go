@@ -477,6 +477,11 @@ func (k *Kernel) liftCollectiveFloors(c *resolve.Coefficients) error {
 			collKey{Op: model.OpAllGather, Group: price.GroupDCP},
 			collKey{Op: model.OpReduceScatter, Group: price.GroupDCP})
 	}
+	if k.layout.PCP > 1 {
+		// One KV all-gather per layer that holds KV, so every rank keeps a full cache
+		// replica of what the split prefill wrote.
+		keys = append(keys, collKey{Op: model.OpAllGather, Group: price.GroupPCP})
+	}
 	for _, key := range keys {
 		op := key.Op
 		measured := names[op]

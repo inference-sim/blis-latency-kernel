@@ -493,6 +493,42 @@ func TestDCPShardsCapacityByTokensBeforePaging(t *testing.T) {
 	}
 }
 
+// The capacity shard must agree with the engine's LOGICAL BLOCK, which DCP widens.
+//
+// vLLM scales the scheduler's block to its token span under DCP:
+// resolve_dcp_kv_block_size returns `spec.block_size * dcp_world_size` for a sharded spec
+// (vllm/v1/core/kv_cache_utils.py:717-719 at v0.31.0). So a sequence is allocated in units
+// of block_size*dcp tokens, of which each rank stores block_size -- which is why a real
+// deployment keeps the product in sync with its router's block size, the GLM-5.3-Flash
+// canary running KV_BLOCK_SIZE 64 at DCP_SIZE 8 for a 512-token logical block.
+//
+// Sharding the token count and THEN paging at block_size is the same arithmetic -- the
+// integer identity cdiv(cdiv(L, dcp), bs) == cdiv(L, bs*dcp) -- and this pins that the two
+// readings agree, so a later change cannot drift from the allocator's granularity. The
+// lengths below straddle a logical block boundary at 512, where a form that paged before
+// sharding would disagree.
+func TestDCPCapacityAgreesWithTheEnginesLogicalBlock(t *testing.T) {
+	in := fixtureInputs(t, dcpMLAFixture)
+	in.Deployment.Pools[0].Parallel.DCP = 8
+	in.Deployment.Pools[0].Engine.BlockSize = 64
+	k, err := New(in)
+	if err != nil {
+		t.Fatalf("dcp=8 at block size 64: %v", err)
+	}
+	const blockSize, dcp = 64, 8
+	for _, tokens := range []int{1, 64, 100, 511, 512, 513, 1000, 4096, 32768} {
+		// The engine's reading: whole logical blocks of blockSize*dcp tokens, each
+		// leaving this rank blockSize tokens to store.
+		logical := (tokens + blockSize*dcp - 1) / (blockSize * dcp)
+		want := price.PagedBytes(logical*blockSize, blockSize, k.kvBytesPerToken)
+		if got := k.SequenceVariableBytes(tokens); got != want {
+			t.Errorf("%d tokens at dcp=8, block 64: holds %d bytes, want %d (%d logical "+
+				"block(s) of %d tokens, %d of them on this rank)",
+				tokens, got, want, logical, blockSize*dcp, blockSize)
+		}
+	}
+}
+
 // DCP must not shard a prefill-to-decode transfer. A prefill pool holds the WHOLE cache
 // for a request -- DCP shards the decode cache -- so the bytes crossing between pools are
 // the whole request's whatever the decode pool's width is.
@@ -841,5 +877,94 @@ func TestDecodeContextParallelWidthComesFromTheResolvedLayout(t *testing.T) {
 	// The fixtures state no dcp at all, which is the absent case.
 	if got := fixture(t, dcpMLAFixture).DecodeContextParallelWidth(); got != 1 {
 		t.Errorf("an unstated width read as %d, want 1", got)
+	}
+}
+
+// THE DEPLOYMENT THIS WAS WRITTEN FOR, priced as four independent arms.
+//
+// The GLM-5.3-Flash canary runs tp=1 with --prefill-context-parallel-size 8,
+// --decode-context-parallel-size 8, --dcp-comm-backend ag_rs and a 64-token KV block. That
+// shape is why the two axes had to be separated rather than collapsed: at tp=1 there is no
+// tensor-parallel width to divide anything, so before this change NOTHING in the layout
+// moved the price of that deployment at all.
+//
+// It also evaluates the claim the published serving analysis makes -- that `-dcp 8` is
+// "close to free for an MLA model" -- which this kernel previously could not assess in
+// either direction. On this fixture it comes out supported: the decode step rises about
+// 1.4% while the cache a rank holds falls eightfold.
+//
+// Asserted as a matrix of non-interference rather than as four numbers: PCP must move
+// prefill and only prefill, DCP must move decode and capacity and only those, and the
+// combined arm must show both effects.
+func TestTheContextParallelArmsOfTheCanaryDeploymentPriceIndependently(t *testing.T) {
+	build := func(pcp, dcp int) *Kernel {
+		t.Helper()
+		in := fixtureInputs(t, dcpSparseFixture)
+		in.Deployment.Pools[0].Parallel.TP = 1
+		in.Deployment.Pools[0].Parallel.DP = 1
+		in.Deployment.Pools[0].Parallel.PCP = pcp
+		in.Deployment.Pools[0].Parallel.DCP = dcp
+		in.Deployment.Pools[0].Engine.BlockSize = 64
+		k, err := New(in)
+		if err != nil {
+			t.Fatalf("tp=1 pcp=%d dcp=%d: %v", pcp, dcp, err)
+		}
+		return k
+	}
+	decode := decodeBatch(4, 1, 32768)
+	prefill := decodeBatch(1, 2048, 2048)
+
+	base := build(1, 1)
+	pcpOnly := build(8, 1)
+	dcpOnly := build(1, 8)
+	both := build(8, 8)
+
+	// PCP moves prefill and nothing else.
+	if pcpOnly.StepTime(prefill).NoOverlap >= base.StepTime(prefill).NoOverlap {
+		t.Error("pcp=8 did not lower the prefill step at tp=1, where no tensor-parallel " +
+			"width can be doing the work instead")
+	}
+	if got, want := pcpOnly.StepTime(decode).NoOverlap,
+		base.StepTime(decode).NoOverlap; got != want {
+		t.Errorf("pcp=8 moved the decode step to %v from %v", got, want)
+	}
+	if got, want := pcpOnly.SequenceVariableBytes(32768),
+		base.SequenceVariableBytes(32768); got != want {
+		t.Errorf("pcp=8 moved the cache a rank holds to %d from %d", got, want)
+	}
+
+	// DCP moves decode and capacity, and not prefill.
+	if dcpOnly.StepTime(decode).NoOverlap <= base.StepTime(decode).NoOverlap {
+		t.Error("dcp=8 did not raise the decode step; the combine it adds is a real cost")
+	}
+	if got, want := dcpOnly.SequenceVariableBytes(32768),
+		base.SequenceVariableBytes(32768)/8; got != want {
+		t.Errorf("dcp=8 holds %d bytes, want %d (an eighth of the unsharded %d)",
+			got, want, base.SequenceVariableBytes(32768))
+	}
+	if got, want := dcpOnly.StepTime(prefill).NoOverlap,
+		base.StepTime(prefill).NoOverlap; got != want {
+		t.Errorf("dcp=8 moved the prefill step to %v from %v", got, want)
+	}
+
+	// Together, both effects and no third one.
+	if got, want := both.StepTime(prefill).NoOverlap,
+		pcpOnly.StepTime(prefill).NoOverlap; got != want {
+		t.Errorf("the combined arm priced prefill at %v against %v for pcp alone", got, want)
+	}
+	if got, want := both.StepTime(decode).NoOverlap,
+		dcpOnly.StepTime(decode).NoOverlap; got != want {
+		t.Errorf("the combined arm priced decode at %v against %v for dcp alone", got, want)
+	}
+
+	// The claim worth being able to state: the decode cost of sharding is small against
+	// the capacity it buys. Bounded loosely, because the figure is a property of the
+	// registry's collective fits rather than of this kernel's composition.
+	cost := dcpOnly.StepTime(decode).NoOverlap.Seconds() /
+		base.StepTime(decode).NoOverlap.Seconds()
+	if cost > 1.25 {
+		t.Errorf("sharding the cache eightfold cost %.1f%% of decode step time; the "+
+			"published analysis calls this close to free, and a cost this large would "+
+			"contradict it rather than quantify it", (cost-1)*100)
 	}
 }

@@ -340,6 +340,9 @@ func (k *Kernel) stepTime(b kernel.Batch,
 	// which in a mixed batch is the normal case.
 	var decodeContexts []int
 	var prefillRequests, decodeRequests int
+	// Scheduled tokens this rank computes, split into the two regimes because
+	// prefill-context parallelism divides one and replicates the other.
+	var prefillTokens, decodeTokens int
 	for i := range b.Reqs {
 		r := &b.Reqs[i]
 		ctx := r.Computed + r.Scheduled
@@ -363,14 +366,71 @@ func (k *Kernel) stepTime(b kernel.Batch,
 			// whole-forward latency grows 5.39x across that context sweep where the
 			// prediction grew 2.85x.
 			sched := float64(r.Scheduled)
-			causalFLOPs += 2 * 2 * (sched*float64(r.Computed) + sched*sched*0.5)
-			prefillChunks = append(prefillChunks, chunk{sched: r.Scheduled, prefix: r.Computed})
+			// Prefill-context parallelism splits this chunk across its ranks, and the
+			// split is balanced in BOTH quantities the chunk contributes.
+			//
+			// The causal pairs divide by exactly pcp. That is the zigzag pairing's doing,
+			// not an approximation: pairing chunk r with chunk 2*pcp-1-r gives every rank
+			// the same pair count, verified equal to 1.000000 of the ideal share with zero
+			// spread across the ranks. See pcpLocalTokens for the enumeration.
+			//
+			// The TOKEN count divides by the busiest rank's share, which carries the
+			// ragged remainder when 2*pcp does not divide the chunk. Both are per request,
+			// since each prefill is partitioned on its own.
+			pairs := 2 * 2 * (sched*float64(r.Computed) + sched*sched*0.5)
+			localSched := r.Scheduled
+			if local := pcpLocalTokens(r.Scheduled, k.layout.PCP, k.layout.DCP); local >= 0 {
+				localSched = local
+				// The causal work of the BUSIEST rank, computed from the engine's own
+				// partition rather than scaled by a ratio.
+				//
+				// Where 2*pcp divides the query the zigzag makes every rank's pair count
+				// exactly equal, so this is the whole count over pcp. Where it does not,
+				// neither 1/pcp nor the token share is right: at 100 tokens over 8 ranks
+				// the busiest rank carries 0.1566 of the pairs where 1/pcp is 0.125 and
+				// its token share is 0.14. A ragged partition loads one rank with two
+				// short chunks from the EXPENSIVE end, and only counting them says by how
+				// much.
+				//
+				// A replicated request -- one the engine hands whole to every rank -- is
+				// left at its full count by pcpCausalPairs, since every rank computes all
+				// of it.
+				pairs = pcpCausalPairs(r.Scheduled, r.Computed,
+					k.layout.PCP, k.layout.DCP)
+			}
+			causalFLOPs += pairs
+			prefillTokens += localSched
+			prefillChunks = append(prefillChunks,
+				chunk{sched: localSched, prefix: r.Computed})
 			continue
 		}
 		decodeRequests++
 		decodeKVTokens += float64(ctx)
 		decodeContexts = append(decodeContexts, ctx)
+		// A decode row is REPLICATED across prefill-context-parallel ranks, not split:
+		// _iter_rank_chunks gives every rank chunk_indices = (0,) for a non-prefilling
+		// request, so each computes the whole one-token query. PCP divides prefill only.
+		decodeTokens += r.Scheduled
 	}
+	// The token count this rank actually runs a forward over. Equal to the batch's own
+	// count when PCP is off, which is what keeps every existing deployment unchanged.
+	//
+	// THIS IS THE RANK-LOCAL COUNT, AND THE EFFICIENCY RAMP THEREFORE SEES IT. That is a
+	// decision rather than a side effect, and the engine settles it: a prefill-context
+	// rank fills its input_ids and positions buffers with only num_local_tokens_padded
+	// rows (vllm/v1/worker/gpu/pcp_manager.py:519-532 at v0.31.0) and runs the forward on
+	// that, so every GEMM in the layer genuinely sees a shorter m. A narrower GEMM reaches
+	// a lower fraction of peak, so a PCP rank is LESS efficient per token than an
+	// unsplit one -- measured here at 3.4% above the ideal half at pcp 2 and 10.1% above
+	// the ideal quarter at pcp 4, on a 4,096-token chunk.
+	//
+	// Evaluating the ramp at the batch-wide count instead would credit a split rank with
+	// an efficiency its kernel does not reach, and would make PCP look exactly linear when
+	// it is not. The argument the ramp takes is unchanged for every deployment that does
+	// not split -- this is the same scalar it always was -- so the finding recorded at the
+	// ramp's own call site, that it is evaluated at the step's token count rather than a
+	// per-term one, still holds: what changed is how many tokens the step HAS.
+	tokens = prefillTokens + decodeTokens
 
 	smBudget := b.SMBudget
 	if smBudget <= 0 || k.chip.SMCount == 0 {
@@ -837,6 +897,36 @@ func (k *Kernel) stepTime(b kernel.Batch,
 			}
 		}
 
+		// Prefill-context parallelism's own collective, which no model graph emits either.
+		//
+		// A PCP rank computes only its share of a prefill, so it writes only its share of
+		// the new KV. Every rank must still hold the WHOLE cache, because PCP "does not
+		// increase the KV-cache shard count" (vllm/config/parallel.py:126-128 at v0.31.0)
+		// -- that is what distinguishes it from DCP. So the ranks all-gather the cache
+		// inputs they just computed: _gather_prefill_cache_inputs all-gathers on dim 0,
+		// the token dimension (vllm/v1/attention/ops/pcp.py:31-35).
+		//
+		// ONE ALL-GATHER PER LAYER THAT HOLDS KV, carrying this rank's PREFILL tokens
+		// only. Decode writes are deliberately excluded, which the engine is explicit
+		// about -- "Keep replicated decode writes local and gather partitioned prefills"
+		// (pcp.py:16) -- because a replicated decode row is already present on every rank.
+		//
+		// The payload is the cache width per token, which is what kvBytesPerToken carries
+		// per layer: for MLA those are kv_c_normed and k_pe, the latent plus rope that the
+		// gather moves. Using the engine's own KV figure rather than recomputing it from
+		// the dtype is the same reasoning the secondary attention term uses -- the two
+		// cannot then drift.
+		if prefillTokens > 0 && k.layout.PCP > 1 && l.AttnQHeads > 0 {
+			payload := float64(prefillTokens) * k.kvBytesPerToken /
+				float64(k.plan.TotalLayers)
+			key := collKey{Op: model.OpAllGather, Group: price.GroupPCP}
+			if k.crossesNodes(key) {
+				crossNode += k.collectiveSeconds(key, payload*k.spanFor(key))
+			} else {
+				onNode += k.collectiveSeconds(key, payload)
+			}
+		}
+
 		// Max across resources within the layer, summed over the layers of this kind --
 		// except that the routed-expert term composes as a sum rather than a max, for the
 		// measured reason given above. So the max is taken over the layer WITHOUT the routed
@@ -968,6 +1058,8 @@ func (k *Kernel) groupSize(group price.GroupAxis) int {
 		return k.layout.ExpertWidth
 	case price.GroupDCP:
 		return max(k.layout.DCP, 1)
+	case price.GroupPCP:
+		return max(k.layout.PCP, 1)
 	}
 	return k.layout.TP
 }
@@ -1122,6 +1214,147 @@ func sparseTopK(l *price.PlannedLayer) int {
 		return l.AttnWindow
 	}
 	return 0
+}
+
+// pcpLocalTokens is how many scheduled tokens the BUSIEST prefill-context-parallel rank
+// computes, for one prefill chunk of `sched` tokens. It returns -1 when prefill-context
+// parallelism is off, so a caller keeps the whole chunk.
+//
+// PCP SPLITS THE PREFILL ITSELF, which is its defining purpose: vLLM calls it the "Number
+// of ranks that split prefill sequence computation" (vllm/config/parallel.py:126-128 at
+// v0.31.0). A rank builds a LOCAL batch of its own share and runs the forward on that
+// (num_local_tokens, vllm/v1/worker/gpu/pcp_manager.py:485), so every term proportional to
+// scheduled tokens falls with the split -- not only attention.
+//
+// THE SPLIT IS A ZIGZAG, NOT A SLICE, and that is the whole reason a single divisor is
+// defensible here. _iter_rank_chunks (pcp_manager.py:236-281) cuts each prefill into
+// 2*pcp chunks and gives rank r chunks r and 2*pcp-1-r, which its own docstring draws:
+//
+//	full:  | 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 |     (pcp = 4)
+//	rank 0:  0                           7
+//	rank 1:      1                   6
+//	rank 2:          2           5
+//	rank 3:              3   4
+//
+// Pairing a low chunk with a high one is what balances CAUSAL work: an early chunk has few
+// keys to its left and a late one has many, and the two sum to the same total on every
+// rank. Verified by enumeration: at pcp 2, 4 and 8 the per-rank causal pair counts are
+// EXACTLY equal -- max over ranks divided by the ideal share is 1.000000 with zero spread
+// -- for unchunked prefills and for chunked ones alike (tested at 2,048 tokens on no
+// prefix, 4,096 on 8,192, 1,024 on 131,072, 8,192 on none). A plain contiguous 1/pcp slice
+// would NOT balance, because the last rank would carry the whole upper triangle.
+//
+// THE BUSIEST RANK BINDS, as it does for DCP: the ranks must gather before the next layer,
+// so the step waits for the one with the most work. Where 2*pcp divides the query every
+// rank holds 2*ceil(sched/(2*pcp)) tokens and the shards sum to sched exactly; where it
+// does not, the ragged remainder lands unevenly and the maximum is taken over the ranks
+// rather than assumed. The overhead over a nominal sched/pcp is bounded and small at any
+// realistic chunk -- 1.2% at 1,024 tokens and above, 0.34% at 4,096 and above -- and it is
+// an OVERSTATEMENT, which is the safe direction.
+//
+// A SHORT PREFILL IS REPLICATED RATHER THAN SPLIT, BUT ONLY ALONGSIDE DCP. That gate is
+// easy to miss and changes the answer, so it is taken from the engine verbatim:
+// replicated_requests (pcp_manager.py:222-233) computes `drops_a_chunk` only inside
+// `if self.dcp_world_size > 1`, so with PCP alone every prefill is partitioned however
+// short it is, and a rank holding no chunk simply contributes nothing.
+//
+// The condition itself is not "shorter than 2*pcp" either, which is the obvious guess and
+// wrong: it is `(2*pcp - 1) * ceil(sched/(2*pcp)) >= sched`, which also fires at lengths
+// well above 2*pcp -- at pcp 8 it is true at 17 tokens and false at 16 -- because what it
+// detects is a partition in which some chunk comes out empty.
+//
+// `dcp` is therefore a parameter rather than an assumption: it decides whether the
+// replication branch exists at all.
+func pcpLocalTokens(sched, pcp, dcp int) int {
+	if pcp <= 1 || sched <= 0 {
+		return -1
+	}
+	numChunks := 2 * pcp
+	chunk := (sched + numChunks - 1) / numChunks
+	if dcp > 1 && (numChunks-1)*chunk >= sched {
+		// A chunk would come out empty, so the engine replicates instead: every rank
+		// computes the whole query.
+		return sched
+	}
+	// Rank r holds chunks r and 2*pcp-1-r, each truncated where it runs past the query.
+	// Maximised over the ranks rather than taken as 2*chunk: that shortcut is right only
+	// when every chunk is full, and it overstates a ragged partition -- at 2 tokens over
+	// 2 ranks the chunks are one token each and the busiest rank holds ONE, where 2*chunk
+	// capped at the query would say two.
+	most := 0
+	for rank := 0; rank < pcp; rank++ {
+		local := 0
+		for _, idx := range [...]int{rank, numChunks - 1 - rank} {
+			lo := min(idx*chunk, sched)
+			hi := min(lo+chunk, sched)
+			if hi > lo {
+				local += hi - lo
+			}
+		}
+		if local > most {
+			most = local
+		}
+	}
+	return most
+}
+
+// pcpCausalPairs is the attention work the BUSIEST prefill-context-parallel rank does for
+// one prefill chunk, in the same units the unsharded count uses: four times the
+// query-key pairs, since there are two FLOPs per multiply-accumulate and two matmuls.
+//
+// Counted over the engine's own partition rather than scaled by a ratio, because no ratio
+// is right in general. A query at chunk-local offset j attends its whole prefix plus its
+// causal share within the chunk, so it reads prefix + j + 1 keys; rank r owns chunks r and
+// 2*pcp-1-r. Where 2*pcp divides the query the zigzag pairing makes every rank's total
+// EXACTLY equal and this reduces to the whole count over pcp -- verified equal to
+// 1.000000 of the ideal share with zero spread across ranks, at pcp 2, 4 and 8, with and
+// without a prefix. Where it does not divide, the busiest rank carries more than either
+// 1/pcp or its token share: at 100 tokens over 8 ranks it carries 0.1566 of the pairs
+// against 0.125 and 0.14 respectively, because a ragged partition hands one rank two short
+// chunks from the expensive end.
+//
+// A replicated request keeps its whole count, since every rank computes all of it. The
+// loop below produces that naturally: pcpLocalTokens returning the full length means the
+// chunk indices cover the query.
+func pcpCausalPairs(sched, prefix, pcp, dcp int) float64 {
+	if pcp <= 1 || sched <= 0 {
+		return 0
+	}
+	if pcpLocalTokens(sched, pcp, dcp) == sched {
+		// Replicated: every rank attends the whole query, so this is the unsharded count.
+		s := float64(sched)
+		return 2 * 2 * (s*float64(prefix) + s*s*0.5)
+	}
+	numChunks := 2 * pcp
+	chunk := (sched + numChunks - 1) / numChunks
+	// Maximised over the ranks rather than read off one of them. WHICH rank is busiest
+	// depends on where the ragged remainder falls -- enumerated over 40,000 random
+	// (pcp, sched, prefix) draws it is rank 1 in 85% of cases, rank 0 in 14%, and some
+	// other rank in the rest -- so assuming an index is wrong. The arithmetic below is
+	// closed-form per rank and pcp is at most the tensor-parallel width, so this is a
+	// handful of iterations rather than a walk over the query.
+	var most float64
+	for rank := 0; rank < pcp; rank++ {
+		var pairs float64
+		for _, idx := range [...]int{rank, numChunks - 1 - rank} {
+			lo := min(idx*chunk, sched)
+			hi := min(lo+chunk, sched)
+			if n := hi - lo; n > 0 {
+				// The keys each query in [lo, hi) reads: prefix + j + 1, summed in
+				// closed form. The final -n/2 drops the diagonal's half-token so this
+				// matches the unsharded term's CONTINUUM convention (s*c + s^2/2)
+				// rather than exceeding it by s/2 -- the same correction
+				// windowedCausalFLOPs makes, and for the same reason: without it an
+				// inactive split would not reproduce the figure it replaces.
+				pairs += float64(n)*float64(prefix+1) +
+					float64(lo+hi-1)*float64(n)/2 - float64(n)/2
+			}
+		}
+		if pairs > most {
+			most = pairs
+		}
+	}
+	return 2 * 2 * most
 }
 
 // dcpShardsKV reports whether decode-context parallelism shards THIS attention kind's
@@ -1554,6 +1787,17 @@ func (k *Kernel) DataParallelWidth() int { return max(k.layout.DP, 1) }
 // width but the expert-parallel one, and it is vendored at a pinned schemas version --
 // the same reason TensorParallelWidth and DataParallelWidth sit here.
 func (k *Kernel) DecodeContextParallelWidth() int { return max(k.layout.DCP, 1) }
+
+// PrefillContextParallelWidth returns how many ranks split a prefill sequence.
+//
+// The companion to DecodeContextParallelWidth, and the two are genuinely independent: PCP
+// splits prefill computation and expands the process world size while leaving the KV cache
+// replicated, where DCP shards the cache and reuses the tensor-parallel ranks. A consumer
+// sizing a deployment needs both, and neither can be derived from the other.
+//
+// From the resolved layout rather than the deployment document, for the same reason as the
+// other width accessors.
+func (k *Kernel) PrefillContextParallelWidth() int { return max(k.layout.PCP, 1) }
 
 // Resource indices for the hot path's fixed array. A map allocation per step would show
 // up in a simulator calling this millions of times, so the accumulation is positional and

@@ -205,6 +205,10 @@ const (
 	// DCP is a layout choice, so its collectives are added by the pricer rather than
 	// planned, and this axis exists to give them their own width.
 	GroupDCP
+	// GroupPCP is the prefill-context-parallel group, which gathers the KV a split
+	// prefill wrote. Separate from GroupDCP because the two widths are independent and
+	// the engine builds them as separate process groups.
+	GroupPCP
 )
 
 // PlannedCollective is one surviving collective and what it moves.
