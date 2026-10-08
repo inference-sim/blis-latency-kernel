@@ -252,9 +252,18 @@ func (k *Kernel) lift(c *resolve.Coefficients, g *model.Graph, cacheBytes float6
 	// is already right -- blis-catalog declares an MLA node as `n_kv: 1, d_h: 576`, so
 	// kvGeometry's NumKVHeads*HeadDim is the latent width kv_lora_rank + qk_rope_head_dim
 	// and needs no special case. What was missing is the RATE: an MLA decode sustains
-	// 0.61-0.80 of datasheet bandwidth against full attention's 0.52-0.88, with a floor
-	// several times larger (51.5-89.5us against 9.5-19.5us) because the per-call setup
-	// reads a latent cache.
+	// 0.61-0.80 of datasheet bandwidth against full attention's 0.52-0.88.
+	//
+	// The FLOOR is not what distinguishes them, which an earlier version of this comment
+	// had backwards: it claimed an MLA floor "several times larger (51.5-89.5us against
+	// 9.5-19.5us) because the per-call setup reads a latent cache". The registry says
+	// otherwise -- attention_decode_floor_mla is 9.5-14.5us against the part-wide
+	// 9.5-19.0us -- because that entry IS the part's own measured attention floor reused
+	// for the kind ("this is this part's own measured attention-kernel decode floor,
+	// reused for the MLA kind", cost-model-attention.yaml). The larger module-derived
+	// floors, 4.7x-6.2x those, were measured and REJECTED: they cover the whole MLA block
+	// including down-projections this kernel prices separately as GEMM nodes, and charging
+	// them took kimi-k2.5's TPOT error from 6.38% to 14.57%.
 	//
 	// Ten catalog models declare an mla or sparse_mla layer, and two of them
 	// (deepseek-v4-pro, kimi-k3) appear in both the FPM dataset and the InferenceX corpus,
@@ -417,6 +426,21 @@ func (k *Kernel) lift(c *resolve.Coefficients, g *model.Graph, cacheBytes float6
 	// head count floors at one because a head is never split across ranks.
 	nkv, headDim, layers := kvGeometry(g)
 	k.kvBytesPerToken = price.KVBytesPerToken(nkv, k.layout.TP, headDim, layers, cacheBytes)
+	// The layer count kvBytesPerToken is spread over. kvGeometry counts only layers that
+	// HOLD KV, so this is the divisor that recovers one layer's share of the cache -- on a
+	// hybrid stack it is not the total layer count, and the two differ ninefold on
+	// Nemotron-3-Ultra (12 KV layers of 108).
+	k.kvLayers = layers
+	// Whether EVERY KV-holding layer is a kind decode-context parallelism shards. A
+	// whole-model verdict, because kvBytesPerToken is a whole-model figure: see
+	// SequenceVariableBytes for what that costs and why it costs nothing real.
+	k.dcpShardsAllKVLayers = true
+	for _, l := range k.plan.Layers {
+		if l.AttnQHeads > 0 && !dcpShardsKV(l.AttnKind) {
+			k.dcpShardsAllKVLayers = false
+			break
+		}
+	}
 	k.blockSize = k.pool.Engine.BlockSize
 	if k.blockSize <= 0 {
 		k.blockSize = 16
@@ -440,20 +464,46 @@ func (k *Kernel) liftCollectiveFloors(c *resolve.Coefficients) error {
 		dtype = "int8"
 	}
 	chip := strings.ReplaceAll(k.chip.Name, "-", "_")
-	k.collectiveFloors = map[model.Op]time.Duration{}
-	k.collectiveRates = map[model.Op]float64{}
-	k.collectiveTransitions = map[model.Op]float64{}
-	for op, measured := range map[model.Op]string{
+	k.collectiveFloors = map[collKey]time.Duration{}
+	k.collectiveRates = map[collKey]float64{}
+	k.collectiveTransitions = map[collKey]float64{}
+	names := map[model.Op]string{
 		model.OpAllReduce:     "all_reduce",
 		model.OpAllGather:     "all_gather",
 		model.OpReduceScatter: "reduce_scatter",
 		model.OpAll2All:       "alltoall",
-	} {
+	}
+	// One triple per (op, group), because a group is what picks the width and two groups
+	// can run the same op. The tensor-parallel and expert-parallel axes cover everything
+	// a model graph emits; the decode-context axis is resolved ONLY when dcp exceeds one,
+	// so a deployment without DCP asks the registry for exactly the coefficients it
+	// always did and cannot newly fail construction.
+	keys := []collKey{
+		{Op: model.OpAllReduce, Group: price.GroupTP},
+		{Op: model.OpAllGather, Group: price.GroupTP},
+		{Op: model.OpReduceScatter, Group: price.GroupTP},
+		{Op: model.OpAll2All, Group: price.GroupExpert},
+	}
+	if k.layout.DCP > 1 {
+		// The ag_rs pair: a query all-gather and an output reduce-scatter per decode
+		// layer. See the DCP collectives in stepTime for the mechanism and the citation.
+		keys = append(keys,
+			collKey{Op: model.OpAllGather, Group: price.GroupDCP},
+			collKey{Op: model.OpReduceScatter, Group: price.GroupDCP})
+	}
+	if k.layout.PCP > 1 {
+		// One KV all-gather per layer that holds KV, so every rank keeps a full cache
+		// replica of what the split prefill wrote.
+		keys = append(keys, collKey{Op: model.OpAllGather, Group: price.GroupPCP})
+	}
+	for _, key := range keys {
+		op := key.Op
+		measured := names[op]
 		// The rank count a collective spans, snapped to a width this chip was
 		// actually measured at. The widths come from the registry rather than from a
 		// constant here, so a part swept at 2 and 4 ranks only (a Grace-Blackwell
 		// tray is four GPUs) is not asked for an 8-rank figure that does not exist.
-		ranks, err := k.groupWidth(c, op, measured, dtype, chip)
+		ranks, err := k.groupWidth(c, key, measured, dtype, chip)
 		if err != nil {
 			return err
 		}
@@ -468,8 +518,8 @@ func (k *Kernel) liftCollectiveFloors(c *resolve.Coefficients) error {
 			return fmt.Errorf("no measured rate for a %d-rank %s on %s: %w",
 				ranks, measured, k.chip.Name, err)
 		}
-		k.collectiveFloors[op] = time.Duration(floor * float64(time.Microsecond))
-		k.collectiveRates[op] = rate * 1e6 // bytes per microsecond to bytes per second
+		k.collectiveFloors[key] = time.Duration(floor * float64(time.Microsecond))
+		k.collectiveRates[key] = rate * 1e6 // bytes per microsecond to bytes per second
 		// The transition rate is what actually prices a forward pass's collectives; the
 		// peak above is only a ceiling. Absent, the pricing falls back to the
 		// two-parameter form, which is optimistic in the transition region — so its
@@ -481,7 +531,7 @@ func (k *Kernel) liftCollectiveFloors(c *resolve.Coefficients) error {
 					"form understates a collective by up to 3.8x in the message range a "+
 					"forward pass produces: %w", ranks, measured, k.chip.Name, err)
 		}
-		k.collectiveTransitions[op] = transition * 1e6
+		k.collectiveTransitions[key] = transition * 1e6
 	}
 	return nil
 }
@@ -584,11 +634,18 @@ func measuredWidths(c *resolve.Coefficients, measured, dtype, chip string) []int
 // Making that substitution silently is what liftCollectiveFloors' doc comment
 // promises not to do.
 func (k *Kernel) groupWidth(
-	c *resolve.Coefficients, op model.Op, measured, dtype, chip string,
+	c *resolve.Coefficients, key collKey, measured, dtype, chip string,
 ) (int, error) {
-	width := k.layout.TP
-	if op == model.OpAll2All {
-		width = k.layout.ExpertWidth
+	// The group decides the width, not the op: an all-gather spans tp ranks on the
+	// tensor-parallel axis and dcp ranks on the decode-context-parallel one. An axis with
+	// no width is refused here rather than resolved against a substitute, which is the
+	// same standard this function already holds for an unmeasured width.
+	width, ok := k.groupSize(key.Group)
+	if !ok {
+		return 0, fmt.Errorf(
+			"collective %s names parallelism axis %d, whose width this kernel cannot "+
+				"determine; pricing it at the tensor-parallel width would understate a "+
+				"narrower group's floor by up to 1.59x", key.Op, key.Group)
 	}
 	widths := measuredWidths(c, measured, dtype, chip)
 	if len(widths) == 0 {

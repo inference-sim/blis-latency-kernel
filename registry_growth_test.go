@@ -7,6 +7,7 @@ import (
 	"github.com/inference-sim/blis-schemas/spec/hardware"
 	"github.com/inference-sim/blis-schemas/spec/model"
 
+	"github.com/inference-sim/blis-latency-kernel/internal/price"
 	"github.com/inference-sim/blis-latency-kernel/internal/resolve"
 )
 
@@ -54,7 +55,7 @@ func TestANewlyFittedWidthIsUsedWithoutACodeChange(t *testing.T) {
 
 	k := &Kernel{chip: hardware.Chip{Name: "h200"}}
 	k.layout.ExpertWidth = novel
-	got, err := k.groupWidth(c, model.OpAll2All, "alltoall", "fp16", "h200")
+	got, err := k.groupWidth(c, collKey{Op: model.OpAll2All, Group: price.GroupExpert}, "alltoall", "fp16", "h200")
 	if err != nil {
 		t.Fatalf("a %d-rank group must resolve once the width is fitted: %v", novel, err)
 	}
@@ -80,7 +81,8 @@ func TestRefittingAValueChangesNothingAboutResolution(t *testing.T) {
 		}
 		k := &Kernel{chip: hardware.Chip{Name: "h200"}}
 		k.layout.ExpertWidth = 4
-		got, err := k.groupWidth(coeffs(t, entries), model.OpAll2All,
+		got, err := k.groupWidth(coeffs(t, entries),
+			collKey{Op: model.OpAll2All, Group: price.GroupExpert},
 			"alltoall", "fp16", "h200")
 		if err != nil {
 			t.Fatalf("floor %v: %v", floor, err)
@@ -111,7 +113,7 @@ func TestAPartGainingItsOwnFitStopsBorrowing(t *testing.T) {
 	at8 := func(c *resolve.Coefficients) (int, error) {
 		k := &Kernel{chip: hardware.Chip{Name: "gb300"}}
 		k.layout.TP = 8
-		return k.groupWidth(c, model.OpAllReduce, "all_reduce", "fp16", "gb300")
+		return k.groupWidth(c, collKey{Op: model.OpAllReduce, Group: price.GroupTP}, "all_reduce", "fp16", "gb300")
 	}
 
 	// Before: swept at 2 and 4 only. 8 is in the search space, so it must refuse rather
@@ -159,7 +161,7 @@ func TestResolutionPolicyAcrossTheWidthSpace(t *testing.T) {
 		t.Run(tc.what, func(t *testing.T) {
 			k := &Kernel{chip: hardware.Chip{Name: "h200"}}
 			k.layout.ExpertWidth = tc.width
-			got, err := k.groupWidth(c, model.OpAll2All, "alltoall", "fp16", "h200")
+			got, err := k.groupWidth(c, collKey{Op: model.OpAll2All, Group: price.GroupExpert}, "alltoall", "fp16", "h200")
 			if tc.wantOK {
 				if err != nil {
 					t.Fatalf("width %d: %v", tc.width, err)

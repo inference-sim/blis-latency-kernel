@@ -13,6 +13,7 @@ import (
 	"github.com/inference-sim/blis-schemas/spec/hardware"
 	"github.com/inference-sim/blis-schemas/spec/model"
 
+	"github.com/inference-sim/blis-latency-kernel/internal/price"
 	"github.com/inference-sim/blis-latency-kernel/internal/resolve"
 )
 
@@ -66,7 +67,7 @@ func TestGroupWidthRefusesAnUnmeasuredWidthInsideTheRange(t *testing.T) {
 	k := &Kernel{chip: hardware.Chip{Name: "gb300"}}
 	k.layout.TP = 8
 
-	_, err := k.groupWidth(c, model.OpAllReduce, "all_reduce", "fp16", "gb300")
+	_, err := k.groupWidth(c, collKey{Op: model.OpAllReduce, Group: price.GroupTP}, "all_reduce", "fp16", "gb300")
 	if err == nil {
 		t.Fatal("an 8-rank group on a part swept at [2 4] must be an error, not a clamp")
 	}
@@ -91,7 +92,7 @@ func TestGroupWidthClampsPastTheWholeSearchSpace(t *testing.T) {
 	// 32 is wider than any width any comm sweep in this project carries.
 	k.layout.TP = 32
 
-	got, err := k.groupWidth(c, model.OpAllReduce, "all_reduce", "fp16", "h200")
+	got, err := k.groupWidth(c, collKey{Op: model.OpAllReduce, Group: price.GroupTP}, "all_reduce", "fp16", "h200")
 	if err != nil {
 		t.Fatalf("a width past the search space must clamp: %v", err)
 	}
@@ -113,7 +114,7 @@ func TestGroupWidthRefusesSixteenRanksWhenOnlyEightIsMeasured(t *testing.T) {
 	k := &Kernel{chip: hardware.Chip{Name: "h200"}}
 	k.layout.TP = 16
 
-	if _, err := k.groupWidth(c, model.OpAllReduce, "all_reduce", "fp16", "h200"); err == nil {
+	if _, err := k.groupWidth(c, collKey{Op: model.OpAllReduce, Group: price.GroupTP}, "all_reduce", "fp16", "h200"); err == nil {
 		t.Fatal("16 ranks is a swept width elsewhere; an unmeasured part must error")
 	}
 }
@@ -130,7 +131,7 @@ func TestGroupWidthResolvesAnExactlyMeasuredWidth(t *testing.T) {
 	k := &Kernel{chip: hardware.Chip{Name: "h200"}}
 	k.layout.TP = 4
 
-	got, err := k.groupWidth(c, model.OpAllReduce, "all_reduce", "fp16", "h200")
+	got, err := k.groupWidth(c, collKey{Op: model.OpAllReduce, Group: price.GroupTP}, "all_reduce", "fp16", "h200")
 	if err != nil {
 		t.Fatalf("a measured width must resolve: %v", err)
 	}
@@ -152,7 +153,7 @@ func TestGroupWidthUsesExpertWidthForAllToAll(t *testing.T) {
 	k.layout.TP = 2
 	k.layout.ExpertWidth = 8
 
-	got, err := k.groupWidth(c, model.OpAll2All, "alltoall", "fp16", "h200")
+	got, err := k.groupWidth(c, collKey{Op: model.OpAll2All, Group: price.GroupExpert}, "alltoall", "fp16", "h200")
 	if err != nil {
 		t.Fatalf("alltoall at expert width 8: %v", err)
 	}
@@ -248,7 +249,7 @@ func TestAnUnmeasuredWidthIsRefusedAgainstTheCommittedRegistry(t *testing.T) {
 	for _, w := range measured {
 		k := &Kernel{chip: hardware.Chip{Name: chip}}
 		k.layout.TP = w
-		if got, err := k.groupWidth(c, model.OpAllReduce, "all_reduce", "fp16", key); err != nil || got != w {
+		if got, err := k.groupWidth(c, collKey{Op: model.OpAllReduce, Group: price.GroupTP}, "all_reduce", "fp16", key); err != nil || got != w {
 			t.Errorf("%s at tp=%d must resolve to %d; got %d, err %v", chip, w, w, got, err)
 		}
 	}
@@ -271,7 +272,7 @@ func TestAnUnmeasuredWidthIsRefusedAgainstTheCommittedRegistry(t *testing.T) {
 	}
 	k := &Kernel{chip: hardware.Chip{Name: chip}}
 	k.layout.TP = absent
-	_, err = k.groupWidth(c, model.OpAllReduce, "all_reduce", "fp16", key)
+	_, err = k.groupWidth(c, collKey{Op: model.OpAllReduce, Group: price.GroupTP}, "all_reduce", "fp16", key)
 	if err == nil {
 		t.Fatalf("%s at tp=%d must refuse: that width is not in %v", chip, absent, measured)
 	}
