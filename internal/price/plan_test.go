@@ -246,6 +246,56 @@ func blockSparseGraph() *model.Graph {
 	}
 }
 
+// pooledIndexerGraph mirrors GLM-5.3-Flash's sparse layer: a k-pool indexer whose scan
+// is bounded by the pooling ratio rather than by a window, feeding a latent attention
+// bounded by the top-k it selects. ratio is index_kpool.
+func pooledIndexerGraph(ratio int) *model.Graph {
+	const hidden = 4096
+	sparse := model.LayerKind{ID: "sparse", Nodes: []model.Node{
+		{Op: model.OpElementwise},
+		{Op: model.OpGEMM, N: 2048, K: hidden},
+		{Op: model.OpGEMM, N: 4096, K: 1536, Role: "index_wq_b"},
+		{Op: model.OpAttention, Role: "block_index_scores",
+			AttentionKind: model.AttentionSparseMLA,
+			NumQHeads:     32, NumKVHeads: 1, HeadDim: 128,
+			CompressRatio: ratio},
+		{Op: model.OpAttention, AttentionKind: model.AttentionSparseMLA,
+			NumQHeads: 64, NumKVHeads: 1, HeadDim: 512, IndexTopK: 2048},
+		{Op: model.OpGEMM, N: hidden, K: 16384},
+	}}
+	return &model.Graph{
+		Global:     model.GlobalShape{HiddenSize: hidden, VocabSize: 154880},
+		LayerKinds: []model.LayerKind{sparse},
+		Stack:      model.Stack{Pattern: []string{"sparse"}, Repeat: 45},
+	}
+}
+
+func TestPlanCarriesAPooledScorersCompressionRatio(t *testing.T) {
+	// A pooled indexer caches one state per index_kpool tokens, so the ratio is the
+	// bound on how many candidates its scan covers. Dropped in planning, the scorer
+	// priced over full context -- four times the candidates on the one term in the
+	// layer that grows with context.
+	for _, ratio := range []int{1, 2, 4, 16} {
+		p, err := BuildPlan(pooledIndexerGraph(ratio), emitNone{}, 1, 1)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var scorer *PlannedAttention
+		for i := range p.Layers[0].Attentions {
+			if a := &p.Layers[0].Attentions[i]; a.Role == "block_index_scores" {
+				scorer = a
+			}
+		}
+		if scorer == nil {
+			t.Fatalf("ratio %d: no scorer in the plan", ratio)
+		}
+		if scorer.CompressRatio != ratio {
+			t.Errorf("ratio %d: plan carries CompressRatio %d",
+				ratio, scorer.CompressRatio)
+		}
+	}
+}
+
 func TestPlanKeepsEveryAttentionKernelALayerLaunches(t *testing.T) {
 	// A layer that launches two attention kernels must report two. An earlier plan
 	// assigned the attention fields per node, so the second overwrote the first and the

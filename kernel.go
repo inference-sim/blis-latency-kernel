@@ -552,6 +552,17 @@ func (k *Kernel) stepTime(b kernel.Batch,
 				if a.Window > 0 {
 					tokens = math.Min(tokens, float64(a.Window)*float64(decodeRequests))
 				}
+				// A pooled scorer reads cached STATES, not tokens: the kpool indexer
+				// compresses index_kpool tokens into one state and scores over those,
+				// so the candidate count is the token count over the ratio. This is the
+				// scan bound, not a width -- perToken already carries the state's own
+				// head geometry. GLM-5.3-Flash pools 4:1, so an unpooled reading charges
+				// four times the candidates on the one term in the layer that grows with
+				// context. Applied after the window bound because the two compose: the
+				// window fixes the span, the ratio how many states it holds.
+				if a.CompressRatio > 1 {
+					tokens /= float64(a.CompressRatio)
+				}
 				attnSeconds += floor.Seconds() + tokens*perToken/rate
 			}
 		}
