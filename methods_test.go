@@ -821,10 +821,10 @@ func TestCrossNodeCollectivesCostMoreThanOnNodeOnes(t *testing.T) {
 	}
 	// A single-node deployment must put everything on NVLink and nothing on the NIC.
 	// Checked through the resolved layout rather than by building a third fixture.
-	if k.crossesNodes(model.OpAllReduce) {
+	if k.crossesNodes(collKey{Op: model.OpAllReduce, Group: price.GroupTP}) {
 		t.Error("a TP=8 reduction on 8-GPU nodes was judged to cross a node boundary")
 	}
-	if !k.crossesNodes(model.OpAll2All) {
+	if !k.crossesNodes(collKey{Op: model.OpAll2All, Group: price.GroupExpert}) {
 		t.Error("a 16-wide expert group on 8-GPU nodes was judged to stay on one node")
 	}
 }
@@ -956,16 +956,16 @@ func TestRoutingImbalanceIsApplied(t *testing.T) {
 // requires the step's collective term to match the three-parameter figure.
 func TestCollectivesUseTheTransitionRate(t *testing.T) {
 	k := fixture(t, "minimax-m25-h200-ep8.yaml")
-	if k.collectiveTransitions[model.OpAllReduce] <= 0 {
+	if k.collectiveTransitions[collKey{Op: model.OpAllReduce, Group: price.GroupTP}] <= 0 {
 		t.Fatal("no transition rate resolved for the tensor-parallel reduction")
 	}
 	// The transition rate must sit below the asymptote: a collective reaches its peak
 	// bandwidth only at messages larger than a forward pass produces.
-	for op, transition := range k.collectiveTransitions {
-		peak := k.collectiveRates[op]
+	for key, transition := range k.collectiveTransitions {
+		peak := k.collectiveRates[key]
 		if transition >= peak {
 			t.Errorf("%s: transition rate %.0f is not below the asymptote %.0f",
-				op, transition, peak)
+				key.Op, transition, peak)
 		}
 	}
 
@@ -976,9 +976,11 @@ func TestCollectivesUseTheTransitionRate(t *testing.T) {
 
 	payload := float64(batch.Tokens()) * g5Hidden * 1.0 // fp8 activations
 	three, two := 0.0, 0.0
-	for op, count := range map[model.Op]float64{model.OpAllReduce: 2} {
-		floor := k.collectiveFloors[op].Seconds()
-		peak, transition := k.collectiveRates[op], k.collectiveTransitions[op]
+	for key, count := range map[collKey]float64{
+		{Op: model.OpAllReduce, Group: price.GroupTP}: 2,
+	} {
+		floor := k.collectiveFloors[key].Seconds()
+		peak, transition := k.collectiveRates[key], k.collectiveTransitions[key]
 		three += count * g5Layers * price.CollectiveTime(payload, transition, peak, floor)
 		two += count * g5Layers * price.FloorAndRate(payload, peak, floor)
 	}

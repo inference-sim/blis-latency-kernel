@@ -70,9 +70,16 @@ type Kernel struct {
 	// because an all-reduce floor and an all-to-all floor differ by more than 2x on
 	// the same part, and by rank count inside the lookup because a ring-shaped
 	// collective's floor grows with group width where a shuffle's barely does.
-	collectiveFloors      map[model.Op]time.Duration
-	collectiveRates       map[model.Op]float64
-	collectiveTransitions map[model.Op]float64
+	//
+	// Keyed by GROUP as well as op, because the op alone stopped identifying a triple
+	// once decode-context parallelism arrived: a tensor-parallel all-gather at tp=8 and
+	// a DCP all-gather at dcp=2 are the same primitive at two widths, and the registry
+	// carries a separate floor/peak/transition for each. One entry per op would have
+	// priced one of the two at the other's width, and the 8-rank floor is 1.53x to 1.91x
+	// the 4-rank figure across the parts measured at both.
+	collectiveFloors      map[collKey]time.Duration
+	collectiveRates       map[collKey]float64
+	collectiveTransitions map[collKey]float64
 
 	// Recurrent families' measured floor and rate, keyed by kind. A kind absent from the
 	// map has no measurement for this part and contributes nothing.
@@ -144,6 +151,18 @@ type Kernel struct {
 
 	// tiers maps a tier name to its device facts, for TierTime.
 	tiers map[string]hardware.StorageDevice
+}
+
+// collKey identifies one measured collective triple: the primitive AND the group it runs
+// across.
+//
+// Op alone is not enough. Two different groups can run the same primitive -- a
+// tensor-parallel all-gather spans tp ranks while a decode-context-parallel one spans dcp
+// -- and each width has its own measured floor, peak rate and transition rate in the
+// registry. Collapsing them would silently charge one group the other's width.
+type collKey struct {
+	Op    model.Op
+	Group price.GroupAxis
 }
 
 // floorRate is a primitive's two-parameter measured form: a fixed setup cost plus a rate.
@@ -692,12 +711,13 @@ func (k *Kernel) stepTime(b kernel.Batch,
 			// Whether a collective leaves the node depends on ITS OWN group, not the
 			// deployment's widest: a tensor-parallel reduction across 8 ranks stays on an
 			// 8-GPU node even when expert parallelism spans nine of them.
+			key := collKey{Op: c.Op, Group: c.Group}
 			elapsed := 0.0
-			if k.crossesNodes(c.Op) {
-				elapsed = k.collectiveSeconds(c.Op, bytes*k.spanFor(c.Op))
+			if k.crossesNodes(key) {
+				elapsed = k.collectiveSeconds(key, bytes*k.spanFor(key))
 				crossNode += elapsed
 			} else {
-				elapsed = k.collectiveSeconds(c.Op, bytes)
+				elapsed = k.collectiveSeconds(key, bytes)
 				onNode += elapsed
 			}
 		}
@@ -792,21 +812,21 @@ func (k *Kernel) stepTime(b kernel.Batch,
 // collectiveTime prices one collective's bytes against its own measured floor and
 // rate. Both are per operation: charging an all-to-all the all-reduce floor would
 // overstate it by 2.2x on H200, and the rates differ by a similar factor.
-func (k *Kernel) collectiveSeconds(op model.Op, bytes float64) float64 {
-	peak, ok := k.collectiveRates[op]
+func (k *Kernel) collectiveSeconds(key collKey, bytes float64) float64 {
+	peak, ok := k.collectiveRates[key]
 	if !ok || peak <= 0 {
 		// Every op the plan can emit is resolved at construction, so this is
 		// unreachable for a kernel New returned. Returning infinity rather than zero
 		// keeps an unpriced collective visible if that ever changes.
 		return math.Inf(1)
 	}
-	return price.CollectiveTime(bytes, k.collectiveTransitions[op], peak,
-		k.collectiveFloors[op].Seconds())
+	return price.CollectiveTime(bytes, k.collectiveTransitions[key], peak,
+		k.collectiveFloors[key].Seconds())
 }
 
 // collectiveTime prices one invocation, for callers outside the step loop.
-func (k *Kernel) collectiveTime(op model.Op, bytes float64) time.Duration {
-	return seconds(k.collectiveSeconds(op, bytes))
+func (k *Kernel) collectiveTime(key collKey, bytes float64) time.Duration {
+	return seconds(k.collectiveSeconds(key, bytes))
 }
 
 // crossesNodes reports whether a collective's own group spans more than one node.
@@ -815,30 +835,34 @@ func (k *Kernel) collectiveTime(op model.Op, bytes float64) time.Duration {
 // 8-GPU node however wide expert parallelism is, and an expert-parallel group of 72 does
 // not. Using the deployment's widest group for both would move every reduction onto the
 // NIC in a wide-EP layout, where in fact it never leaves the node.
-func (k *Kernel) crossesNodes(op model.Op) bool {
+func (k *Kernel) crossesNodes(key collKey) bool {
 	if k.layout.GPUsPerNode <= 0 {
 		return false
 	}
-	return k.groupSize(op) > k.layout.GPUsPerNode
+	return k.groupSize(key.Group) > k.layout.GPUsPerNode
 }
 
 // groupSize returns the rank count a collective's group spans.
-func (k *Kernel) groupSize(op model.Op) int {
-	if op == model.OpAll2All {
+//
+// Read from the GROUP rather than inferred from the op, because the op no longer decides
+// it: an all-gather spans tp ranks on the tensor-parallel axis and dcp ranks on the
+// decode-context-parallel one.
+func (k *Kernel) groupSize(group price.GroupAxis) int {
+	switch group {
+	case price.GroupExpert:
 		return k.layout.ExpertWidth
+	case price.GroupDCP:
+		return max(k.layout.DCP, 1)
 	}
 	return k.layout.TP
 }
 
 // spanFor returns the cross-node scaling a collective pays. A ring reduces as it travels
 // and so crosses only a fraction of the fabric; a routed all-to-all must reach every peer.
-func (k *Kernel) spanFor(op model.Op) float64 {
+func (k *Kernel) spanFor(key collKey) float64 {
 	ratio := k.fabric.Ratio()
-	group := k.layout.ExpertWidth
-	if op == model.OpAllReduce || op == model.OpAllGather || op == model.OpReduceScatter {
-		group = k.layout.TP
-	}
-	if op == model.OpAll2All && k.routedAll2All() {
+	group := k.groupSize(key.Group)
+	if key.Op == model.OpAll2All && k.routedAll2All() {
 		return price.All2AllSpan(group, k.layout.GPUsPerNode, ratio)
 	}
 	return price.RingSpan(group, k.layout.GPUsPerNode, ratio)
@@ -1078,6 +1102,14 @@ func (k *Kernel) TierTime(tier string, dir kernel.Direction, bytes int64,
 }
 
 // PDTransferTime prices moving one request's KV between pools.
+//
+// Decode-context parallelism deliberately does NOT divide this, and the omission is the
+// reason kvBytesPerToken is left as a per-token figure rather than being sharded once at
+// construction. A prefill pool holds the whole cache for a request -- DCP shards the
+// DECODE cache, and vLLM's own wording is "Number of ranks that shard the decode KV
+// cache" (vllm/config/parallel.py:359-362 at v0.31.0) -- so the bytes that cross between
+// pools are the whole request's, whatever the decode pool's dcp width is. A divisor here
+// would make every PD transfer exactly dcp times too cheap.
 func (k *Kernel) PDTransferTime(tokens int, from, to kernel.Placement) time.Duration {
 	if tokens <= 0 {
 		return 0
@@ -1093,7 +1125,7 @@ func (k *Kernel) PDTransferTime(tokens int, from, to kernel.Placement) time.Dura
 		rate = k.nvlinkBytesPerSecond
 	}
 	return seconds(price.FloorAndRate(bytes, rate,
-		k.collectiveFloors[model.OpAll2All].Seconds()))
+		k.collectiveFloors[collKey{Op: model.OpAll2All, Group: price.GroupExpert}].Seconds()))
 }
 
 // AdmissionOverhead returns host time before a request can be scheduled.

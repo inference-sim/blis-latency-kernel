@@ -185,9 +185,33 @@ type PlannedAttention struct {
 // small head count is not what makes a cache separate.
 func (a PlannedAttention) HoldsKV() bool { return a.Role == "" }
 
+// GroupAxis names the parallelism group a collective runs across.
+//
+// It exists because the primitive alone does not identify a collective's cost. A
+// tensor-parallel all-gather and a decode-context-parallel one are the same OP at two
+// different widths, and a measured floor at 8 ranks is 1.53x to 1.91x the 4-rank figure
+// across the parts swept at both -- so a consumer that keyed coefficients by op alone
+// would price one of the two against the other's width. The group is what picks the
+// width, so it travels with the collective rather than being inferred from the op.
+type GroupAxis uint8
+
+const (
+	// GroupTP is the tensor-parallel group: every ring-shaped collective a model graph
+	// emits reduces or gathers across it.
+	GroupTP GroupAxis = iota
+	// GroupExpert is the expert-parallel group, which a routed MoE dispatch spans.
+	GroupExpert
+	// GroupDCP is the decode-context-parallel group. Nothing in a model graph names it:
+	// DCP is a layout choice, so its collectives are added by the pricer rather than
+	// planned, and this axis exists to give them their own width.
+	GroupDCP
+)
+
 // PlannedCollective is one surviving collective and what it moves.
 type PlannedCollective struct {
 	Op model.Op
+	// Group is the parallelism axis this collective spans, which selects its width.
+	Group GroupAxis
 	// BytesPerToken is the payload one token contributes. For a routed dispatch this is
 	// multiplied by top_k at pricing time; for a ring-shaped one it is not, which is the
 	// distinction the backend decides.
@@ -418,11 +442,11 @@ func planNodes(nodes []model.Node, em Emitter, dtypeBytes, stateBytes float64,
 			pl.ElementwiseBytesPerToken += b
 		case model.OpAllReduce, model.OpAllGather, model.OpReduceScatter:
 			pl.Collectives = append(pl.Collectives, PlannedCollective{
-				Op: n.Op, BytesPerToken: float64(hidden) * dtypeBytes,
+				Op: n.Op, Group: GroupTP, BytesPerToken: float64(hidden) * dtypeBytes,
 			})
 		case model.OpAll2All:
 			pl.Collectives = append(pl.Collectives, PlannedCollective{
-				Op: n.Op, BytesPerToken: float64(hidden) * dtypeBytes,
+				Op: n.Op, Group: GroupExpert, BytesPerToken: float64(hidden) * dtypeBytes,
 				// Whether top_k multiplies this is a backend property, set by the caller
 				// that knows the resolved backend.
 				RoutedByTopK: true,

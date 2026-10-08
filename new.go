@@ -440,20 +440,41 @@ func (k *Kernel) liftCollectiveFloors(c *resolve.Coefficients) error {
 		dtype = "int8"
 	}
 	chip := strings.ReplaceAll(k.chip.Name, "-", "_")
-	k.collectiveFloors = map[model.Op]time.Duration{}
-	k.collectiveRates = map[model.Op]float64{}
-	k.collectiveTransitions = map[model.Op]float64{}
-	for op, measured := range map[model.Op]string{
+	k.collectiveFloors = map[collKey]time.Duration{}
+	k.collectiveRates = map[collKey]float64{}
+	k.collectiveTransitions = map[collKey]float64{}
+	names := map[model.Op]string{
 		model.OpAllReduce:     "all_reduce",
 		model.OpAllGather:     "all_gather",
 		model.OpReduceScatter: "reduce_scatter",
 		model.OpAll2All:       "alltoall",
-	} {
+	}
+	// One triple per (op, group), because a group is what picks the width and two groups
+	// can run the same op. The tensor-parallel and expert-parallel axes cover everything
+	// a model graph emits; the decode-context axis is resolved ONLY when dcp exceeds one,
+	// so a deployment without DCP asks the registry for exactly the coefficients it
+	// always did and cannot newly fail construction.
+	keys := []collKey{
+		{Op: model.OpAllReduce, Group: price.GroupTP},
+		{Op: model.OpAllGather, Group: price.GroupTP},
+		{Op: model.OpReduceScatter, Group: price.GroupTP},
+		{Op: model.OpAll2All, Group: price.GroupExpert},
+	}
+	if k.layout.DCP > 1 {
+		// The ag_rs pair: a query all-gather and an output reduce-scatter per decode
+		// layer. See the DCP collectives in stepTime for the mechanism and the citation.
+		keys = append(keys,
+			collKey{Op: model.OpAllGather, Group: price.GroupDCP},
+			collKey{Op: model.OpReduceScatter, Group: price.GroupDCP})
+	}
+	for _, key := range keys {
+		op := key.Op
+		measured := names[op]
 		// The rank count a collective spans, snapped to a width this chip was
 		// actually measured at. The widths come from the registry rather than from a
 		// constant here, so a part swept at 2 and 4 ranks only (a Grace-Blackwell
 		// tray is four GPUs) is not asked for an 8-rank figure that does not exist.
-		ranks, err := k.groupWidth(c, op, measured, dtype, chip)
+		ranks, err := k.groupWidth(c, key, measured, dtype, chip)
 		if err != nil {
 			return err
 		}
@@ -468,8 +489,8 @@ func (k *Kernel) liftCollectiveFloors(c *resolve.Coefficients) error {
 			return fmt.Errorf("no measured rate for a %d-rank %s on %s: %w",
 				ranks, measured, k.chip.Name, err)
 		}
-		k.collectiveFloors[op] = time.Duration(floor * float64(time.Microsecond))
-		k.collectiveRates[op] = rate * 1e6 // bytes per microsecond to bytes per second
+		k.collectiveFloors[key] = time.Duration(floor * float64(time.Microsecond))
+		k.collectiveRates[key] = rate * 1e6 // bytes per microsecond to bytes per second
 		// The transition rate is what actually prices a forward pass's collectives; the
 		// peak above is only a ceiling. Absent, the pricing falls back to the
 		// two-parameter form, which is optimistic in the transition region — so its
@@ -481,7 +502,7 @@ func (k *Kernel) liftCollectiveFloors(c *resolve.Coefficients) error {
 					"form understates a collective by up to 3.8x in the message range a "+
 					"forward pass produces: %w", ranks, measured, k.chip.Name, err)
 		}
-		k.collectiveTransitions[op] = transition * 1e6
+		k.collectiveTransitions[key] = transition * 1e6
 	}
 	return nil
 }
@@ -584,12 +605,11 @@ func measuredWidths(c *resolve.Coefficients, measured, dtype, chip string) []int
 // Making that substitution silently is what liftCollectiveFloors' doc comment
 // promises not to do.
 func (k *Kernel) groupWidth(
-	c *resolve.Coefficients, op model.Op, measured, dtype, chip string,
+	c *resolve.Coefficients, key collKey, measured, dtype, chip string,
 ) (int, error) {
-	width := k.layout.TP
-	if op == model.OpAll2All {
-		width = k.layout.ExpertWidth
-	}
+	// The group decides the width, not the op: an all-gather spans tp ranks on the
+	// tensor-parallel axis and dcp ranks on the decode-context-parallel one.
+	width := k.groupSize(key.Group)
 	widths := measuredWidths(c, measured, dtype, chip)
 	if len(widths) == 0 {
 		return 0, fmt.Errorf(
