@@ -102,6 +102,8 @@ type Kernel struct {
 	// totalExperts is the model's physical expert count, which the expected-coverage
 	// term needs alongside the local count.
 	totalExperts int
+	// topK is how many experts one token is routed to.
+	topK int
 	// expertTensorShards is how many ranks one expert's weights are split across: the
 	// tensor-parallel width when expert parallelism is off, and 1 when it is on, because
 	// an expert-parallel rank owns whole experts.
@@ -1181,6 +1183,14 @@ func (k *Kernel) TensorParallelWidth() int { return max(k.layout.TP, 1) }
 // would get the pre-redundancy figure and size its own accounting differently from the
 // kernel's.
 func (k *Kernel) Experts() int { return k.totalExperts }
+
+// ExpertsPerToken returns how many experts one token is routed to, and zero for a dense
+// model.
+//
+// With Experts it completes the MoE geometry a consumer needs for its own accounting --
+// vLLM sizes a per-EngineCore KV budget differently for an MoE model -- without re-walking
+// the model graph and risking a different answer than the pricer used.
+func (k *Kernel) ExpertsPerToken() int { return k.topK }
 
 // DataParallelWidth returns the pool's attention data-parallel width.
 //

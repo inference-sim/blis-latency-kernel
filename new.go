@@ -404,6 +404,14 @@ func (k *Kernel) lift(c *resolve.Coefficients, g *model.Graph, cacheBytes float6
 		k.localExpertShare = float64(base) / float64(experts+redundant)
 		k.totalExperts = experts + redundant
 	}
+	// The routing width, for a consumer that needs the model's expert geometry without
+	// re-walking the graph. Taken from the plan rather than the graph so it is the value the
+	// pricer used.
+	for _, l := range k.plan.Layers {
+		if l.TopK > k.topK {
+			k.topK = l.TopK
+		}
+	}
 
 	// KV geometry. Both the cache dtype and the tensor-parallel width divide it, and the
 	// head count floors at one because a head is never split across ranks.
