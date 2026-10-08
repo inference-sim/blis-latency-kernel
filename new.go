@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	schemas "github.com/inference-sim/blis-schemas"
 	"github.com/inference-sim/blis-schemas/kernel"
 	"github.com/inference-sim/blis-schemas/spec/coefficient"
 	"github.com/inference-sim/blis-schemas/spec/deployment"
@@ -19,9 +20,14 @@ import (
 	"github.com/inference-sim/blis-latency-kernel/internal/resolve"
 )
 
-// Inputs are the documents a kernel is built from. They arrive already parsed and
-// validated: loading and validation belong to blis-schemas, and a kernel that re-validated
-// would either duplicate those rules or diverge from them.
+// Inputs are the documents a kernel is built from. They arrive already parsed: loading
+// belongs to blis-schemas, and New takes documents rather than paths so a caller holding
+// structs — a config search producing deployment variants never written to disk, a test, a
+// generator — does not have to serialize them first. Open is the path-based half of the
+// pair.
+//
+// New DOES validate them, at the field layer, which is the half of blis-schemas' two-layer
+// validation that is version-independent and always the author's to fix. See New.
 type Inputs struct {
 	Scenario *scenario.Scenario
 	// Deployment is the tunable configuration applied to the scenario: the pools that lay
@@ -50,6 +56,7 @@ type Inputs struct {
 // Construction is deliberately strict. A missing coefficient, an unresolvable condition or
 // a non-positive rate is an error rather than a default, because each would otherwise
 // produce a step time that looks plausible and is wrong by whatever the term contributes.
+// validateDocuments extends that strictness to the documents themselves.
 func New(in Inputs) (*Kernel, error) {
 	if in.Scenario == nil || in.Deployment == nil || in.Model == nil || in.Chip == nil {
 		return nil, fmt.Errorf(
@@ -62,6 +69,9 @@ func New(in Inputs) (*Kernel, error) {
 	if in.Rules == nil {
 		return nil, fmt.Errorf("a kernel needs engine rules for version %q",
 			in.Scenario.EngineVersion)
+	}
+	if err := validateDocuments(in); err != nil {
+		return nil, err
 	}
 	pool := in.Deployment.Pools[in.PoolIndex]
 
@@ -639,6 +649,49 @@ func dtypeFit(d model.DType, c hardware.Chip) (suffix string, peak float64) {
 		return "bf16", c.BF16Peak * 1e12
 	}
 	return "bf16", c.BF16Peak * 1e12
+}
+
+// validateDocuments runs blis-schemas' FIELD validation over the documents New was given.
+//
+// Why here rather than in Open: both constructors end in New, so putting it here means a
+// caller that assembles Inputs directly cannot skip it. Why at all: nothing in this
+// repository called any Validate() before, while Inputs' doc comment claimed the documents
+// "arrive already validated" — so a caller was promised a check that did not happen.
+// LoadModelGraph only deserializes. Strict decoding catches an unparseable file or a
+// misspelled key, not a cyclic layer graph, a self-edge, a duplicate layer-kind id or an
+// unrecognized emit condition; model.Graph.Validate holds 47 such checks and was called by
+// nothing.
+//
+// It also closes a gap the v0.2.0 document split opened. Before the split, Scenario carried
+// Pools, so one Validate covered the pool/cluster coupling. After it, those checks live in
+// deployment.ValidateAgainstCluster — that a deployment's pools fill the cluster its
+// scenario declares, that each local data-parallel width divides a node, that offload tiers
+// draw from the declared storage inventory — and blisschemas.Validate is what supplies the
+// cluster to them. Nothing ran it outside this repository's own fixture tests, so an
+// external caller could build a kernel for a deployment that does not fit its hardware.
+//
+// THE FIELD LAYER ONLY, and that boundary is deliberate. blis-schemas separates field
+// problems, which are version-independent and always the author's to fix, from
+// version-scoped RULE problems, where a finding may mean the document is right and the
+// engine version is wrong. Measured over the committed corpus: every one of the 687 bundles
+// and all 32 catalog model graphs pass the field layer, while the rules layer rejects 213 of
+// them — the 0.29.0 pack does not accept minimax_m3_mtp as a speculative method. Enforcing
+// rules here would refuse a quarter of the deployments this project scores against measured
+// data, for a reason that belongs in the catalog or the rules pack rather than in a
+// constructor.
+//
+// Warnings are not failures: Problems.OK ignores them by design, so an out-of-tree
+// quantization name reported as "not in-tree for 0.29.0" still builds.
+func validateDocuments(in Inputs) error {
+	rep := schemas.Validate(schemas.Bundle{
+		Scenario: in.Scenario, Deployment: in.Deployment, Model: in.Model,
+		Chip: in.Chip, Fabric: in.Fabric, Devices: in.Devices,
+		Coefficients: in.Coefficients,
+	})
+	if !rep.Field.OK() {
+		return fmt.Errorf("the documents do not validate:\n%w", rep.Field)
+	}
+	return nil
 }
 
 // servedDType resolves the format the linear layers are served in.

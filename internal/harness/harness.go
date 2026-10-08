@@ -13,81 +13,26 @@
 package harness
 
 import (
-	"fmt"
 	"path/filepath"
 
-	schemas "github.com/inference-sim/blis-schemas"
 	"github.com/inference-sim/blis-schemas/kernel"
-	"github.com/inference-sim/blis-schemas/rules"
-	"github.com/inference-sim/blis-schemas/spec/coefficient"
-	"github.com/inference-sim/blis-schemas/spec/hardware"
 
 	latencykernel "github.com/inference-sim/blis-latency-kernel"
 )
 
-// Repos locates the sibling repositories a scenario's names resolve against.
-//
-// A scenario names its model, hardware, fabric and coefficient sets without saying where they
-// live — it describes a deployment, not a filesystem — so a caller supplies the roots.
-type Repos struct {
-	Scenarios string // directory holding scenario files
-	Catalog   string // blis-catalog checkout
-	Registry  string // blis-registry checkout
-}
+// Repos is the root package's Repos. An alias rather than a second type, so that a
+// harness.Repos{...} literal and a latencykernel.Repos{...} literal are the same value and
+// no conversion is needed at the boundary.
+type Repos = latencykernel.Repos
 
-// Open resolves one scenario into a kernel.
+// Open forwards to the root package's Open, which is where this sequence now lives.
 //
-// Every artifact the scenario names is loaded through blis-schemas' own loaders, and the engine
-// rules come from that package's version registry rather than from a caller, so a scenario
-// pinned to an older release cannot silently get current behaviour.
+// It stayed here as a function rather than being deleted because every command in this
+// repository calls harness.Open, and the move was about making the sequence REACHABLE from
+// other modules rather than about relocating callers. Keeping the name means the promotion
+// is a visibility change and nothing else.
 func Open(scenario string, r Repos) (*latencykernel.Kernel, error) {
-	sc, dep, err := LoadBundle(filepath.Join(r.Scenarios, scenario))
-	if err != nil {
-		return nil, err
-	}
-	graph, err := schemas.LoadModelGraph(
-		filepath.Join(r.Catalog, "models", sc.Model, "graph.yaml"))
-	if err != nil {
-		return nil, fmt.Errorf("model %q: %w", sc.Model, err)
-	}
-	chip, err := schemas.LoadChip(
-		filepath.Join(r.Catalog, "hardware", sc.Cluster.Hardware+".yaml"))
-	if err != nil {
-		return nil, fmt.Errorf("hardware %q: %w", sc.Cluster.Hardware, err)
-	}
-	var fabric *hardware.Fabric
-	if sc.Cluster.Fabric != "" {
-		if fabric, err = schemas.LoadFabric(
-			filepath.Join(r.Catalog, "networks", sc.Cluster.Fabric+".yaml")); err != nil {
-			return nil, fmt.Errorf("fabric %q: %w", sc.Cluster.Fabric, err)
-		}
-	}
-	sets := make([]*coefficient.Set, 0, len(sc.Coefficients))
-	for _, name := range sc.Coefficients {
-		set, err := schemas.LoadCoefficientSet(
-			filepath.Join(r.Registry, "coefficients", name+".yaml"))
-		if err != nil {
-			return nil, fmt.Errorf("coefficient set %q: %w", name, err)
-		}
-		sets = append(sets, set)
-	}
-	devices, err := schemas.LoadStorageDevices(
-		filepath.Join(r.Catalog, "devices", "storage.yaml"))
-	if err != nil {
-		return nil, err
-	}
-	pack := rules.Lookup(sc.EngineVersion)
-	if pack == nil {
-		return nil, fmt.Errorf(
-			"no engine rules for version %q; known versions are %v. A layout cannot be "+
-				"resolved without them, and a nearby version would misprice whatever "+
-				"changed between the two", sc.EngineVersion, rules.Versions())
-	}
-	return latencykernel.New(latencykernel.Inputs{
-		Scenario: sc, Deployment: dep, PoolIndex: 0,
-		Model: graph, Chip: chip, Fabric: fabric,
-		Devices: devices, Coefficients: sets, Rules: pack,
-	})
+	return latencykernel.Open(scenario, r)
 }
 
 // DecodeThreshold is the scheduled-token count above which the kernel prices a request as

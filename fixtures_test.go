@@ -72,7 +72,7 @@ func fixturePaths(t *testing.T) []string {
 func TestEveryFixtureHoldsAScenarioAndItsDeployment(t *testing.T) {
 	for _, path := range fixturePaths(t) {
 		t.Run(path, func(t *testing.T) {
-			sc, dep, err := loadBundle(path)
+			sc, dep, err := LoadBundle(path)
 			if err != nil {
 				t.Fatalf("loading: %v", err)
 			}
@@ -148,7 +148,7 @@ func TestNoFixtureKeepsPoolsInItsScenarioHalf(t *testing.T) {
 func TestFixtureDeploymentsFitTheirClusters(t *testing.T) {
 	for _, path := range fixturePaths(t) {
 		t.Run(path, func(t *testing.T) {
-			sc, dep, err := loadBundle(path)
+			sc, dep, err := LoadBundle(path)
 			if err != nil {
 				t.Fatalf("loading: %v", err)
 			}
@@ -169,7 +169,7 @@ func TestFixtureDeploymentsFitTheirClusters(t *testing.T) {
 func TestFixturesValidateFieldByField(t *testing.T) {
 	for _, path := range fixturePaths(t) {
 		t.Run(path, func(t *testing.T) {
-			sc, dep, err := loadBundle(path)
+			sc, dep, err := LoadBundle(path)
 			if err != nil {
 				t.Fatalf("loading: %v", err)
 			}

@@ -1,21 +1,16 @@
 package latencykernel
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
-
-	"gopkg.in/yaml.v3"
 
 	"github.com/inference-sim/blis-latency-kernel/internal/artifacttest"
 
 	schemas "github.com/inference-sim/blis-schemas"
 	"github.com/inference-sim/blis-schemas/rules/v0_29"
 	"github.com/inference-sim/blis-schemas/spec/coefficient"
-	"github.com/inference-sim/blis-schemas/spec/deployment"
 	"github.com/inference-sim/blis-schemas/spec/hardware"
-	"github.com/inference-sim/blis-schemas/spec/scenario"
 )
 
 // The catalog and registry are pinned copies committed under testdata, so these tests
@@ -52,11 +47,11 @@ func envOr(key, fallback string) string {
 // so every test here skipped on "catalog unavailable" and 41 of them were passing by not
 // running — measured by `go test -v .` at 3cf1ef1: 41 top-level skips, 46 counting
 // subtests, 0 failures, suite reporting ok. artifacttest.RequireArtifact draws that line.
-func fixture(t testing.TB, scenario string) *Kernel {
+func fixtureInputs(t testing.TB, scenario string) Inputs {
 	t.Helper()
 	// The fixture itself is committed beside this test, so it is never merely absent:
 	// a failure to read one is a malformed fixture and always a real failure.
-	sc, dep, err := loadBundle(filepath.Join("testdata", scenario))
+	sc, dep, err := LoadBundle(filepath.Join("testdata", scenario))
 	if err != nil {
 		t.Fatalf("committed fixture %s: %v", scenario, err)
 	}
@@ -82,43 +77,23 @@ func fixture(t testing.TB, scenario string) *Kernel {
 	devicesPath := filepath.Join(catalogRoot, "devices", "storage.yaml")
 	devices, err := schemas.LoadStorageDevices(devicesPath)
 	artifacttest.RequireArtifact(t, catalogRoot, devicesPath, "catalog", err)
-	k, err := New(Inputs{
+	return Inputs{
 		Scenario: sc, Deployment: dep, PoolIndex: 0,
 		Model: graph, Chip: chip, Fabric: fabric,
 		Devices: devices, Coefficients: sets, Rules: v0_29.Pack(),
-	})
+	}
+}
+
+// fixture builds a kernel from the Inputs a committed scenario implies.
+//
+// Split from fixtureInputs so a test that needs to PERTURB one field before construction --
+// to watch New refuse a deployment that does not fit its cluster, say -- can take the
+// documents and assemble them itself, rather than reimplementing the loading.
+func fixture(t testing.TB, scenario string) *Kernel {
+	t.Helper()
+	k, err := New(fixtureInputs(t, scenario))
 	if err != nil {
 		t.Fatalf("New from committed artifacts: %v", err)
 	}
 	return k
-}
-
-// loadBundle reads a fixture's scenario and deployment, the two documents of one file.
-//
-// internal/harness has the same reader, but this package cannot call it: harness imports
-// this one, so a test here importing harness would close an import cycle. The duplication
-// is deliberate and small, and it keeps the direction of dependency right — a cost model
-// does not depend on a harness.
-func loadBundle(path string) (*scenario.Scenario, *deployment.Deployment, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return nil, nil, err
-	}
-	defer f.Close()
-
-	dec := yaml.NewDecoder(f)
-	dec.KnownFields(true)
-	var sc scenario.Scenario
-	if err := dec.Decode(&sc); err != nil {
-		return nil, nil, fmt.Errorf("decoding the scenario in %s: %w", path, err)
-	}
-	var dep deployment.Deployment
-	if err := dec.Decode(&dep); err != nil {
-		return nil, nil, fmt.Errorf("decoding the deployment in %s: %w", path, err)
-	}
-	if len(dep.Pools) == 0 {
-		return nil, nil, fmt.Errorf(
-			"the deployment in %s declares no pools: there is nothing to price", path)
-	}
-	return &sc, &dep, nil
 }
