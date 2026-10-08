@@ -24,8 +24,8 @@ import (
 )
 
 func main() {
-	catalog := flag.String("catalog", "/Users/sri/Documents/Projects/blis-catalog", "")
-	registry := flag.String("registry", "/Users/sri/Documents/Projects/blis-registry", "")
+	catalog := flag.String("catalog", harness.DefaultCatalog(), "")
+	registry := flag.String("registry", harness.DefaultRegistry(), "")
 	context := flag.Int("context", 1024, "context tokens per request")
 	flag.Parse()
 	if flag.NArg() != 1 {

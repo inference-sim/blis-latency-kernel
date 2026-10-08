@@ -60,9 +60,9 @@ var rows = []row{
 }
 
 func main() {
-	catalog := flag.String("catalog", "/Users/sri/Documents/Projects/blis-catalog",
+	catalog := flag.String("catalog", harness.DefaultCatalog(),
 		"blis-catalog checkout")
-	registry := flag.String("registry", "/Users/sri/Documents/Projects/blis-registry",
+	registry := flag.String("registry", harness.DefaultRegistry(),
 		"blis-registry checkout")
 	testdata := flag.String("testdata", "testdata/direct",
 		"scenario fixtures; the InferenceX vLLM deployments live under testdata/direct")

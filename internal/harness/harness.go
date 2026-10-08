@@ -41,7 +41,7 @@ type Repos struct {
 // rules come from that package's version registry rather than from a caller, so a scenario
 // pinned to an older release cannot silently get current behaviour.
 func Open(scenario string, r Repos) (*latencykernel.Kernel, error) {
-	sc, err := schemas.LoadScenario(filepath.Join(r.Scenarios, scenario))
+	sc, dep, err := LoadBundle(filepath.Join(r.Scenarios, scenario))
 	if err != nil {
 		return nil, err
 	}
@@ -51,15 +51,15 @@ func Open(scenario string, r Repos) (*latencykernel.Kernel, error) {
 		return nil, fmt.Errorf("model %q: %w", sc.Model, err)
 	}
 	chip, err := schemas.LoadChip(
-		filepath.Join(r.Catalog, "hardware", sc.Hardware+".yaml"))
+		filepath.Join(r.Catalog, "hardware", sc.Cluster.Hardware+".yaml"))
 	if err != nil {
-		return nil, fmt.Errorf("hardware %q: %w", sc.Hardware, err)
+		return nil, fmt.Errorf("hardware %q: %w", sc.Cluster.Hardware, err)
 	}
 	var fabric *hardware.Fabric
-	if sc.Fabric != "" {
+	if sc.Cluster.Fabric != "" {
 		if fabric, err = schemas.LoadFabric(
-			filepath.Join(r.Catalog, "networks", sc.Fabric+".yaml")); err != nil {
-			return nil, fmt.Errorf("fabric %q: %w", sc.Fabric, err)
+			filepath.Join(r.Catalog, "networks", sc.Cluster.Fabric+".yaml")); err != nil {
+			return nil, fmt.Errorf("fabric %q: %w", sc.Cluster.Fabric, err)
 		}
 	}
 	sets := make([]*coefficient.Set, 0, len(sc.Coefficients))
@@ -84,7 +84,8 @@ func Open(scenario string, r Repos) (*latencykernel.Kernel, error) {
 				"changed between the two", sc.EngineVersion, rules.Versions())
 	}
 	return latencykernel.New(latencykernel.Inputs{
-		Scenario: sc, PoolIndex: 0, Model: graph, Chip: chip, Fabric: fabric,
+		Scenario: sc, Deployment: dep, PoolIndex: 0,
+		Model: graph, Chip: chip, Fabric: fabric,
 		Devices: devices, Coefficients: sets, Rules: pack,
 	})
 }
@@ -121,18 +122,18 @@ func TimePerOutputToken(k *latencykernel.Kernel, b kernel.Batch) float64 {
 	return (k.StepTime(b).Overlap + k.OutputTokenOverhead()).Seconds()
 }
 
-// Replicas returns how many data-parallel engine instances a scenario runs.
+// Replicas returns how many data-parallel engine instances a deployment runs.
 //
 // A published metric summed across replicas divides by this to give a per-step figure. It is a
-// property of the scenario rather than of the kernel — the kernel prices one rank of one
+// property of the deployment rather than of the kernel — the kernel prices one rank of one
 // instance and has no reason to know how many instances a deployment runs — so it is read here
 // rather than added to the interface.
 func Replicas(scenario string, r Repos) (int, error) {
-	sc, err := schemas.LoadScenario(filepath.Join(r.Scenarios, scenario))
+	_, dep, err := LoadBundle(filepath.Join(r.Scenarios, scenario))
 	if err != nil {
 		return 0, err
 	}
-	if n := sc.Pools[0].Parallel.DP; n > 0 {
+	if n := dep.Pools[0].Parallel.DP; n > 0 {
 		return n, nil
 	}
 	return 1, nil

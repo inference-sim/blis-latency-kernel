@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/inference-sim/blis-latency-kernel/internal/artifacttest"
 	"github.com/inference-sim/blis-latency-kernel/internal/harness"
 )
 
@@ -16,9 +17,11 @@ import (
 
 func loadCorpus(t *testing.T) corpus {
 	t.Helper()
-	raw, err := os.ReadFile("../../testdata/measurements/aisimulate_e2e.json")
+	const corpusPath = "../../testdata/measurements/aisimulate_e2e.json"
+	raw, err := os.ReadFile(corpusPath)
 	if err != nil {
-		t.Skipf("corpus unavailable: %v", err)
+		// Committed beside this test, so it is never merely absent.
+		t.Fatalf("committed corpus %s: %v", corpusPath, err)
 	}
 	var c corpus
 	if err := json.Unmarshal(raw, &c); err != nil {
@@ -95,12 +98,11 @@ func TestThePredictionCarriesNoAbsoluteScale(t *testing.T) {
 	for _, s := range c.Sweeps {
 		k, err := harness.Open(s.Scenario, harness.Repos{
 			Scenarios: scenarioRoot,
-			Catalog:   "/Users/sri/Documents/Projects/blis-catalog",
-			Registry:  "/Users/sri/Documents/Projects/blis-registry",
+			Catalog:   harness.DefaultCatalog(),
+			Registry:  harness.DefaultRegistry(),
 		})
-		if err != nil {
-			t.Skipf("catalog or registry unavailable: %v", err)
-		}
+		artifacttest.RequireArtifact(t, harness.DefaultCatalog(),
+			harness.DefaultCatalog(), "catalog", err)
 		ctx := contextTokens(s)
 		anchor := stepSeconds(k, s.Points[0].Concurrency, ctx)
 		got := stepSeconds(k, s.Points[0].Concurrency, ctx) / anchor
@@ -203,11 +205,10 @@ func scoreSweeps(t *testing.T) (mine, theirs []float64, c corpus) {
 	//
 	// A test runs with the package directory as its working directory, so the scenario root
 	// is two levels up. Passing it explicitly is what keeps this from skipping silently.
-	mine, theirs, err := score(c, scenarioRoot, "/Users/sri/Documents/Projects/blis-catalog",
-		"/Users/sri/Documents/Projects/blis-registry", false)
-	if err != nil {
-		t.Skipf("catalog or registry unavailable: %v", err)
-	}
+	mine, theirs, err := score(c, scenarioRoot, harness.DefaultCatalog(),
+		harness.DefaultRegistry(), false)
+	artifacttest.RequireArtifact(t, harness.DefaultCatalog(),
+		harness.DefaultCatalog(), "catalog", err)
 	return mine, theirs, c
 }
 
@@ -264,8 +265,8 @@ func TestTheAnchorPointScoresExactlyZero(t *testing.T) {
 	for _, s := range c.Sweeps {
 		k, err := harness.Open(s.Scenario, harness.Repos{
 			Scenarios: scenarioRoot,
-			Catalog:   "/Users/sri/Documents/Projects/blis-catalog",
-			Registry:  "/Users/sri/Documents/Projects/blis-registry",
+			Catalog:   harness.DefaultCatalog(),
+			Registry:  harness.DefaultRegistry(),
 		})
 		if err != nil {
 			t.Skipf("catalog or registry unavailable: %v", err)
@@ -290,8 +291,8 @@ func TestThePerTokenHostCostReachesThePrediction(t *testing.T) {
 	s := c.Sweeps[0]
 	k, err := harness.Open(s.Scenario, harness.Repos{
 		Scenarios: scenarioRoot,
-		Catalog:   "/Users/sri/Documents/Projects/blis-catalog",
-		Registry:  "/Users/sri/Documents/Projects/blis-registry",
+		Catalog:   harness.DefaultCatalog(),
+		Registry:  harness.DefaultRegistry(),
 	})
 	if err != nil {
 		t.Skipf("catalog or registry unavailable: %v", err)

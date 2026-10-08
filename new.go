@@ -2,11 +2,14 @@ package latencykernel
 
 import (
 	"fmt"
+	"sort"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/inference-sim/blis-schemas/kernel"
 	"github.com/inference-sim/blis-schemas/spec/coefficient"
+	"github.com/inference-sim/blis-schemas/spec/deployment"
 	"github.com/inference-sim/blis-schemas/spec/hardware"
 	"github.com/inference-sim/blis-schemas/spec/model"
 	"github.com/inference-sim/blis-schemas/spec/scenario"
@@ -21,6 +24,10 @@ import (
 // would either duplicate those rules or diverge from them.
 type Inputs struct {
 	Scenario *scenario.Scenario
+	// Deployment is the tunable configuration applied to the scenario: the pools that lay
+	// the model out. It is a separate document because a scenario fixes the immutable
+	// problem and an optimizer sweeps deployments against it.
+	Deployment *deployment.Deployment
 	// PoolIndex selects which pool of a disaggregated deployment this kernel prices. Each
 	// pool runs its own engine with its own settings, so one kernel per pool.
 	PoolIndex    int
@@ -44,18 +51,19 @@ type Inputs struct {
 // a non-positive rate is an error rather than a default, because each would otherwise
 // produce a step time that looks plausible and is wrong by whatever the term contributes.
 func New(in Inputs) (*Kernel, error) {
-	if in.Scenario == nil || in.Model == nil || in.Chip == nil {
-		return nil, fmt.Errorf("a kernel needs a scenario, a model graph and a chip")
+	if in.Scenario == nil || in.Deployment == nil || in.Model == nil || in.Chip == nil {
+		return nil, fmt.Errorf(
+			"a kernel needs a scenario, a deployment, a model graph and a chip")
 	}
-	if in.PoolIndex < 0 || in.PoolIndex >= len(in.Scenario.Pools) {
-		return nil, fmt.Errorf("pool index %d is outside the scenario's %d pool(s)",
-			in.PoolIndex, len(in.Scenario.Pools))
+	if in.PoolIndex < 0 || in.PoolIndex >= len(in.Deployment.Pools) {
+		return nil, fmt.Errorf("pool index %d is outside the deployment's %d pool(s)",
+			in.PoolIndex, len(in.Deployment.Pools))
 	}
 	if in.Rules == nil {
 		return nil, fmt.Errorf("a kernel needs engine rules for version %q",
 			in.Scenario.EngineVersion)
 	}
-	pool := in.Scenario.Pools[in.PoolIndex]
+	pool := in.Deployment.Pools[in.PoolIndex]
 
 	fab := resolve.Fabric{IntraNodeBwGBps: in.Chip.IntraNodeBwGBps}
 	if in.Fabric != nil {
@@ -444,26 +452,58 @@ func communicatorWidth(c *resolve.Coefficients, width int) int {
 	return best
 }
 
-// candidateRankWidths are the group widths any AISimulate comm sweep in this project
-// has ever carried. It is a search space, not a claim about any one part: which of
-// these a given chip was measured at is read from the registry, per operation and
-// dtype, by measuredWidths below.
+// candidateRankWidths are the group widths any AISimulate comm sweep in this project has
+// ever carried. It is the SEARCH SPACE groupWidth discriminates against — the widths for
+// which "some part was swept here, so fit it for yours" is a fair demand — and nothing
+// else. Which widths a given part actually carries is read from the registry by
+// measuredWidths, so this list does not gate what can be used; a sweep at a width absent
+// from it is still found and still priced.
+//
+// It is a constant because it encodes a claim about the DATA LANDSCAPE rather than about
+// any registry state: 2, 4, 8 and 16 are the widths NVIDIA's comm sweeps cover across the
+// SKUs this project reads. Extend it when a sweep at a new width appears upstream, which
+// turns "past all available data, clamp" into "this part has a gap, fit it" for that
+// width. Leaving it stale is the safe direction — a wider group clamps with the
+// approximation visible in provenance rather than erroring.
 var candidateRankWidths = []int{2, 4, 8, 16}
 
 // measuredWidths returns the widths this chip carries a complete coefficient triple
 // for, ascending. Completeness matters: liftCollectiveFloors needs floor, peak rate
 // AND transition rate, and a width holding only some of the three cannot price a
 // collective, so it is not a measured width for this purpose.
+//
+// Discovered from the coefficient names the registry actually carries, rather than probed
+// against a list of widths this file knows about. The difference matters the moment the
+// registry grows: a sweep at a width no constant here mentions would otherwise be
+// invisible — present in the registry, never looked for, and the deployment that needs it
+// priced by clamping to a narrower figure or refused outright. Reading the names means a
+// width becomes usable by being committed upstream, with no change here.
 func measuredWidths(c *resolve.Coefficients, measured, dtype, chip string) []int {
+	// collective_floor_<op>_<dtype>_<N>rank_<chip>
+	prefix := "collective_floor_" + measured + "_" + dtype + "_"
+	suffix := "rank_" + chip
+
 	var out []int
-	for _, w := range candidateRankWidths {
+	for _, name := range c.Names() {
+		digits, ok := strings.CutPrefix(name, prefix)
+		if !ok {
+			continue
+		}
+		digits, ok = strings.CutSuffix(digits, suffix)
+		if !ok {
+			continue
+		}
+		w, err := strconv.Atoi(digits)
+		if err != nil || w < 1 {
+			continue
+		}
 		stem := fmt.Sprintf("%s_%s_%drank_%s", measured, dtype, w, chip)
-		if c.Has("collective_floor_"+stem) &&
-			c.Has("collective_peak_rate_"+stem) &&
+		if c.Has("collective_peak_rate_"+stem) &&
 			c.Has("collective_transition_rate_"+stem) {
 			out = append(out, w)
 		}
 	}
+	sort.Ints(out)
 	return out
 }
 

@@ -87,8 +87,8 @@ type resolved struct {
 }
 
 func main() {
-	catalog := flag.String("catalog", "/Users/sri/Documents/Projects/blis-catalog", "")
-	registry := flag.String("registry", "/Users/sri/Documents/Projects/blis-registry", "")
+	catalog := flag.String("catalog", harness.DefaultCatalog(), "")
+	registry := flag.String("registry", harness.DefaultRegistry(), "")
 	data := flag.String("data", "testdata/measurements/scoreable.json", "")
 	verbose := flag.Bool("verbose", false, "print every point, not only a summary")
 	flag.Parse()

@@ -19,9 +19,9 @@ import (
 	"time"
 
 	"github.com/inference-sim/blis-schemas/kernel"
+	"github.com/inference-sim/blis-schemas/spec/deployment"
 	"github.com/inference-sim/blis-schemas/spec/hardware"
 	"github.com/inference-sim/blis-schemas/spec/model"
-	"github.com/inference-sim/blis-schemas/spec/scenario"
 
 	"github.com/inference-sim/blis-latency-kernel/internal/price"
 	"github.com/inference-sim/blis-latency-kernel/internal/resolve"
@@ -33,7 +33,7 @@ type Kernel struct {
 	layout resolve.Layout
 	fabric resolve.Fabric
 	plan   *price.Plan
-	pool   scenario.Pool
+	pool   deployment.Pool
 	chip   hardware.Chip
 
 	// servedDType is the weight format the linear layers actually run in, after the
@@ -244,9 +244,9 @@ func (k *Kernel) stepTime(b kernel.Batch,
 		}
 		per[kernel.ResourceHost] = host
 		return kernel.StepEstimate{
-			// Both edges are the host cost on an empty step, so Expected is too: there is
-			// no device work for them to disagree about.
-			Overlap: host, NoOverlap: host, Expected: host,
+			// Both edges are the host cost on an empty step: there is no device work for
+			// them to disagree about.
+			Overlap: host, NoOverlap: host,
 			Bottleneck:  kernel.ResourceHost,
 			PerResource: per,
 		}
@@ -725,23 +725,28 @@ func (k *Kernel) stepTime(b kernel.Batch,
 		// report a band the wrong way round.
 		overlap = noOverlap
 	}
+	// Which edge to believe, for a caller that wants one number: NoOverlap, on measured
+	// evidence rather than preference. Over 219 points of NVIDIA's FPM whole-forward
+	// dataset -- two models, two parts, five parallelism topologies -- Overlap's SIGNED
+	// error is -13.45% against NoOverlap's -3.44%, and NoOverlap is closer on 158 of them.
+	// A one-sided error of that size is a missing term rather than scatter, and it matches
+	// the -13.10% deficit this kernel shows end to end on an independent serving corpus.
+	// The physical reason is PIECEWISE cudagraph mode: attention runs eagerly between
+	// captured segments, so per-layer overlap is structurally limited.
+	//
+	// A concentration-aware choice would refine this -- where one resource holds most of a
+	// step, per-stage max IS right, and the single dissenting cell in that evidence is a
+	// whole model on two GPUs. Five cells is enough to reject the optimistic edge as a
+	// universal default and not enough to fit a blend.
+	//
+	// schemas v0.2.0 removed StepEstimate.Expected, so the kernel no longer names an edge
+	// in the estimate and this paragraph is the only place the choice is recorded. It is
+	// kept because it is measured rather than rederivable: a caller holding only Overlap
+	// and NoOverlap cannot tell which the evidence favours, and the band is wide enough
+	// that guessing picks a different number. A caller that wants one figure should read
+	// NoOverlap.
 	return kernel.StepEstimate{
 		Overlap: overlap, NoOverlap: noOverlap,
-		// Expected is NoOverlap on measured evidence, not preference. Over 219 points of
-		// NVIDIA's FPM whole-forward dataset -- two models, two parts, five parallelism
-		// topologies -- Overlap's SIGNED error is -13.45% against NoOverlap's -3.44%, and
-		// NoOverlap is closer on 158 of them. A one-sided error of that size is a missing
-		// term rather than scatter, and it matches the -13.10% deficit this kernel shows
-		// end to end on an independent serving corpus. The physical reason is PIECEWISE
-		// cudagraph mode: attention runs eagerly between captured segments, so per-layer
-		// overlap is structurally limited.
-		//
-		// A concentration-aware choice belongs here eventually -- where one resource holds
-		// most of a step, per-stage max IS right, and the single dissenting cell in that
-		// evidence is a whole model on two GPUs. Five cells is enough to reject the
-		// optimistic edge as a universal default and not enough to fit a blend, so this
-		// stays a constant until there is more.
-		Expected:   noOverlap,
 		Bottleneck: bottleneck, PerResource: per,
 	}
 }

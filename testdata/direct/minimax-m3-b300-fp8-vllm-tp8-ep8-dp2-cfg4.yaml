@@ -18,13 +18,16 @@ name: minimax-m3-b300-fp8-vllm-tp8-ep8-dp2-cfg4
 engine_version: "0.29.0"
 
 model: minimax-m3
-hardware: b300
-fabric: ib-400g
 coefficients: [cost-model-primitives, cost-model-collectives, cost-model-host-overheads, cost-model-attention, cost-model-recurrent]
 
 cluster:
+  hardware: b300
+  fabric: ib-400g
   nodes: 2
   gpus_per_node: 8
+---
+kind: Deployment
+name: minimax-m3-b300-fp8-vllm-tp8-ep8-dp2-cfg4
 
 pools:
   - role: colocated

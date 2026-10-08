@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/inference-sim/blis-latency-kernel/internal/artifacttest"
 	schemas "github.com/inference-sim/blis-schemas"
 	"github.com/inference-sim/blis-schemas/spec/coefficient"
 	"github.com/inference-sim/blis-schemas/spec/hardware"
@@ -212,11 +213,9 @@ func TestRackScalePartAtEightRanksRefusesAgainstCommittedRegistry(t *testing.T) 
 	names := []string{"cost-model-primitives", "cost-model-collectives"}
 	var sets []*coefficient.Set
 	for _, n := range names {
-		s, err := schemas.LoadCoefficientSet(
-			filepath.Join(registryRoot, "coefficients", n+".yaml"))
-		if err != nil {
-			t.Skipf("registry unavailable: %v", err)
-		}
+		path := filepath.Join(registryRoot, "coefficients", n+".yaml")
+		s, err := schemas.LoadCoefficientSet(path)
+		artifacttest.RequireArtifact(t, registryRoot, path, "registry", err)
 		sets = append(sets, s)
 	}
 	c, err := resolve.Load(sets, resolve.Scope{Hardware: "gb200-nvl72"})

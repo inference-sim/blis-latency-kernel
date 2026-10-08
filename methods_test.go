@@ -19,7 +19,7 @@ import (
 // --- Memory occupancy ---------------------------------------------------------
 
 func TestFixedBytesAccountsForTheWholeModelAcrossRanks(t *testing.T) {
-	k := fixture(t, "minimax-m25-h200-ep16.yaml")
+	k := fixture(t, "minimax-m25-h200-ep8.yaml")
 	fixed := k.FixedBytes()
 	if fixed.Weights <= 0 {
 		t.Fatalf("no weight bytes reported")
@@ -42,8 +42,9 @@ func TestFixedBytesAccountsForTheWholeModelAcrossRanks(t *testing.T) {
 }
 
 func TestWiderExpertParallelismHoldsFewerWeightsPerRank(t *testing.T) {
-	narrow := fixture(t, "minimax-m25-h200-ep16.yaml").FixedBytes()
-	wide := fixture(t, "minimax-m25-h200-ep72.yaml").FixedBytes()
+	narrowK := fixture(t, "minimax-m25-h200-ep8.yaml")
+	wideK := fixture(t, "minimax-m25-h200-ep72.yaml")
+	narrow, wide := narrowK.FixedBytes(), wideK.FixedBytes()
 	if wide.Weights >= narrow.Weights {
 		t.Errorf("EP=72 holds %d bytes per rank against EP=16's %d; widening the "+
 			"expert group must shrink the shard", wide.Weights, narrow.Weights)
@@ -54,12 +55,53 @@ func TestWiderExpertParallelismHoldsFewerWeightsPerRank(t *testing.T) {
 	// that checked the direction alone would pass while the expert term was not sharded
 	// at all, because the dense terms differ between these two scenarios anyway — which
 	// is exactly what a mutation of the sharding term proved.
+	// The bound is DERIVED from the two layouts rather than written as a literal, so a
+	// refit of any coefficient, or a change to the expert count, moves the expectation
+	// with the model instead of breaking the test. A hardcoded range here would be
+	// asserting what the catalog contains today; what the kernel owes is that the ratio
+	// tracks the local expert shards.
+	//
+	// Bracketed by the two shard ratios the layouts themselves imply, rather than by a
+	// literal range. An expert count that does not divide the width leaves some ranks
+	// holding one more than the rest, so "experts per rank" is not a single number: the
+	// floor and the busiest rank differ, and a per-rank byte figure sits between them.
+	// Deriving both ends means a refit, a change to the expert count, or added EPLB
+	// redundancy moves the expectation with the model instead of breaking the test.
+	loNarrow, hiNarrow := expertShardBounds(t, narrowK)
+	loWide, hiWide := expertShardBounds(t, wideK)
+	// Widest and narrowest ratios consistent with those brackets.
+	lo := float64(loNarrow) / float64(hiWide)
+	hi := float64(hiNarrow) / float64(loWide)
+
 	ratio := float64(narrow.Weights) / float64(wide.Weights)
-	if ratio < 4.0 || ratio > 4.7 {
-		t.Errorf("EP=16 holds %.2fx the weights of EP=72; with 14 local experts "+
-			"against 3 and a model that is 99%% expert parameters, the ratio should sit "+
-			"just under 14/3", ratio)
+	if ratio < lo || ratio > hi {
+		t.Errorf("EP=%d holds %.2fx the weights of EP=%d, outside the %.2fx-%.2fx the "+
+			"expert shards imply (%d-%d experts against %d-%d). For a model that is "+
+			"almost all expert parameters the weights ratio tracks the shard ratio, so a "+
+			"figure outside this means the expert term is not sharded by EP",
+			narrowK.layout.ExpertWidth, ratio, wideK.layout.ExpertWidth, lo, hi,
+			loNarrow, hiNarrow, loWide, hiWide)
 	}
+}
+
+// expertShardBounds returns how many experts the least- and most-loaded ranks hold.
+//
+// Read from the resolved layout and the model's own expert count rather than restated as
+// numbers, so it follows a catalog change instead of contradicting one. The two differ
+// whenever the count does not divide the expert-parallel width -- 256 experts over 72 ranks
+// is 3 on most and 4 on forty of them -- which is why a byte figure brackets rather than
+// equals a single shard.
+func expertShardBounds(t *testing.T, k *Kernel) (lo, hi int) {
+	t.Helper()
+	if k.totalExperts <= 0 {
+		t.Fatal("no experts resolved; this fixture cannot test expert sharding")
+	}
+	base, withExtra, _, _ := price.ExpertsPerRank(k.totalExperts, k.layout.ExpertWidth)
+	if base == 0 {
+		t.Fatalf("EP=%d exceeds the %d experts, so some ranks hold none",
+			k.layout.ExpertWidth, k.totalExperts)
+	}
+	return base, withExtra
 }
 
 // Without expert parallelism every rank holds every expert as a TENSOR SLICE, so a rank's
@@ -118,7 +160,7 @@ func TestExpertWeightsAreTensorSlicedWithoutExpertParallelism(t *testing.T) {
 // read once per step -- so they must divide them the same way. A fix applied to one and not
 // the other would leave the two disagreeing, which is how the defect above arose.
 func TestMemoryAndStepTimeAgreeOnExpertSharding(t *testing.T) {
-	for _, f := range []string{"glm5-h200-tp8.yaml", "minimax-m25-h200-ep16.yaml"} {
+	for _, f := range []string{"glm5-h200-tp8.yaml", "minimax-m25-h200-ep8.yaml"} {
 		k := fixture(t, f)
 		shards := k.expertTensorShards
 		want := 1.0
@@ -137,7 +179,7 @@ func TestExpertWeightsScaleWithTheLocalExpertCount(t *testing.T) {
 	// The single most load-bearing memory term: it sets both occupancy and the decode
 	// step's HBM traffic. Checked against the model's own arithmetic rather than a
 	// recorded byte count, so a coefficient change does not fail it.
-	k := fixture(t, "minimax-m25-h200-ep16.yaml")
+	k := fixture(t, "minimax-m25-h200-ep8.yaml")
 	weights := float64(k.FixedBytes().Weights)
 	// One expert of the fixture model: gate and up fused into n=1536 plus down, over a
 	// hidden size of 3072, at one byte per fp8 parameter.
@@ -150,7 +192,7 @@ func TestExpertWeightsScaleWithTheLocalExpertCount(t *testing.T) {
 }
 
 func TestSequenceVariableBytesGrowsWithContextAndQuantizesToPages(t *testing.T) {
-	k := fixture(t, "minimax-m25-h200-ep16.yaml")
+	k := fixture(t, "minimax-m25-h200-ep8.yaml")
 	if k.SequenceVariableBytes(0) != 0 {
 		t.Error("a sequence with no tokens occupies no KV")
 	}
@@ -177,7 +219,7 @@ func TestSequenceVariableBytesGrowsWithContextAndQuantizesToPages(t *testing.T) 
 func TestSequenceFixedBytesIsZeroForAPureAttentionModel(t *testing.T) {
 	// The fixture is MoE but not hybrid: it carries no recurrent state, so there is no
 	// per-sequence occupancy independent of context length.
-	k := fixture(t, "minimax-m25-h200-ep16.yaml")
+	k := fixture(t, "minimax-m25-h200-ep8.yaml")
 	if got := k.SequenceFixedBytes(); got != 0 {
 		t.Errorf("a pure-attention model reported %d bytes of recurrent state", got)
 	}
@@ -186,7 +228,7 @@ func TestSequenceFixedBytesIsZeroForAPureAttentionModel(t *testing.T) {
 // --- Step time ----------------------------------------------------------------
 
 func TestStepTimeIsZeroWorkForAnEmptyBatchButNotFree(t *testing.T) {
-	k := fixture(t, "minimax-m25-h200-ep16.yaml")
+	k := fixture(t, "minimax-m25-h200-ep8.yaml")
 	e := k.StepTime(kernel.Batch{})
 	if e.Overlap <= 0 {
 		t.Error("an empty step still costs the host its per-step work")
@@ -197,7 +239,7 @@ func TestStepTimeIsZeroWorkForAnEmptyBatchButNotFree(t *testing.T) {
 }
 
 func TestStepTimeGrowsWithTokensAndWithContext(t *testing.T) {
-	k := fixture(t, "minimax-m25-h200-ep16.yaml")
+	k := fixture(t, "minimax-m25-h200-ep8.yaml")
 	// Compared on the HBM term rather than on Overlap. At small batch every collective
 	// is floor-bound and the floors dominate the step, so Overlap is flat in context
 	// there — which is correct behaviour, not a defect, and asserting on Overlap would
@@ -228,7 +270,7 @@ func TestStepTimeGrowsWithTokensAndWithContext(t *testing.T) {
 func TestOverlapNeverExceedsNoOverlap(t *testing.T) {
 	// The two bracket the estimate: the max over resources cannot exceed their sum.
 	// Property-checked over a spread of shapes rather than asserted on one.
-	k := fixture(t, "minimax-m25-h200-ep16.yaml")
+	k := fixture(t, "minimax-m25-h200-ep8.yaml")
 	for _, b := range []kernel.Batch{
 		{}, decodeBatch(1, 1, 1), decodeBatch(1, 2048, 2048),
 		decodeBatch(256, 2, 8192), decodeBatch(4, 2048, 32768),
@@ -260,7 +302,7 @@ func TestOverlapNeverExceedsNoOverlap(t *testing.T) {
 func TestStepTimeIsPureAndSafeUnderConcurrency(t *testing.T) {
 	// Purity is the interface's central claim: it is what lets a simulator call this at
 	// any simulated instant from any goroutine. Repeated calls must agree exactly.
-	k := fixture(t, "minimax-m25-h200-ep16.yaml")
+	k := fixture(t, "minimax-m25-h200-ep8.yaml")
 	b := decodeBatch(37, 2, 4096)
 	want := k.StepTime(b)
 	results := make(chan time.Duration, 64)
@@ -276,7 +318,7 @@ func TestStepTimeIsPureAndSafeUnderConcurrency(t *testing.T) {
 }
 
 func TestFewerSMsCostMoreOnlyWhenComputeBinds(t *testing.T) {
-	k := fixture(t, "minimax-m25-h200-ep16.yaml")
+	k := fixture(t, "minimax-m25-h200-ep8.yaml")
 	// A decode step here is HBM-bound, so withholding the 12 SMs an offload fetch takes must
 	// be almost entirely absorbed — that is the max-over-resources rule doing its work.
 	//
@@ -317,7 +359,7 @@ func TestFewerSMsCostMoreOnlyWhenComputeBinds(t *testing.T) {
 // --- Offload tiers ------------------------------------------------------------
 
 func TestTierTimeOrdersTiersBySpeedAndDirection(t *testing.T) {
-	k := fixture(t, "minimax-m25-h200-ep16.yaml")
+	k := fixture(t, "minimax-m25-h200-ep8.yaml")
 	const bytes = 64 << 20
 	dram := k.TierTime("cpu_dram", kernel.DirectionFromTier, bytes, 1)
 	nvme := k.TierTime("nvme_gen4", kernel.DirectionFromTier, bytes, 1)
@@ -334,7 +376,7 @@ func TestTierTimeOrdersTiersBySpeedAndDirection(t *testing.T) {
 }
 
 func TestTierTimeChargesForConcurrencyAndForSize(t *testing.T) {
-	k := fixture(t, "minimax-m25-h200-ep16.yaml")
+	k := fixture(t, "minimax-m25-h200-ep8.yaml")
 	one := k.TierTime("nvme_gen4", kernel.DirectionFromTier, 64<<20, 1)
 	eight := k.TierTime("nvme_gen4", kernel.DirectionFromTier, 64<<20, 8)
 	if eight <= one {
@@ -351,7 +393,7 @@ func TestTierTimeChargesForConcurrencyAndForSize(t *testing.T) {
 func TestAnUnknownTierIsNotAFreeTransfer(t *testing.T) {
 	// Returning zero would make an unmodelled tier look costless, which is the opposite
 	// of what not knowing means.
-	k := fixture(t, "minimax-m25-h200-ep16.yaml")
+	k := fixture(t, "minimax-m25-h200-ep8.yaml")
 	got := k.TierTime("tier-that-does-not-exist", kernel.DirectionFromTier, 1<<20, 1)
 	known := k.TierTime("s3", kernel.DirectionFromTier, 1<<20, 1)
 	if got <= known {
@@ -363,7 +405,10 @@ func TestAnUnknownTierIsNotAFreeTransfer(t *testing.T) {
 // --- PD transfer --------------------------------------------------------------
 
 func TestPDTransferGrowsWithTokensAndCostsMoreAcrossNodes(t *testing.T) {
-	k := fixture(t, "minimax-m25-h200-ep16.yaml")
+	// ep72 rather than the EP=8 fixture: this compares an on-node transfer against a
+	// cross-node one, so it needs a deployment that declares a fabric. The single-node
+	// EP=8 fixture has none, and with no inter-node rate the two placements price alike.
+	k := fixture(t, "minimax-m25-h200-ep72.yaml")
 	onNode := kernel.Placement{Node: 0, Rack: 0}
 	sameNode := kernel.Placement{Node: 0, Rack: 0}
 	otherNode := kernel.Placement{Node: 1, Rack: 0}
@@ -386,7 +431,7 @@ func TestPDTransferGrowsWithTokensAndCostsMoreAcrossNodes(t *testing.T) {
 // --- Host overheads -----------------------------------------------------------
 
 func TestHostOverheadsScaleWithWhatTheyProcess(t *testing.T) {
-	k := fixture(t, "minimax-m25-h200-ep16.yaml")
+	k := fixture(t, "minimax-m25-h200-ep8.yaml")
 	if k.AdmissionOverhead(0) != 0 {
 		t.Error("admitting an empty prompt costs nothing")
 	}
@@ -417,7 +462,7 @@ func TestHostOverheadsScaleWithWhatTheyProcess(t *testing.T) {
 // --- Provenance and resolution ------------------------------------------------
 
 func TestProvenanceNamesEveryCoefficientAndItsEvidence(t *testing.T) {
-	k := fixture(t, "minimax-m25-h200-ep16.yaml")
+	k := fixture(t, "minimax-m25-h200-ep8.yaml")
 	origins := k.Provenance()
 	if len(origins) == 0 {
 		t.Fatal("no coefficients reported")
@@ -447,6 +492,7 @@ func TestProvenanceNamesEveryCoefficientAndItsEvidence(t *testing.T) {
 }
 
 func TestResolvedReportsWhatWillActuallyRun(t *testing.T) {
+	skipUntilSixteenRankAllToAllExists(t)
 	k := fixture(t, "minimax-m25-h200-ep16.yaml")
 	r := k.Resolved()
 	if r.ExpertParallelWidth != 16 {
@@ -469,8 +515,8 @@ func TestTwoKernelsFromOneScenarioAgreeEverywhere(t *testing.T) {
 	// §7's first sense of idempotence: equal inputs yield equivalent kernels. A kernel
 	// that resolved differently on a second construction would make a simulation depend
 	// on construction order.
-	a := fixture(t, "minimax-m25-h200-ep16.yaml")
-	b := fixture(t, "minimax-m25-h200-ep16.yaml")
+	a := fixture(t, "minimax-m25-h200-ep8.yaml")
+	b := fixture(t, "minimax-m25-h200-ep8.yaml")
 	for _, batch := range []kernel.Batch{
 		decodeBatch(1, 1, 128), decodeBatch(256, 2, 8192), decodeBatch(4, 2048, 2048),
 	} {
@@ -545,7 +591,7 @@ func hbmSeconds(k *Kernel, requests, tokens, context int) float64 {
 }
 
 func TestHBMTermMatchesTheModelsOwnArithmetic(t *testing.T) {
-	k := fixture(t, "minimax-m25-h200-ep16.yaml")
+	k := fixture(t, "minimax-m25-h200-ep8.yaml")
 	// Decode shapes only. A prefill request's attention is priced against compute, so its
 	// bytes are not in the HBM term at all — which this arithmetic does not model and
 	// should not pretend to.
@@ -568,7 +614,7 @@ func TestHBMTermMatchesTheModelsOwnArithmetic(t *testing.T) {
 func TestKVTermScalesWithTheShardedHeadCount(t *testing.T) {
 	// With 8 KV heads and TP=8 each rank holds one head, so the KV read is 1/8 of the
 	// unsharded figure. Dropping the divisor is a mutation that monotonicity cannot see.
-	k := fixture(t, "minimax-m25-h200-ep16.yaml")
+	k := fixture(t, "minimax-m25-h200-ep8.yaml")
 	const requests, context = 128, 8192
 	perToken := 2 * 1.0 * g5HeadDim * g5Layers // one KV head per rank, fp8 cache
 	want := float64(requests*context) * perToken
@@ -595,7 +641,7 @@ func TestRoutedComputeScalesWithTheLocalExpertShare(t *testing.T) {
 	// An earlier version of this test asserted SM must FALL by 1.2x to 4.67x across
 	// this pair, which encoded the localExpertShare half of that and omitted the
 	// funnel. It passed only while the funnel was missing from the model.
-	narrow := fixture(t, "minimax-m25-h200-ep16.yaml")
+	narrow := fixture(t, "minimax-m25-h200-ep8.yaml")
 	wide := fixture(t, "minimax-m25-h200-ep72.yaml")
 	batch := decodeBatch(256, 2, 8192)
 	sm16 := narrow.StepTime(batch).PerResource[kernel.ResourceSM].Seconds()
@@ -628,7 +674,7 @@ func TestAttentionTermScalesWithContextLength(t *testing.T) {
 	// because HBM dominates these batches.
 	// Attention is an HBM term now, not an SM one: it is priced by a measured floor and
 	// bandwidth rather than from FLOPs, so a context increase lands there.
-	k := fixture(t, "minimax-m25-h200-ep16.yaml")
+	k := fixture(t, "minimax-m25-h200-ep8.yaml")
 	short := k.StepTime(decodeBatch(64, 1, 2048)).PerResource[kernel.ResourceHBM]
 	long := k.StepTime(decodeBatch(64, 1, 32768)).PerResource[kernel.ResourceHBM]
 	if long <= short {
@@ -654,6 +700,7 @@ func TestCrossNodeCollectivesCostMoreThanOnNodeOnes(t *testing.T) {
 	// TP=8 the reductions stay on the node and pay none. Removing the span check entirely
 	// is a mutation that no ordering test catches, because the NIC term merely becomes
 	// the NVLink term.
+	skipUntilSixteenRankAllToAllExists(t)
 	k := fixture(t, "minimax-m25-h200-ep16.yaml")
 	e := k.StepTime(decodeBatch(256, 2, 8192))
 	nic := e.PerResource[kernel.ResourceNIC]
@@ -678,7 +725,7 @@ func TestCrossNodeCollectivesCostMoreThanOnNodeOnes(t *testing.T) {
 func TestHostTermIsChargedOnEveryStep(t *testing.T) {
 	// The host term is small against a decode step and it is not zero. A step that
 	// dropped it would report a NoOverlap below the sum of its parts.
-	k := fixture(t, "minimax-m25-h200-ep16.yaml")
+	k := fixture(t, "minimax-m25-h200-ep8.yaml")
 	e := k.StepTime(decodeBatch(32, 2, 8192))
 	host := e.PerResource[kernel.ResourceHost]
 	if host <= 0 {
@@ -704,7 +751,7 @@ func TestHostTermIsChargedOnEveryStep(t *testing.T) {
 func TestRoutingImbalanceIsApplied(t *testing.T) {
 	// EP=16 rather than EP=72: a rank holds 14 experts there against 3, so routed work
 	// is a far larger share of the compute term and a 5.6% factor on it is detectable.
-	k := fixture(t, "minimax-m25-h200-ep16.yaml")
+	k := fixture(t, "minimax-m25-h200-ep8.yaml")
 	// The multiplier is a MEDIAN ratio of skewed to balanced latency, so the band it must
 	// fall in is set by the measurement, not by an assumption that skew always costs
 	// extra. On vLLM's own expert kernels -- Triton, FlashInfer-Cutlass, Marlin -- mild
@@ -801,7 +848,7 @@ func TestRoutingImbalanceIsApplied(t *testing.T) {
 // accepts. So this prices one collective both ways from the resolved coefficients and
 // requires the step's collective term to match the three-parameter figure.
 func TestCollectivesUseTheTransitionRate(t *testing.T) {
-	k := fixture(t, "minimax-m25-h200-ep16.yaml")
+	k := fixture(t, "minimax-m25-h200-ep8.yaml")
 	if k.collectiveTransitions[model.OpAllReduce] <= 0 {
 		t.Fatal("no transition rate resolved for the tensor-parallel reduction")
 	}
@@ -845,7 +892,7 @@ func TestCollectivesUseTheTransitionRate(t *testing.T) {
 // A simulator choosing StepTimeInto for speed would otherwise be choosing different
 // numbers, and the choice would be invisible.
 func TestStepTimeIntoAgreesWithStepTime(t *testing.T) {
-	k := fixture(t, "minimax-m25-h200-ep16.yaml")
+	k := fixture(t, "minimax-m25-h200-ep8.yaml")
 	per := make(map[kernel.Resource]time.Duration, 8)
 	for _, b := range []kernel.Batch{
 		{}, decodeBatch(1, 1, 1), decodeBatch(1, 2048, 2048),
@@ -875,7 +922,7 @@ func TestStepTimeIntoAgreesWithStepTime(t *testing.T) {
 // And the reused map must be cleared, so a resource that fell out between steps does not
 // linger from the previous call.
 func TestStepTimeIntoClearsStaleResources(t *testing.T) {
-	k := fixture(t, "minimax-m25-h200-ep16.yaml")
+	k := fixture(t, "minimax-m25-h200-ep8.yaml")
 	per := make(map[kernel.Resource]time.Duration, 8)
 	k.StepTimeInto(decodeBatch(256, 2, 8192), per)
 	busy := len(per)
@@ -1255,7 +1302,7 @@ func TestAKindWithoutAFitFallsBackToThePartWideTerms(t *testing.T) {
 // and halving the SM budget moved it 1.2%, which a max-composed kernel also does through its
 // own SM term. The mutation reverting the sum to a max survived it.
 func TestTheRoutedExpertTermComposesAsASumNotAMax(t *testing.T) {
-	k := fixture(t, "minimax-m25-h200-ep16.yaml")
+	k := fixture(t, "minimax-m25-h200-ep8.yaml")
 	b := decodeBatch(32, 2, 8192)
 	e := k.StepTime(b)
 
@@ -1299,7 +1346,7 @@ func TestTheRoutedExpertTermComposesAsASumNotAMax(t *testing.T) {
 // and three existing tests caught it -- including one asserting routed compute falls as the
 // expert group widens.
 func TestTheRoutedHalvesAreChargedToTheirOwnResources(t *testing.T) {
-	narrow := fixture(t, "minimax-m25-h200-ep16.yaml")
+	narrow := fixture(t, "minimax-m25-h200-ep8.yaml")
 	wide := fixture(t, "minimax-m25-h200-ep72.yaml")
 	b := decodeBatch(32, 2, 8192)
 
