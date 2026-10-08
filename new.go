@@ -247,18 +247,39 @@ func (k *Kernel) lift(c *resolve.Coefficients, g *model.Graph, cacheBytes float6
 	// (deepseek-v4-pro, kimi-k3) appear in both the FPM dataset and the InferenceX corpus,
 	// so this is on the scored path rather than hypothetical.
 	//
-	// sparse_mla is deliberately NOT mapped. It narrows the latent read to a selected
-	// top-k, so its byte count is a different function of the request and the registry
-	// carries no fit for it; a sparse_mla layer keeps falling back to the full-attention
-	// term, which is wrong but is not made wrong by this change.
+	// sparse_mla is now mapped too, and its pair is asymmetric: the registry ships a
+	// RATE and deliberately no floor.
+	//
+	// The reason is recorded in blis-registry scripts/fit_attention_sparse_mla.py.
+	// Searching a sparse floor freely lands at 12.6-14.4us on every part -- a band that
+	// does not track the part-wide floors it would replace -- and pinning it to each
+	// part's own measured attention floor costs under 8% of fit. Adding the parameter
+	// would re-open the failure that `attention_decode_floor_mla` shipped with: a floor
+	// fitted from a MODULE table, charging projections the catalog already prices as
+	// separate GEMM nodes, which cost 2.45 points of end-to-end TPOT before
+	// correct_mla_floor.py undid it.
+	//
+	// So a kind may supply a rate alone and inherit the part-wide floor. What it may NOT
+	// do is supply a floor alone: a floor without its rate leaves the read uncharged,
+	// which is silently cheap rather than visibly wrong.
 	k.attentionByKind = map[model.AttentionKind]floorRate{}
 	for kind, suffix := range map[model.AttentionKind]string{
-		model.AttentionSWA: "swa",
-		model.AttentionMLA: "mla",
+		model.AttentionSWA:       "swa",
+		model.AttentionMLA:       "mla",
+		model.AttentionSparseMLA: "sparse_mla",
 	} {
 		floor := c.ValueOr("attention_decode_floor_"+suffix, 0)
 		rate := c.ValueOr("attention_decode_rate_"+suffix, 0)
-		if floor <= 0 || rate <= 0 {
+		if rate <= 0 {
+			continue
+		}
+		if floor <= 0 {
+			// Inherit the part-wide measured floor, which is what the sparse fit was
+			// conditioned on. Lifted after k.attentionFloor is set, so this is the same
+			// number the fitter pinned to.
+			k.attentionByKind[kind] = floorRate{
+				floor: k.attentionFloor, rate: rate * 1e6,
+			}
 			continue
 		}
 		k.attentionByKind[kind] = floorRate{

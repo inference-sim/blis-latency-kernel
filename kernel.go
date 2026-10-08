@@ -268,6 +268,12 @@ func (k *Kernel) stepTime(b kernel.Batch,
 	// own bounded pair count. causalFLOPs is the unwindowed total, which is what a
 	// full-attention layer pays.
 	var prefillChunks []chunk
+	// Each decode request's own context, kept for the same reason prefillChunks is: a
+	// sparse-MLA layer's read is bounded PER REQUEST (min(ctx, topk) plus a compressed
+	// remainder), and a bound cannot be applied to a batch-wide sum without changing the
+	// answer. min(sum) != sum(min) whenever any request sits on either side of the bound,
+	// which in a mixed batch is the normal case.
+	var decodeContexts []int
 	var prefillRequests, decodeRequests int
 	for i := range b.Reqs {
 		r := &b.Reqs[i]
@@ -298,6 +304,7 @@ func (k *Kernel) stepTime(b kernel.Batch,
 		}
 		decodeRequests++
 		decodeKVTokens += float64(ctx)
+		decodeContexts = append(decodeContexts, ctx)
 	}
 
 	smBudget := b.SMBudget
@@ -473,8 +480,16 @@ func (k *Kernel) stepTime(b kernel.Batch,
 				floor, rate = fr.floor, fr.rate
 			}
 			if decodeRequests > 0 && rate > 0 {
+				// A sparse layer does not read the whole context. Bounded per request,
+				// because min(sum) != sum(min): in a batch holding one request below the
+				// top-k and one far above it, bounding the batch-wide total gets both
+				// wrong.
+				tokens := decodeKVTokens
+				if sel := selectedKVTokens(l, decodeContexts); sel >= 0 {
+					tokens = sel
+				}
 				attnSeconds += floor.Seconds() +
-					decodeKVTokens*k.kvBytesPerToken/float64(k.plan.TotalLayers)/
+					tokens*k.kvBytesPerToken/float64(k.plan.TotalLayers)/
 						rate
 			} else if decodeRequests > 0 {
 				// No measured decode form for this part: the KV read is charged below and
@@ -865,6 +880,61 @@ func windowedCausalFLOPs(chunks []chunk, window int) float64 {
 		pairs += (s - nSmall) * w
 	}
 	return 2 * 2 * pairs
+}
+
+// selectedKVTokens is how many KV tokens a SPARSE layer's decode actually reads, summed
+// over the batch. It returns -1 for a layer that reads its whole context, so a caller can
+// tell "no bound" from "a bound that happens to equal the context".
+//
+// A sparse-MLA layer reads two tiers, which is what the measurement shows rather than
+// what the name suggests:
+//
+//	selected = min(ctx, topk) + max(0, ctx-topk)/ratio
+//
+// The first tier is the top-k the indexer picked, read at full resolution and FLAT in
+// context. The second is the remainder, present only where the architecture compresses it
+// instead of discarding it, and divided down by that ratio. Both are capped by the context,
+// since a 16-token context cannot yield 128 selected tokens -- which is why the measured
+// curve is flat at small context rather than constant.
+//
+// A layer selecting by a sliding WINDOW states a window and no top-k, in which case the
+// window is the selected count: that is how blis-catalog states DeepSeek-V4-Pro's
+// csa128_moe layer, against csa4_moe's `index_topk: 1024`.
+//
+// WHY THIS IS NOT OPTIONAL. Without it the only available count is the full context, which
+// overstates a 1M-token decode read on this architecture by 128x. Fitting a rate against
+// that reading forces it to 1.00 of datasheet peak -- physically impossible, and the clamp
+// is how the wrong byte count announces itself (blis-registry
+// scripts/fit_attention_sparse_mla.py reports 1.698x error clamped, against 1.301x
+// interior for the form above). Measured on h200, a batch-1 decode costs 9.8-13.7us flat
+// from a 0 to a 16,384-token context and only 30.6us at 1,048,575.
+//
+// Summed per request rather than over the batch total, because min(sum) != sum(min): a
+// batch holding one request below the top-k and one far above it gets both wrong if the
+// bound is applied to the aggregate.
+func selectedKVTokens(l *price.PlannedLayer, contexts []int) float64 {
+	if l.AttnKind != model.AttentionSparseMLA {
+		return -1
+	}
+	topk := l.AttnIndexTopK
+	if topk <= 0 {
+		topk = l.AttnWindow
+	}
+	if topk <= 0 {
+		// A sparse layer stating neither bound cannot be priced as sparse. blis-schemas
+		// rejects this, so reaching it means a graph bypassed validation; charging the
+		// full context is the conservative reading and keeps the old behaviour.
+		return -1
+	}
+	var total float64
+	for _, ctx := range contexts {
+		sel := math.Min(float64(ctx), float64(topk))
+		if l.AttnCompressRatio > 0 && ctx > topk {
+			sel += float64(ctx-topk) / float64(l.AttnCompressRatio)
+		}
+		total += sel
+	}
+	return total
 }
 
 // moeDPFunnel is how many replica groups' tokens reach one rank's experts.
