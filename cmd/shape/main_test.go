@@ -95,8 +95,8 @@ func TestThePredictionCarriesNoAbsoluteScale(t *testing.T) {
 	for _, s := range c.Sweeps {
 		k, err := harness.Open(s.Scenario, harness.Repos{
 			Scenarios: scenarioRoot,
-			Catalog:   "/Users/sri/Documents/Projects/blis-catalog",
-			Registry:  "/Users/sri/Documents/Projects/blis-registry",
+			Catalog:   harness.DefaultCatalog(),
+			Registry:  harness.DefaultRegistry(),
 		})
 		if err != nil {
 			t.Skipf("catalog or registry unavailable: %v", err)
@@ -203,8 +203,8 @@ func scoreSweeps(t *testing.T) (mine, theirs []float64, c corpus) {
 	//
 	// A test runs with the package directory as its working directory, so the scenario root
 	// is two levels up. Passing it explicitly is what keeps this from skipping silently.
-	mine, theirs, err := score(c, scenarioRoot, "/Users/sri/Documents/Projects/blis-catalog",
-		"/Users/sri/Documents/Projects/blis-registry", false)
+	mine, theirs, err := score(c, scenarioRoot, harness.DefaultCatalog(),
+		harness.DefaultRegistry(), false)
 	if err != nil {
 		t.Skipf("catalog or registry unavailable: %v", err)
 	}
@@ -264,8 +264,8 @@ func TestTheAnchorPointScoresExactlyZero(t *testing.T) {
 	for _, s := range c.Sweeps {
 		k, err := harness.Open(s.Scenario, harness.Repos{
 			Scenarios: scenarioRoot,
-			Catalog:   "/Users/sri/Documents/Projects/blis-catalog",
-			Registry:  "/Users/sri/Documents/Projects/blis-registry",
+			Catalog:   harness.DefaultCatalog(),
+			Registry:  harness.DefaultRegistry(),
 		})
 		if err != nil {
 			t.Skipf("catalog or registry unavailable: %v", err)
@@ -290,8 +290,8 @@ func TestThePerTokenHostCostReachesThePrediction(t *testing.T) {
 	s := c.Sweeps[0]
 	k, err := harness.Open(s.Scenario, harness.Repos{
 		Scenarios: scenarioRoot,
-		Catalog:   "/Users/sri/Documents/Projects/blis-catalog",
-		Registry:  "/Users/sri/Documents/Projects/blis-registry",
+		Catalog:   harness.DefaultCatalog(),
+		Registry:  harness.DefaultRegistry(),
 	})
 	if err != nil {
 		t.Skipf("catalog or registry unavailable: %v", err)

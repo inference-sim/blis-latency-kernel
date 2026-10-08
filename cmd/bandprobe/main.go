@@ -40,8 +40,8 @@ import (
 func main() {
 	scen := flag.String("scenario", "", "scenario file name")
 	td := flag.String("testdata", "testdata", "directory holding the scenario")
-	cat := flag.String("catalog", "/Users/sri/Documents/Projects/blis-catalog", "")
-	reg := flag.String("registry", "/Users/sri/Documents/Projects/blis-registry", "")
+	cat := flag.String("catalog", harness.DefaultCatalog(), "")
+	reg := flag.String("registry", harness.DefaultRegistry(), "")
 	flag.Parse()
 
 	k, err := harness.Open(*scen, harness.Repos{

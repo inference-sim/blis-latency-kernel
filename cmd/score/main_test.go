@@ -281,8 +281,8 @@ func scoreFixture(t *testing.T, scenario string) *latencykernel.Kernel {
 	t.Helper()
 	k, err := harness.Open(scenario, harness.Repos{
 		Scenarios: "../../testdata",
-		Catalog:   "/Users/sri/Documents/Projects/blis-catalog",
-		Registry:  "/Users/sri/Documents/Projects/blis-registry",
+		Catalog:   harness.DefaultCatalog(),
+		Registry:  harness.DefaultRegistry(),
 	})
 	if err != nil {
 		t.Skipf("catalog or registry unavailable: %v", err)
