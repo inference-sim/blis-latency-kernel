@@ -110,6 +110,21 @@ type PlannedLayer struct {
 	AttnKind                             model.AttentionKind
 	AttnWindow                           int
 
+	// AttnIndexTopK and AttnCompressRatio bound a sparse-MLA layer's KV read.
+	//
+	// They are carried because for this kind the byte count is NOT the context. The
+	// kernel reads min(context, topk) tokens at full resolution plus, where the
+	// architecture compresses the remainder rather than discarding it,
+	// (context - topk) / ratio more. A layer selecting by a sliding window states a
+	// window and no topk, in which case the window IS the selected count.
+	//
+	// Without these the only available byte count is the full context, which on
+	// DeepSeek-V4-Pro overstates a 1M-token decode read by 128x. Measured on h200, such a
+	// step costs 30.6us against 13.5us at 16K context; the full-context reading cannot
+	// produce that curve at any rate below datasheet peak.
+	AttnIndexTopK     int
+	AttnCompressRatio int
+
 	// Attentions is every attention kernel this layer launches, in graph order.
 	//
 	// A layer with one attention has one entry and the singular fields repeat it. The
@@ -382,6 +397,7 @@ func planNodes(nodes []model.Node, em Emitter, dtypeBytes, stateBytes float64,
 				pl.AttnQHeads, pl.AttnKVHeads, pl.AttnHeadDim =
 					n.NumQHeads, n.NumKVHeads, n.HeadDim
 				pl.AttnKind, pl.AttnWindow = n.AttentionKind, n.Window
+				pl.AttnIndexTopK, pl.AttnCompressRatio = n.IndexTopK, n.CompressRatio
 			}
 		case model.OpRecurrentUpdate:
 			pl.RecurrentKind = n.RecurrentKind
