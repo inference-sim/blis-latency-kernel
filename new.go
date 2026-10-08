@@ -417,6 +417,16 @@ func (k *Kernel) lift(c *resolve.Coefficients, g *model.Graph, cacheBytes float6
 	// head count floors at one because a head is never split across ranks.
 	nkv, headDim, layers := kvGeometry(g)
 	k.kvBytesPerToken = price.KVBytesPerToken(nkv, k.layout.TP, headDim, layers, cacheBytes)
+	// Whether EVERY KV-holding layer is a kind decode-context parallelism shards. A
+	// whole-model verdict, because kvBytesPerToken is a whole-model figure: see
+	// SequenceVariableBytes for what that costs and why it costs nothing real.
+	k.dcpShardsAllKVLayers = true
+	for _, l := range k.plan.Layers {
+		if l.AttnQHeads > 0 && !dcpShardsKV(l.AttnKind) {
+			k.dcpShardsAllKVLayers = false
+			break
+		}
+	}
 	k.blockSize = k.pool.Engine.BlockSize
 	if k.blockSize <= 0 {
 		k.blockSize = 16
