@@ -148,8 +148,44 @@ func TestIdentityAccessorsDescribeTheDeploymentPriced(t *testing.T) {
 		t.Errorf("ServedDType = %q, want %q", got, want)
 	}
 	// minimax-m2.5 is MoE at 256 experts; a dense model would report zero.
-	if got := k.Experts(); got <= 0 {
-		t.Errorf("Experts = %d for an MoE model", got)
+	if got, want := k.Experts(), 256; got != want {
+		t.Errorf("Experts = %d, want %d", got, want)
+	}
+	// top_k 8: the routing width the pricer used, not a re-read of the graph.
+	if got, want := k.ExpertsPerToken(), 8; got != want {
+		t.Errorf("ExpertsPerToken = %d, want %d", got, want)
+	}
+}
+
+// TestMoEGeometryAgreesWithThePlan is why these read the plan rather than the graph.
+//
+// A consumer needs "is this MoE, and how wide is the routing" -- vLLM sizes a
+// per-EngineCore KV budget differently for an MoE model. Taking it from the kernel means it
+// cannot disagree with what the pricer used; re-walking the graph is a second derivation
+// that can.
+//
+// Asserted against the plan the kernel actually priced from, so the test holds for any
+// model the catalog gains rather than pinning one model's numbers. Every committed fixture
+// here is MoE, so the dense case is stated as the contract (both zero together) rather than
+// exercised -- there is no dense fixture to exercise it with.
+func TestMoEGeometryAgreesWithThePlan(t *testing.T) {
+	k := fixture(t, "minimax-m25-h200-ep8.yaml")
+
+	var planTopK int
+	for _, l := range k.plan.Layers {
+		if l.TopK > planTopK {
+			planTopK = l.TopK
+		}
+	}
+	if got := k.ExpertsPerToken(); got != planTopK {
+		t.Errorf("ExpertsPerToken = %d but the plan the kernel priced from says %d",
+			got, planTopK)
+	}
+	// The two are zero together: a model with no routing has no experts to route to, and
+	// a consumer branching on either must get the same answer.
+	if (k.Experts() == 0) != (k.ExpertsPerToken() == 0) {
+		t.Errorf("Experts = %d and ExpertsPerToken = %d disagree on whether this model is "+
+			"MoE", k.Experts(), k.ExpertsPerToken())
 	}
 }
 
