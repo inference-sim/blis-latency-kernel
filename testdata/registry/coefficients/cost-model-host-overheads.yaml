@@ -57,7 +57,7 @@ coefficients:
       units: us_per_request
       method: assumed
       fitted: false
-      scope: {hardware: [a100-80, a100-sxm, b200, b300, gb200-nvl72, h100, h200, l40s]}
+      scope: {hardware: [a100-80, a100-sxm, b200, b300, gb200-nvl72, gb300, h100, h200, l40s]}
       sources:
         - kind: discussion
           cite: "SemiAnalysis InferenceX concurrency-1 absolutes, used for the MAGNITUDE only; see the provenance caveat below"
@@ -113,7 +113,7 @@ coefficients:
       units: us_per_token
       method: assumed
       fitted: false
-      scope: {hardware: [a100-80, a100-sxm, b200, b300, gb200-nvl72, h100, h200, l40s]}
+      scope: {hardware: [a100-80, a100-sxm, b200, b300, gb200-nvl72, gb300, h100, h200, l40s]}
       sources:
         - kind: discussion
           cite: "BLIS trained-physics (removed; git 2dcf24014edd) queueing (alpha_1 = a per-input-token term in a fitted queueing form), used as an order-of-magnitude anchor only"
@@ -141,7 +141,7 @@ coefficients:
       units: us_per_token
       method: assumed
       fitted: false
-      scope: {hardware: [a100-80, a100-sxm, b200, b300, gb200-nvl72, h100, h200, l40s]}
+      scope: {hardware: [a100-80, a100-sxm, b200, b300, gb200-nvl72, gb300, h100, h200, l40s]}
       sources:
         - kind: discussion
           cite: "BLIS trained-physics (removed; git 2dcf24014edd) output_token_processing = 45.907545 (fitted on H100 against a different step-time form), used as an order-of-magnitude anchor only"
@@ -165,7 +165,7 @@ coefficients:
       units: us_per_request
       method: assumed
       fitted: false
-      scope: {hardware: [a100-80, a100-sxm, b200, b300, gb200-nvl72, h100, h200, l40s]}
+      scope: {hardware: [a100-80, a100-sxm, b200, b300, gb200-nvl72, gb300, h100, h200, l40s]}
       sources:
         - kind: discussion
           cite: "BLIS trained-physics (removed; git 2dcf24014edd) post_decode_fixed = 777.3455 (fitted on H100 against a different step-time form), used as an order-of-magnitude anchor only"
@@ -186,7 +186,7 @@ coefficients:
       units: us_per_layer
       method: assumed
       fitted: false
-      scope: {hardware: [a100-80, a100-sxm, b200, b300, gb200-nvl72, h100, h200, l40s]}
+      scope: {hardware: [a100-80, a100-sxm, b200, b300, gb200-nvl72, gb300, h100, h200, l40s]}
       sources:
         - kind: vendor_doc
           cite: "CUDA kernel launch overhead is conventionally quoted at 5-10 us for an eager launch; no measurement of vLLM's per-layer launch count is published"
@@ -206,7 +206,7 @@ coefficients:
       units: us_per_step
       method: assumed
       fitted: false
-      scope: {hardware: [a100-80, a100-sxm, b200, b300, gb200-nvl72, h100, h200, l40s]}
+      scope: {hardware: [a100-80, a100-sxm, b200, b300, gb200-nvl72, gb300, h100, h200, l40s]}
       sources:
         - kind: vendor_doc
           cite: "CUDA graph replay is conventionally quoted at 5-10 us for the whole graph; no vLLM-specific measurement is published"
@@ -224,7 +224,7 @@ coefficients:
       units: us_per_transfer
       method: assumed
       fitted: false
-      scope: {hardware: [a100-80, a100-sxm, b200, b300, gb200-nvl72, h100, h200, l40s]}
+      scope: {hardware: [a100-80, a100-sxm, b200, b300, gb200-nvl72, gb300, h100, h200, l40s]}
       ci95: [3.1, 3.3]
       sources:
         - {kind: discussion, cite: "Residual of two published Granite-5 capacity runs against this cost model: H200 8x TP=8 at 8257-token context (measured ITL 6.02 ms) and H100 8x TP=8 at 707-token context (measured ITL 6.13 ms), both at one concurrent request", role: primary}
