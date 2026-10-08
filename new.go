@@ -233,9 +233,28 @@ func (k *Kernel) lift(c *resolve.Coefficients, g *model.Graph, cacheBytes float6
 	//
 	// Naming follows the recurrent terms, which already carry a per-kind suffix. That is why
 	// no schema change is needed: coefficient.Scope has no kind axis and does not need one.
+	// MLA joins the map for the same reason SWA did: its kernel reads a different number
+	// of bytes per token and sustains a different fraction of peak, so pricing it with the
+	// full-attention rate is wrong by construction rather than by a little. The BYTE count
+	// is already right -- blis-catalog declares an MLA node as `n_kv: 1, d_h: 576`, so
+	// kvGeometry's NumKVHeads*HeadDim is the latent width kv_lora_rank + qk_rope_head_dim
+	// and needs no special case. What was missing is the RATE: an MLA decode sustains
+	// 0.61-0.80 of datasheet bandwidth against full attention's 0.52-0.88, with a floor
+	// several times larger (51.5-89.5us against 9.5-19.5us) because the per-call setup
+	// reads a latent cache.
+	//
+	// Ten catalog models declare an mla or sparse_mla layer, and two of them
+	// (deepseek-v4-pro, kimi-k3) appear in both the FPM dataset and the InferenceX corpus,
+	// so this is on the scored path rather than hypothetical.
+	//
+	// sparse_mla is deliberately NOT mapped. It narrows the latent read to a selected
+	// top-k, so its byte count is a different function of the request and the registry
+	// carries no fit for it; a sparse_mla layer keeps falling back to the full-attention
+	// term, which is wrong but is not made wrong by this change.
 	k.attentionByKind = map[model.AttentionKind]floorRate{}
 	for kind, suffix := range map[model.AttentionKind]string{
 		model.AttentionSWA: "swa",
+		model.AttentionMLA: "mla",
 	} {
 		floor := c.ValueOr("attention_decode_floor_"+suffix, 0)
 		rate := c.ValueOr("attention_decode_rate_"+suffix, 0)

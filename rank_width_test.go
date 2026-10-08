@@ -1,7 +1,9 @@
 package latencykernel
 
 import (
+	"fmt"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -204,12 +206,19 @@ func TestCommunicatorWidthClampsIndependentlyOfCollectiveWidths(t *testing.T) {
 
 // END TO END, against the committed registry rather than literals.
 //
-// GB200-NVL72 is swept at 2 and 4 ranks because a Grace-Blackwell tray is four GPUs,
-// while tp=8 is an ordinary deployment on it. Before this change the kernel clamped
-// such a group to the 4-rank coefficient; the only thing that surfaced the problem was
-// that the clamped 8-rank NAME also happened to be absent, so the guard was accidental.
-// This asserts the refusal is now deliberate and names the measured widths.
-func TestRackScalePartAtEightRanksRefusesAgainstCommittedRegistry(t *testing.T) {
+// States the PROPERTY and not the registry's inventory. An earlier version of this test
+// asserted that gb200-nvl72 at tp=8 refuses, because that part was swept at 2 and 4 ranks
+// only -- true when written, and false as soon as the registry fitted its 8- and 16-rank
+// groups from a collection that had carried them all along. A test that pins which widths
+// a part happens to have fails on exactly the change it should welcome, and says nothing
+// about the behaviour worth protecting.
+//
+// The behaviour worth protecting: whatever the registry contains, a width it does NOT
+// contain must be refused rather than silently served by a narrower one. Borrowing a
+// narrower width's floor understates an 8-rank all-reduce by 1.53x to 1.91x across the
+// parts measured at both widths, and doing that quietly is what liftCollectiveFloors'
+// doc comment promises not to do.
+func TestAnUnmeasuredWidthIsRefusedAgainstTheCommittedRegistry(t *testing.T) {
 	names := []string{"cost-model-primitives", "cost-model-collectives"}
 	var sets []*coefficient.Set
 	for _, n := range names {
@@ -218,31 +227,57 @@ func TestRackScalePartAtEightRanksRefusesAgainstCommittedRegistry(t *testing.T) 
 		artifacttest.RequireArtifact(t, registryRoot, path, "registry", err)
 		sets = append(sets, s)
 	}
-	c, err := resolve.Load(sets, resolve.Scope{Hardware: "gb200-nvl72"})
+
+	const chip = "gb200-nvl72"
+	key := strings.ReplaceAll(chip, "-", "_")
+	c, err := resolve.Load(sets, resolve.Scope{Hardware: chip})
 	if err != nil {
 		t.Fatalf("resolve.Load: %v", err)
 	}
 
-	k := &Kernel{chip: hardware.Chip{Name: "gb200-nvl72"}}
-	k.layout.TP = 8
-	if _, err := k.groupWidth(
-		c, model.OpAllReduce, "all_reduce", "fp16", "gb200_nvl72",
-	); err == nil {
-		t.Fatal("gb200-nvl72 at tp=8 must refuse: the part is swept at 2 and 4 ranks")
-	} else {
-		if !strings.Contains(err.Error(), "[2 4]") {
-			t.Errorf("error should report the measured widths; got: %v", err)
+	// Read what this part actually carries, so the assertions below follow the registry
+	// instead of a remembered snapshot of it.
+	measured := measuredWidths(c, "all_reduce", "fp16", key)
+	if len(measured) == 0 {
+		t.Skip("the registry carries no all_reduce widths for this part")
+	}
+	t.Logf("%s carries %v-rank all_reduce", chip, measured)
+
+	// Every measured width must resolve to itself. A refusal here would mean the probe
+	// and liftCollectiveFloors disagree about what is present.
+	for _, w := range measured {
+		k := &Kernel{chip: hardware.Chip{Name: chip}}
+		k.layout.TP = w
+		if got, err := k.groupWidth(c, model.OpAllReduce, "all_reduce", "fp16", key); err != nil || got != w {
+			t.Errorf("%s at tp=%d must resolve to %d; got %d, err %v", chip, w, w, got, err)
 		}
-		t.Logf("refusal: %v", err)
 	}
 
-	// The same part at a measured width must still price, so the refusal is specific
-	// rather than a blanket rejection of rack-scale parts.
-	k4 := &Kernel{chip: hardware.Chip{Name: "gb200-nvl72"}}
-	k4.layout.TP = 4
-	if got, err := k4.groupWidth(
-		c, model.OpAllReduce, "all_reduce", "fp16", "gb200_nvl72",
-	); err != nil || got != 4 {
-		t.Errorf("gb200-nvl72 at tp=4 must resolve to 4; got %d, err %v", got, err)
+	// A width inside the search space that this part does NOT carry must refuse, and the
+	// message must name the widths it does, so a reader can act on it. Found rather than
+	// hardcoded: if the registry ever covers every candidate width, there is nothing to
+	// assert and the test says so.
+	var absent int
+	for _, w := range candidateRankWidths {
+		if !slices.Contains(measured, w) {
+			absent = w
+			break
+		}
 	}
+	if absent == 0 {
+		t.Logf("every candidate width %v is measured for %s; the refusal path has no "+
+			"case to exercise on this part", candidateRankWidths, chip)
+		return
+	}
+	k := &Kernel{chip: hardware.Chip{Name: chip}}
+	k.layout.TP = absent
+	_, err = k.groupWidth(c, model.OpAllReduce, "all_reduce", "fp16", key)
+	if err == nil {
+		t.Fatalf("%s at tp=%d must refuse: that width is not in %v", chip, absent, measured)
+	}
+	if !strings.Contains(err.Error(), fmt.Sprint(measured)) {
+		t.Errorf("the error should report the measured widths %v so a reader can act on "+
+			"it; got: %v", measured, err)
+	}
+	t.Logf("refusal at tp=%d: %v", absent, err)
 }
