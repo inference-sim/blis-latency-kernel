@@ -2,11 +2,13 @@ package latencykernel
 
 import (
 	"math"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/inference-sim/blis-schemas/kernel"
 	"github.com/inference-sim/blis-schemas/spec/model"
+	"github.com/inference-sim/blis-schemas/vocab"
 
 	"github.com/inference-sim/blis-latency-kernel/internal/price"
 )
@@ -480,15 +482,120 @@ func TestProvenanceNamesEveryCoefficientAndItsEvidence(t *testing.T) {
 	if measured == 0 {
 		t.Error("no coefficient rests on a measurement")
 	}
-	// The assumed set is exactly the host terms, which no public dataset measures.
-	// Naming them means a prediction can state its footing rather than implying
-	// uniform evidence.
+
+	// What Evidence() owes a caller is that the assumed set is REPORTED and that it is a
+	// subset of what Provenance lists, so a prediction can state its own footing. It does
+	// not owe any particular term being measured: `assumed` is a first-class method in the
+	// schema's vocabulary, and which terms carry it is the registry's call, not this
+	// kernel's.
+	//
+	// This used to require every assumed coefficient to be named host_*, on the reasoning
+	// that host overheads are the only terms no public dataset measures. That was a true
+	// observation about one registry snapshot written as a permanent rule, and it broke as
+	// soon as the registry gained assumed collective entries for a part whose sweeps do not
+	// exist yet (gb300 carries eighteen). The kernel prices them without complaint -- it
+	// reads Method only to COUNT evidence, never to accept or reject a coefficient -- so a
+	// test that failed on them was asserting something the kernel does not do, against a
+	// registry that is expected to grow.
+	byName := make(map[string]string, len(origins))
+	for _, o := range origins {
+		byName[o.Name] = o.Method
+	}
 	for _, name := range assumed {
-		if len(name) < 5 || name[:5] != "host_" {
-			t.Errorf("coefficient %q is assumed but is not a host term; every other "+
-				"term should rest on a measurement", name)
+		method, listed := byName[name]
+		if !listed {
+			t.Errorf("Evidence reports %q as assumed but Provenance does not list it; "+
+				"the two views must describe one resolved set", name)
+			continue
+		}
+		if method != string(vocab.MethodAssumed) {
+			t.Errorf("Evidence reports %q as assumed where Provenance calls it %q",
+				name, method)
 		}
 	}
+	// Measured and assumed cannot overlap, and neither can exceed the total.
+	if measured+len(assumed) > total {
+		t.Errorf("%d measured plus %d assumed exceeds %d coefficients; a coefficient "+
+			"cannot be counted in both", measured, len(assumed), total)
+	}
+}
+
+// TestAssumedCoefficientsArePricedAndReported is the property the registry's design
+// depends on: an assumed coefficient is usable.
+//
+// `assumed` is one of six methods in the schema's vocabulary and the registry uses it for
+// terms no sweep covers yet -- host overheads throughout, and the collective entries for a
+// part whose comm sweeps have not landed. A consumer that refused them would make those
+// entries unusable and force the registry to misreport a reasoned estimate as a
+// measurement to get a prediction at all, which is the exact confusion the method axis
+// exists to prevent.
+//
+// So this pins the two halves of the contract together: the kernel PRICES an assumed
+// coefficient, and it REPORTS it as assumed. Either alone would be wrong -- silently
+// pricing one hides the footing, refusing one discards a deliberate registry decision.
+func TestAssumedCoefficientsArePricedAndReported(t *testing.T) {
+	// Host overheads are assumed in every registry snapshot, by the nature of the term:
+	// no public dataset measures an engine's per-request Python work. Using them rather
+	// than a synthetic set keeps this honest about the committed registry.
+	k := fixture(t, "minimax-m25-h200-ep8.yaml")
+
+	measured, total, assumed := k.Evidence()
+	if len(assumed) == 0 {
+		t.Skip("no assumed coefficient in the resolved set; nothing to check here")
+	}
+	// Priced: the kernel built, and a step costs something. A kernel that refused assumed
+	// coefficients would have failed in New() before reaching this line.
+	if e := k.StepTime(decodeBatch(32, 1, 4096)); e.NoOverlap <= 0 {
+		t.Error("a deployment resting partly on assumed coefficients priced to nothing")
+	}
+	// Reported: the count is visible and the set is not silently folded into measured.
+	if measured >= total {
+		t.Errorf("%d of %d coefficients counted as measured while %d are assumed; an "+
+			"assumed term must not be reported as evidenced", measured, total, len(assumed))
+	}
+	t.Logf("priced with %d measured and %d assumed of %d coefficients",
+		measured, len(assumed), total)
+}
+
+// TestAssumedCOLLECTIVESArePriced is the case the old host_* rule got wrong.
+//
+// A deployment whose HOST terms are assumed has always worked, because host overheads are
+// assumed everywhere and every fixture exercises them. A deployment whose COLLECTIVES are
+// assumed is the new shape: gb300 carries eighteen such entries, for a part whose comm
+// sweeps do not exist yet. Collectives sit on the step-time path where host overheads do
+// not, so this reaches further into the kernel than the test above.
+//
+// Separate from the general case, and named for the term, because the failure it guards is
+// specific: a consumer that refused assumed collectives would make gb300 unpriceable and
+// would push the registry toward labelling a reasoned estimate `measured` to get any
+// prediction at all -- defeating the method axis the schema added to tell those apart.
+func TestAssumedCollectivesArePriced(t *testing.T) {
+	k := fixture(t, "minimax-m25-gb300-tp4.yaml")
+
+	_, _, assumed := k.Evidence()
+	var collectives int
+	for _, name := range assumed {
+		if strings.HasPrefix(name, "collective_") {
+			collectives++
+		}
+	}
+	if collectives == 0 {
+		t.Skip("gb300's collectives are no longer assumed; this fixture has served its " +
+			"purpose and the general case above still covers the evidence axis")
+	}
+
+	// The whole point: a step prices, and the collective terms are in it.
+	e := k.StepTime(decodeBatch(64, 1, 4096))
+	if e.NoOverlap <= 0 {
+		t.Fatal("a deployment whose collectives are assumed priced to nothing")
+	}
+	// TP=4 on one tray, so the reductions are on-node: NVLink must carry them. This is
+	// what proves the assumed coefficients were actually USED rather than skipped over.
+	if e.PerResource[kernel.ResourceNVLink] <= 0 {
+		t.Errorf("no NVLink time on a TP=4 step; the assumed collective coefficients "+
+			"were resolved (%d of them) but apparently not charged", collectives)
+	}
+	t.Logf("priced a step with %d assumed collective coefficients", collectives)
 }
 
 func TestResolvedReportsWhatWillActuallyRun(t *testing.T) {
