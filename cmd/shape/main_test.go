@@ -299,7 +299,11 @@ func TestThePerTokenHostCostReachesThePrediction(t *testing.T) {
 	}
 	ctx := contextTokens(s)
 	got := stepSeconds(k, 8, ctx)
-	step := k.StepTime(harness.DecodeBatch(8, ctx)).Overlap.Seconds()
+	// NoOverlap, matching stepSeconds: that is the edge the measured evidence selects
+	// (blis-registry docs/band-selection.md). This test checks that the HOST term is
+	// added, so it has to agree with the production path on which edge it starts from --
+	// otherwise it fails for the wrong reason and says nothing about the host cost.
+	step := k.StepTime(harness.DecodeBatch(8, ctx)).NoOverlap.Seconds()
 	host := k.OutputTokenOverhead().Seconds()
 	if math.Abs(got-(step+host)) > 1e-12 {
 		t.Errorf("the prediction is %.9f s where the step is %.9f and the per-token host "+

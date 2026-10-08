@@ -294,7 +294,9 @@ func resolve(p point, replicas int) resolved {
 func predict(k *latencykernel.Kernel, r resolved) float64 {
 	e := k.StepTime(harness.DecodeBatch(r.batch, r.context))
 	// Host per-token work runs off the forward pass but lands on the interval anyway.
-	step := (e.Overlap + k.OutputTokenOverhead()).Seconds() * 1e3
+	// NoOverlap is the edge the measured evidence selects -- see harness.TimePerOutputToken
+	// and blis-registry's docs/band-selection.md.
+	step := (e.NoOverlap + k.OutputTokenOverhead()).Seconds() * 1e3
 	// With speculation, an accepted draft yields a token without its own step, so the
 	// observed interval is the step divided by the mean tokens it produced.
 	if r.AcceptPct != nil && *r.AcceptPct > 0 {

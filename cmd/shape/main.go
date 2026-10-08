@@ -255,7 +255,9 @@ func decodeBatchFor(batch, context int) kernel.Batch {
 // processor does off the forward pass but which still lands between tokens.
 func stepSeconds(k *latencykernel.Kernel, batch, context int) float64 {
 	e := k.StepTime(decodeBatchFor(batch, context))
-	return (e.Overlap + k.OutputTokenOverhead()).Seconds()
+	// NoOverlap is the edge the measured evidence selects -- see
+	// harness.TimePerOutputToken and blis-registry's docs/band-selection.md.
+	return (e.NoOverlap + k.OutputTokenOverhead()).Seconds()
 }
 
 func report(label string, errs []float64) {
