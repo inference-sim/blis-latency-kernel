@@ -166,6 +166,12 @@ type PlannedAttention struct {
 	QHeads, KVHeads, HeadDim int
 	Kind                     model.AttentionKind
 	Window                   int
+	// CompressRatio is how many tokens share one cached state, zero or one where every
+	// token has its own. A pooled indexer caches one state per index_kpool tokens, so
+	// its scan covers the span's STATES rather than its tokens. Orthogonal to Window:
+	// the window bounds how far back the scan looks, the ratio how many states that
+	// span holds.
+	CompressRatio int
 	// Role is the graph's label for what this kernel does, e.g. "block_index_scores".
 	// Empty on a layer's primary attention.
 	Role string
@@ -389,6 +395,7 @@ func planNodes(nodes []model.Node, em Emitter, dtypeBytes, stateBytes float64,
 			pl.Attentions = append(pl.Attentions, PlannedAttention{
 				QHeads: n.NumQHeads, KVHeads: n.NumKVHeads, HeadDim: n.HeadDim,
 				Kind: n.AttentionKind, Window: n.Window, Role: n.Role,
+				CompressRatio: n.CompressRatio,
 			})
 			// The primary is the first attention that reads the engine's KV cache, not
 			// the last node seen. An earlier assignment here overwrote, so on a layer
