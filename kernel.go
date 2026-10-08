@@ -6,6 +6,12 @@
 // that every method is a pure function of its arguments, so a discrete-event simulator can
 // call StepTime at any simulated instant, from any goroutine, and get the same answer.
 //
+// Two constructors, for the two shapes a caller comes in. Open takes a scenario filename
+// and the roots its names resolve against, which is what a simulator or a scoring command
+// has. New takes the documents already parsed, which is what a configuration search
+// producing deployment variants that were never written to disk has. Open ends in New, so
+// both validate identically and neither can price a deployment the other would refuse.
+//
 // Speed is a requirement rather than a nicety: a simulator calls StepTime once per
 // simulated step, millions of times over a run. So the hot path does arithmetic over a
 // short pre-aggregated slice and allocates nothing. The plan holds one entry per distinct
