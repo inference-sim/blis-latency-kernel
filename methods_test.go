@@ -42,8 +42,9 @@ func TestFixedBytesAccountsForTheWholeModelAcrossRanks(t *testing.T) {
 }
 
 func TestWiderExpertParallelismHoldsFewerWeightsPerRank(t *testing.T) {
-	narrow := fixture(t, "minimax-m25-h200-ep16.yaml").FixedBytes()
-	wide := fixture(t, "minimax-m25-h200-ep72.yaml").FixedBytes()
+	narrowK := fixture(t, "minimax-m25-h200-ep16.yaml")
+	wideK := fixture(t, "minimax-m25-h200-ep72.yaml")
+	narrow, wide := narrowK.FixedBytes(), wideK.FixedBytes()
 	if wide.Weights >= narrow.Weights {
 		t.Errorf("EP=72 holds %d bytes per rank against EP=16's %d; widening the "+
 			"expert group must shrink the shard", wide.Weights, narrow.Weights)
@@ -54,12 +55,53 @@ func TestWiderExpertParallelismHoldsFewerWeightsPerRank(t *testing.T) {
 	// that checked the direction alone would pass while the expert term was not sharded
 	// at all, because the dense terms differ between these two scenarios anyway — which
 	// is exactly what a mutation of the sharding term proved.
+	// The bound is DERIVED from the two layouts rather than written as a literal, so a
+	// refit of any coefficient, or a change to the expert count, moves the expectation
+	// with the model instead of breaking the test. A hardcoded range here would be
+	// asserting what the catalog contains today; what the kernel owes is that the ratio
+	// tracks the local expert shards.
+	//
+	// Bracketed by the two shard ratios the layouts themselves imply, rather than by a
+	// literal range. An expert count that does not divide the width leaves some ranks
+	// holding one more than the rest, so "experts per rank" is not a single number: the
+	// floor and the busiest rank differ, and a per-rank byte figure sits between them.
+	// Deriving both ends means a refit, a change to the expert count, or added EPLB
+	// redundancy moves the expectation with the model instead of breaking the test.
+	loNarrow, hiNarrow := expertShardBounds(t, narrowK)
+	loWide, hiWide := expertShardBounds(t, wideK)
+	// Widest and narrowest ratios consistent with those brackets.
+	lo := float64(loNarrow) / float64(hiWide)
+	hi := float64(hiNarrow) / float64(loWide)
+
 	ratio := float64(narrow.Weights) / float64(wide.Weights)
-	if ratio < 4.0 || ratio > 4.7 {
-		t.Errorf("EP=16 holds %.2fx the weights of EP=72; with 14 local experts "+
-			"against 3 and a model that is 99%% expert parameters, the ratio should sit "+
-			"just under 14/3", ratio)
+	if ratio < lo || ratio > hi {
+		t.Errorf("EP=%d holds %.2fx the weights of EP=%d, outside the %.2fx-%.2fx the "+
+			"expert shards imply (%d-%d experts against %d-%d). For a model that is "+
+			"almost all expert parameters the weights ratio tracks the shard ratio, so a "+
+			"figure outside this means the expert term is not sharded by EP",
+			narrowK.layout.ExpertWidth, ratio, wideK.layout.ExpertWidth, lo, hi,
+			loNarrow, hiNarrow, loWide, hiWide)
 	}
+}
+
+// expertShardBounds returns how many experts the least- and most-loaded ranks hold.
+//
+// Read from the resolved layout and the model's own expert count rather than restated as
+// numbers, so it follows a catalog change instead of contradicting one. The two differ
+// whenever the count does not divide the expert-parallel width -- 256 experts over 72 ranks
+// is 3 on most and 4 on forty of them -- which is why a byte figure brackets rather than
+// equals a single shard.
+func expertShardBounds(t *testing.T, k *Kernel) (lo, hi int) {
+	t.Helper()
+	if k.totalExperts <= 0 {
+		t.Fatal("no experts resolved; this fixture cannot test expert sharding")
+	}
+	base, withExtra, _, _ := price.ExpertsPerRank(k.totalExperts, k.layout.ExpertWidth)
+	if base == 0 {
+		t.Fatalf("EP=%d exceeds the %d experts, so some ranks hold none",
+			k.layout.ExpertWidth, k.totalExperts)
+	}
+	return base, withExtra
 }
 
 // Without expert parallelism every rank holds every expert as a TENSOR SLICE, so a rank's
