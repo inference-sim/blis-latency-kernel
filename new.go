@@ -7,6 +7,7 @@ import (
 
 	"github.com/inference-sim/blis-schemas/kernel"
 	"github.com/inference-sim/blis-schemas/spec/coefficient"
+	"github.com/inference-sim/blis-schemas/spec/deployment"
 	"github.com/inference-sim/blis-schemas/spec/hardware"
 	"github.com/inference-sim/blis-schemas/spec/model"
 	"github.com/inference-sim/blis-schemas/spec/scenario"
@@ -21,6 +22,10 @@ import (
 // would either duplicate those rules or diverge from them.
 type Inputs struct {
 	Scenario *scenario.Scenario
+	// Deployment is the tunable configuration applied to the scenario: the pools that lay
+	// the model out. It is a separate document because a scenario fixes the immutable
+	// problem and an optimizer sweeps deployments against it.
+	Deployment *deployment.Deployment
 	// PoolIndex selects which pool of a disaggregated deployment this kernel prices. Each
 	// pool runs its own engine with its own settings, so one kernel per pool.
 	PoolIndex    int
@@ -44,18 +49,19 @@ type Inputs struct {
 // a non-positive rate is an error rather than a default, because each would otherwise
 // produce a step time that looks plausible and is wrong by whatever the term contributes.
 func New(in Inputs) (*Kernel, error) {
-	if in.Scenario == nil || in.Model == nil || in.Chip == nil {
-		return nil, fmt.Errorf("a kernel needs a scenario, a model graph and a chip")
+	if in.Scenario == nil || in.Deployment == nil || in.Model == nil || in.Chip == nil {
+		return nil, fmt.Errorf(
+			"a kernel needs a scenario, a deployment, a model graph and a chip")
 	}
-	if in.PoolIndex < 0 || in.PoolIndex >= len(in.Scenario.Pools) {
-		return nil, fmt.Errorf("pool index %d is outside the scenario's %d pool(s)",
-			in.PoolIndex, len(in.Scenario.Pools))
+	if in.PoolIndex < 0 || in.PoolIndex >= len(in.Deployment.Pools) {
+		return nil, fmt.Errorf("pool index %d is outside the deployment's %d pool(s)",
+			in.PoolIndex, len(in.Deployment.Pools))
 	}
 	if in.Rules == nil {
 		return nil, fmt.Errorf("a kernel needs engine rules for version %q",
 			in.Scenario.EngineVersion)
 	}
-	pool := in.Scenario.Pools[in.PoolIndex]
+	pool := in.Deployment.Pools[in.PoolIndex]
 
 	fab := resolve.Fabric{IntraNodeBwGBps: in.Chip.IntraNodeBwGBps}
 	if in.Fabric != nil {

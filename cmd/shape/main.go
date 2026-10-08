@@ -44,16 +44,12 @@ import (
 	"fmt"
 	"math"
 	"os"
-	"path/filepath"
 	"sort"
 
-	schemas "github.com/inference-sim/blis-schemas"
 	"github.com/inference-sim/blis-schemas/kernel"
-	"github.com/inference-sim/blis-schemas/rules/v0_29"
-	"github.com/inference-sim/blis-schemas/spec/coefficient"
-	"github.com/inference-sim/blis-schemas/spec/hardware"
 
 	latencykernel "github.com/inference-sim/blis-latency-kernel"
+	"github.com/inference-sim/blis-latency-kernel/internal/harness"
 )
 
 type corpus struct {
@@ -90,8 +86,8 @@ type point struct {
 }
 
 func main() {
-	catalog := flag.String("catalog", "/Users/sri/Documents/Projects/blis-catalog", "")
-	registry := flag.String("registry", "/Users/sri/Documents/Projects/blis-registry", "")
+	catalog := flag.String("catalog", harness.DefaultCatalog(), "")
+	registry := flag.String("registry", harness.DefaultRegistry(), "")
 	data := flag.String("data", "testdata/measurements/aisimulate_e2e.json", "")
 	// The generated per-deployment scenarios, which is where
 	// scripts/gen_aisimulate_scenarios.py writes them and where main_test.go's
@@ -173,7 +169,7 @@ end-to-end simulation supplies and what no published snapshot in hand states.`)
 // replaced.
 func score(c corpus, testdata, catalog, registry string, verbose bool) (mine, theirs []float64, err error) {
 	for _, s := range c.Sweeps {
-		k, buildErr := build(filepath.Join(testdata, s.Scenario), catalog, registry)
+		k, buildErr := build(testdata, s.Scenario, catalog, registry)
 		if buildErr != nil {
 			return nil, nil, fmt.Errorf("%s: %w", s.Scenario, buildErr)
 		}
@@ -285,45 +281,20 @@ func countPoints(ss []sweep) int {
 	return n
 }
 
-func build(scenarioPath, catalog, registry string) (*latencykernel.Kernel, error) {
-	sc, err := schemas.LoadScenario(scenarioPath)
-	if err != nil {
-		return nil, err
-	}
-	graph, err := schemas.LoadModelGraph(
-		filepath.Join(catalog, "models", sc.Model, "graph.yaml"))
-	if err != nil {
-		return nil, err
-	}
-	chip, err := schemas.LoadChip(
-		filepath.Join(catalog, "hardware", sc.Hardware+".yaml"))
-	if err != nil {
-		return nil, err
-	}
-	var fabric *hardware.Fabric
-	if sc.Fabric != "" {
-		if fabric, err = schemas.LoadFabric(
-			filepath.Join(catalog, "networks", sc.Fabric+".yaml")); err != nil {
-			return nil, err
-		}
-	}
-	var sets []*coefficient.Set
-	for _, name := range sc.Coefficients {
-		set, err := schemas.LoadCoefficientSet(
-			filepath.Join(registry, "coefficients", name+".yaml"))
-		if err != nil {
-			return nil, err
-		}
-		sets = append(sets, set)
-	}
-	devices, err := schemas.LoadStorageDevices(
-		filepath.Join(catalog, "devices", "storage.yaml"))
-	if err != nil {
-		return nil, err
-	}
-	return latencykernel.New(latencykernel.Inputs{
-		Scenario: sc, PoolIndex: 0, Model: graph, Chip: chip, Fabric: fabric,
-		Devices: devices, Coefficients: sets, Rules: v0_29.Pack(),
+// build opens one scenario, by directory and filename, exactly as every other command
+// in this repository does.
+//
+// It delegates rather than resolving the documents itself. This function used to carry
+// its own copy of that resolution -- model graph, chip, fabric, coefficient sets,
+// storage devices -- which is the duplication the harness package exists to end; its
+// package comment records four such copies, one of which had already drifted into
+// omitting the fabric. Delegating also fixes a real difference: the copy here pinned
+// v0_29.Pack() directly, so a scenario declaring another engine version was silently
+// priced with 0.29.0 behaviour, where harness.Open looks the pack up from the
+// scenario's own engine_version and fails loudly when none is registered.
+func build(testdata, scenario, catalog, registry string) (*latencykernel.Kernel, error) {
+	return harness.Open(scenario, harness.Repos{
+		Scenarios: testdata, Catalog: catalog, Registry: registry,
 	})
 }
 
@@ -334,10 +305,10 @@ type scenarioFacts struct {
 }
 
 func loadScenario(path string) (scenarioFacts, error) {
-	sc, err := schemas.LoadScenario(path)
+	_, dep, err := harness.LoadBundle(path)
 	if err != nil {
 		return scenarioFacts{}, err
 	}
-	p := sc.Pools[0].Parallel
+	p := dep.Pools[0].Parallel
 	return scenarioFacts{tp: p.TP, expertParallel: p.EnableExpertParallel}, nil
 }

@@ -3,6 +3,7 @@ package resolve
 import (
 	"fmt"
 
+	"github.com/inference-sim/blis-schemas/spec/deployment"
 	"github.com/inference-sim/blis-schemas/spec/model"
 	"github.com/inference-sim/blis-schemas/spec/scenario"
 )
@@ -72,7 +73,7 @@ func (f Fabric) Ratio() float64 {
 
 // ResolveLayout derives a pool's layout from the scenario, the fabric it runs on, and the
 // engine rules for its declared version.
-func ResolveLayout(s *scenario.Scenario, pool scenario.Pool, fab Fabric,
+func ResolveLayout(s *scenario.Scenario, pool deployment.Pool, fab Fabric,
 	rules EngineRules) (Layout, error) {
 	pl := pool.Parallel
 	if pl.TP < 1 || pl.DP < 1 {
@@ -110,7 +111,7 @@ func ResolveLayout(s *scenario.Scenario, pool scenario.Pool, fab Fabric,
 
 // resolveCustomAllReduce decides whether the SM-consuming reduction kernel runs, and
 // records why when a request for it is declined.
-func resolveCustomAllReduce(pool scenario.Pool, l Layout, fab Fabric,
+func resolveCustomAllReduce(pool deployment.Pool, l Layout, fab Fabric,
 	rules EngineRules) (bool, []Override) {
 	e := pool.Engine
 	requested := true

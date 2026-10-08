@@ -14,17 +14,20 @@ name: nemotron3-ultra-h100-agg
 engine_version: "0.29.0"
 
 model: nemotron-3-ultra-550b-a55b-nvfp4
-hardware: h100
-# Declared because a three-node cluster must name one, though no collective in this
-# deployment crosses a node: the 24 GPUs run as three independent 8-GPU tensor-parallel
-# replicas, so every group fits inside one node. The report states no fabric, and this is
-# the common H100 choice.
-fabric: ib-400g
 coefficients: [cost-model-primitives, cost-model-collectives, cost-model-host-overheads, cost-model-attention, cost-model-recurrent]
 
 cluster:
+  hardware: h100
+  # Declared because a three-node cluster must name one, though no collective in this
+  # deployment crosses a node: the 24 GPUs run as three independent 8-GPU tensor-parallel
+  # replicas, so every group fits inside one node. The report states no fabric, and this is
+  # the common H100 choice.
+  fabric: ib-400g
   nodes: 3
   gpus_per_node: 8
+---
+kind: Deployment
+name: nemotron3-ultra-h100-agg
 
 pools:
   - role: colocated

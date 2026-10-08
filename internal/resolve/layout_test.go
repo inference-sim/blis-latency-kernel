@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/inference-sim/blis-schemas/spec/deployment"
 	"github.com/inference-sim/blis-schemas/spec/model"
 	"github.com/inference-sim/blis-schemas/spec/scenario"
 )
@@ -43,17 +44,26 @@ func (r stubRules) DBOEngages(enabled bool, tokens int, uniform bool) bool {
 	return tokens >= 512
 }
 
-func scenarioWith(nodes, gpusPerNode int, pools ...scenario.Pool) *scenario.Scenario {
+// scenarioWith builds the pair a resolver needs: the immutable problem and the
+// deployment applied to it. They are two documents in the schema, so a helper that
+// returned only a scenario would leave every caller to construct the other half.
+func scenarioWith(nodes, gpusPerNode int,
+	pools ...deployment.Pool) (*scenario.Scenario, *deployment.Deployment) {
 	return &scenario.Scenario{
-		Kind: "Scenario", Name: "t", Model: "m", Hardware: "h",
-		Coefficients: []string{"c"}, EngineVersion: "0.29.0",
-		Cluster: scenario.Cluster{Nodes: nodes, GPUsPerNode: gpusPerNode},
-		Pools:   pools,
-	}
+			Kind: "Scenario", Name: "t", Model: "m",
+			Coefficients: []string{"c"}, EngineVersion: "0.29.0",
+			Cluster: scenario.Cluster{
+				Hardware: "h", Nodes: nodes, GPUsPerNode: gpusPerNode,
+			},
+		}, &deployment.Deployment{
+			Kind: "Deployment", Name: "t", Pools: pools,
+		}
 }
 
-func pool(pl scenario.Parallelism, e scenario.Engine) scenario.Pool {
-	return scenario.Pool{Role: scenario.RoleColocated, Nodes: 1, Parallel: pl, Engine: e}
+func pool(pl deployment.Parallelism, e deployment.Engine) deployment.Pool {
+	return deployment.Pool{
+		Role: deployment.RoleColocated, Nodes: 1, Parallel: pl, Engine: e,
+	}
 }
 
 // TestEmitsAnswersEveryConditionTheSchemaAllows is the property that makes the enum safe.
@@ -160,27 +170,27 @@ func TestNodesSpannedFollowsTheWidestGroup(t *testing.T) {
 	cases := []struct {
 		what        string
 		gpusPerNode int
-		pl          scenario.Parallelism
+		pl          deployment.Parallelism
 		rack        int
 		rackDomain  bool
 		want        int
 	}{
 		{"tp 8 on 8-GPU nodes stays on one node", 8,
-			scenario.Parallelism{TP: 8, PP: 1, DP: 1}, 0, false, 1},
+			deployment.Parallelism{TP: 8, PP: 1, DP: 1}, 0, false, 1},
 		{"tp 16 on 8-GPU nodes spans two", 8,
-			scenario.Parallelism{TP: 16, PP: 1, DP: 1}, 0, false, 2},
+			deployment.Parallelism{TP: 16, PP: 1, DP: 1}, 0, false, 2},
 		{"expert width is the widest group", 8,
-			scenario.Parallelism{TP: 1, PP: 1, DP: 16, EnableExpertParallel: true}, 0, false, 2},
+			deployment.Parallelism{TP: 1, PP: 1, DP: 16, EnableExpertParallel: true}, 0, false, 2},
 		{"multi-node NVLink makes a rack one domain", 4,
-			scenario.Parallelism{TP: 1, PP: 1, DP: 72, EnableExpertParallel: true}, 72, true, 1},
+			deployment.Parallelism{TP: 1, PP: 1, DP: 72, EnableExpertParallel: true}, 72, true, 1},
 		{"a rack that is not one domain still spans nodes", 4,
-			scenario.Parallelism{TP: 1, PP: 1, DP: 72, EnableExpertParallel: true}, 72, false, 18},
+			deployment.Parallelism{TP: 1, PP: 1, DP: 72, EnableExpertParallel: true}, 72, false, 18},
 	}
 	for _, c := range cases {
 		t.Run(c.what, func(t *testing.T) {
-			s := scenarioWith(1, c.gpusPerNode, pool(c.pl, scenario.Engine{}))
+			s, d := scenarioWith(1, c.gpusPerNode, pool(c.pl, deployment.Engine{}))
 			s.Cluster.GPUsPerRack = c.rack
-			l, err := ResolveLayout(s, s.Pools[0],
+			l, err := ResolveLayout(s, d.Pools[0],
 				Fabric{RackIsOneDomain: c.rackDomain}, newStubRules())
 			if err != nil {
 				t.Fatalf("ResolveLayout: %v", err)
@@ -213,10 +223,10 @@ func TestCustomAllReduceRequestIsResolvedNotObeyed(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.what, func(t *testing.T) {
-			s := scenarioWith(1, c.gpusPerNode, pool(
-				scenario.Parallelism{TP: c.tp, PP: 1, DP: 1},
-				scenario.Engine{DisableCustomAllReduce: &no}))
-			l, err := ResolveLayout(s, s.Pools[0],
+			s, d := scenarioWith(1, c.gpusPerNode, pool(
+				deployment.Parallelism{TP: c.tp, PP: 1, DP: 1},
+				deployment.Engine{DisableCustomAllReduce: &no}))
+			l, err := ResolveLayout(s, d.Pools[0],
 				Fabric{RackIsOneDomain: c.rackDomain}, newStubRules())
 			if err != nil {
 				t.Fatalf("ResolveLayout: %v", err)

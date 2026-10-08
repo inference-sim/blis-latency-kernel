@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate one scenario file per deployment in the AISimulate e2e corpus.
+"""Generate one scenario+deployment file per deployment in the AISimulate e2e corpus.
 
 # Why generated rather than committed by hand
 
@@ -9,6 +9,19 @@ those by hand is how a scenario comes to describe a deployment other than the on
 the previous corpus had two sweeps pointing at a single scenario file, so one of them was
 scored against the wrong parallelism. Generating from the corpus makes that class of error
 impossible: the file and the points it is scored against come from one record.
+
+# Two documents, one file
+
+blis-schemas v0.2.0 splits the immutable problem (Scenario: model, cluster inventory,
+coefficient and engine-version references) from the tunable configuration applied to it
+(Deployment: pools, each a parallelism layout with its own engine settings). Each file
+written here holds both, `---` separated, rather than a scenario and a sibling
+deployment file.
+
+One file because a measurement row addresses a deployment by a single filename --
+`{"scenario": "deepseek-v3-b200-fp4-sglang-tp4.yaml", ...}` -- and there are over three
+thousand such rows across testdata/measurements. Splitting the pair would rewrite every
+one of them to say nothing it does not already say. harness.LoadBundle reads the pair.
 
 # What the corpus states, and what it does not
 
@@ -84,6 +97,7 @@ def emit(dep: dict, workloads: set[str], labels: set[str]) -> str:
     nodes = max(1, -(-ranks // GPUS_PER_NODE))
     quant = QUANT[dep["precision"]]
     max_len = context_length(workloads)
+    name = dep["scenario"][: -len(".yaml")]
 
     lines = [
         f"# {dep['model']} on {dep['gpu']}, {dep['precision']} under {dep['framework']},",
@@ -102,20 +116,28 @@ def emit(dep: dict, workloads: set[str], labels: set[str]) -> str:
         "# window shorter than isl+osl would describe a deployment that cannot serve its",
         "# own points.",
         "kind: Scenario",
-        f"name: {dep['scenario'][:-len('.yaml')]}",
+        f"name: {name}",
         'engine_version: "0.29.0"',
         "",
         f"model: {dep['model']}",
-        f"hardware: {dep['gpu']}",
-    ]
-    if nodes > 1:
-        lines.append("fabric: ib-400g")
-    lines += [
         f"coefficients: {COEFFICIENTS}",
         "",
+        # The hardware inventory lives inside the cluster: it is what the problem is
+        # handed and a deployment cannot change it.
         "cluster:",
+        f"  hardware: {dep['gpu']}",
+    ]
+    if nodes > 1:
+        lines.append("  fabric: ib-400g")
+    lines += [
         f"  nodes: {nodes}",
         f"  gpus_per_node: {GPUS_PER_NODE}",
+        # The tunable half, as its own document. Same file because a measurement row
+        # addresses a deployment by one filename; same name because there is exactly one
+        # deployment per scenario here.
+        "---",
+        "kind: Deployment",
+        f"name: {name}",
         "",
         "pools:",
         "  - role: colocated",
