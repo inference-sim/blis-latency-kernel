@@ -118,8 +118,21 @@ func DecodeBatch(requests, context int) kernel.Batch {
 //
 // A composition of two interface methods rather than a method on the kernel, because it is what
 // a published TPOT figure measures rather than a property of the hardware.
+//
+// NoOverlap, not Overlap, and the choice is measured. StepTime's own comment states it:
+// "A caller that wants one figure should read NoOverlap." Over 219 points of NVIDIA's FPM
+// dataset spanning two models, two parts and five parallelism topologies, Overlap's signed
+// error is -13.45% against NoOverlap's -3.44%, and NoOverlap is closer on 158 of them; the
+// physical reason is PIECEWISE cudagraph mode, where attention runs eagerly between captured
+// segments so per-layer overlap is structurally limited. blis-registry's
+// docs/band-selection.md records the evidence.
+//
+// This read Overlap until schemas v0.2.0 removed StepEstimate.Expected, which the kernel had
+// set to NoOverlap from exactly that evidence. Dropping the named edge left every caller to
+// re-decide, and the three in this repository all picked the optimistic one -- so the
+// migration silently under-priced every reported TPOT by about ten points.
 func TimePerOutputToken(k *latencykernel.Kernel, b kernel.Batch) float64 {
-	return (k.StepTime(b).Overlap + k.OutputTokenOverhead()).Seconds()
+	return (k.StepTime(b).NoOverlap + k.OutputTokenOverhead()).Seconds()
 }
 
 // Replicas returns how many data-parallel engine instances a deployment runs.
