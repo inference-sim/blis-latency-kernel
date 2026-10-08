@@ -40,7 +40,7 @@ func TestAPooledScorersRatioChangesTheStepTime(t *testing.T) {
 	k := fixture(t, "aisimulate/deepseek-v4-pro-b300-fp4-vllm-tp4.yaml")
 	scorers := scorersOf(k)
 	if len(scorers) == 0 {
-		t.Fatalf("the fixture's graph launches no block-index scorer, so the pooled-scan "+
+		t.Fatalf("the fixture's graph launches no block-index scorer, so the pooled-scan " +
 			"term cannot be exercised; pick a fixture whose model has one")
 	}
 
