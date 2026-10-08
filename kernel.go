@@ -75,8 +75,9 @@ type Kernel struct {
 	// once decode-context parallelism arrived: a tensor-parallel all-gather at tp=8 and
 	// a DCP all-gather at dcp=2 are the same primitive at two widths, and the registry
 	// carries a separate floor/peak/transition for each. One entry per op would have
-	// priced one of the two at the other's width, and the 8-rank floor is 1.53x to 1.91x
-	// the 4-rank figure across the parts measured at both.
+	// priced one of the two at the other's width. For the ops the context-parallel axes
+	// add, the 8-rank floor is 1.35x to 1.60x the 4-rank figure across the nine parts
+	// this registry carries at both; see price.GroupAxis for the per-op spread.
 	collectiveFloors      map[collKey]time.Duration
 	collectiveRates       map[collKey]float64
 	collectiveTransitions map[collKey]float64
@@ -128,6 +129,9 @@ type Kernel struct {
 	// dcpShardsAllKVLayers is whether every KV-holding layer is a kind DCP shards, which
 	// is what lets a whole-model capacity figure carry the shard at all.
 	dcpShardsAllKVLayers bool
+	// kvLayers is how many layers hold KV, which is the count kvBytesPerToken is summed
+	// over and so the divisor for one layer's share of the cache.
+	kvLayers int
 
 	// Host overheads.
 	admissionPerToken time.Duration
@@ -241,6 +245,17 @@ func (k *Kernel) SequenceVariableBytes(tokens int) int64 {
 	// (kv_cache_interface.py:868-872). Expressing the hybrid case exactly would mean
 	// splitting kvBytesPerToken per kind -- a larger refactor, to price a configuration
 	// that does not start.
+	//
+	// AND THIS DISAGREES WITH THE DECODE READ ON THAT SAME STACK, deliberately. The read
+	// is applied per layer kind, so on a hybrid it shards the full-attention layers and
+	// leaves the windowed ones whole; capacity, having no per-kind context, shards
+	// nothing. A consumer reading both therefore gets two models of one cache for a
+	// configuration the engine will not run. Each term is individually defensible -- the
+	// read is exact where it can be, capacity errs high where it cannot -- and making
+	// them agree would mean either coarsening the read to a whole-model verdict, which
+	// loses accuracy on every deployment that DOES run, or the per-kind refactor above.
+	// Neither is worth doing for an inadmissible layout, so the disagreement is recorded
+	// rather than resolved.
 	shardedTokens := tokens
 	if k.layout.DCP > 1 && k.dcpShardsAllKVLayers {
 		shardedTokens = (tokens + k.layout.DCP - 1) / k.layout.DCP
@@ -252,7 +267,7 @@ func (k *Kernel) SequenceVariableBytes(tokens int) int64 {
 	//
 	// Sized from the UNSHARDED token count, which is deliberate: "Mamba state is
 	// replicated across DCP/PCP ranks, never sharded"
-	// (vllm/v1/kv_cache_interface.py:1095-1098 at v0.31.0). A context-parallel rank holds
+	// (vllm/v1/kv_cache_interface.py:1097-1098 at v0.31.0). A context-parallel rank holds
 	// every position's recurrent state even while holding only its shard of the KV cache.
 	mode := price.RecurrentCacheMode(k.pool.Engine.MambaCacheMode)
 	if mode.ProportionalToContext() {
@@ -340,9 +355,12 @@ func (k *Kernel) stepTime(b kernel.Batch,
 	// which in a mixed batch is the normal case.
 	var decodeContexts []int
 	var prefillRequests, decodeRequests int
-	// Scheduled tokens this rank computes, split into the two regimes because
-	// prefill-context parallelism divides one and replicates the other.
-	var prefillTokens, decodeTokens int
+	// prefillTokens is the scheduled prefill tokens THIS RANK computes, which the KV
+	// gather's payload is sized from. withheldByPCP is how many of the batch's scheduled
+	// tokens the prefill split takes off this rank, which is what the step's token count
+	// loses -- tracked as a DELTA rather than by re-summing the batch, so a request the
+	// loop below skips keeps contributing exactly what it contributed before.
+	var prefillTokens, withheldByPCP int
 	for i := range b.Reqs {
 		r := &b.Reqs[i]
 		ctx := r.Computed + r.Scheduled
@@ -387,7 +405,7 @@ func (k *Kernel) stepTime(b kernel.Batch,
 				// Where 2*pcp divides the query the zigzag makes every rank's pair count
 				// exactly equal, so this is the whole count over pcp. Where it does not,
 				// neither 1/pcp nor the token share is right: at 100 tokens over 8 ranks
-				// the busiest rank carries 0.1566 of the pairs where 1/pcp is 0.125 and
+				// the busiest rank carries 0.1568 of the pairs where 1/pcp is 0.125 and
 				// its token share is 0.14. A ragged partition loads one rank with two
 				// short chunks from the EXPENSIVE end, and only counting them says by how
 				// much.
@@ -400,8 +418,23 @@ func (k *Kernel) stepTime(b kernel.Batch,
 			}
 			causalFLOPs += pairs
 			prefillTokens += localSched
-			prefillChunks = append(prefillChunks,
-				chunk{sched: localSched, prefix: r.Computed})
+			withheldByPCP += r.Scheduled - localSched
+			// The chunks this rank owns, at their TRUE GLOBAL OFFSETS.
+			//
+			// A sliding-window layer's cost is positional, not a function of the token
+			// count: a query at global offset 100 under a 128-token window reads 101 keys,
+			// one at offset 100,000 reads 128. So the windowed term needs where this
+			// rank's tokens SIT, not merely how many it has -- and under the zigzag a
+			// rank owns two runs, one near the start and one near the end, which cannot
+			// be described as a single run at the request's own prefix.
+			//
+			// Collapsing them to one run at `prefix` charges the cheap early end twice
+			// and understates a windowed prefill by up to 7.9x (a 4,096-token chunk on no
+			// prefix at pcp 8, window 2,176). The error vanishes once the prefix
+			// saturates the window, since every query then reads exactly `window` keys
+			// wherever it sits -- which is why a long-context fixture cannot reveal it.
+			prefillChunks = k.appendPrefillRuns(prefillChunks,
+				r.Scheduled, r.Computed)
 			continue
 		}
 		decodeRequests++
@@ -409,11 +442,16 @@ func (k *Kernel) stepTime(b kernel.Batch,
 		decodeContexts = append(decodeContexts, ctx)
 		// A decode row is REPLICATED across prefill-context-parallel ranks, not split:
 		// _iter_rank_chunks gives every rank chunk_indices = (0,) for a non-prefilling
-		// request, so each computes the whole one-token query. PCP divides prefill only.
-		decodeTokens += r.Scheduled
+		// request, so each computes the whole one-token query. PCP divides prefill only,
+		// which is why nothing is withheld here.
 	}
-	// The token count this rank actually runs a forward over. Equal to the batch's own
-	// count when PCP is off, which is what keeps every existing deployment unchanged.
+	// The token count this rank actually runs a forward over: the batch's own count less
+	// whatever the prefill split withheld. Subtracting a delta rather than re-summing the
+	// loop is deliberate -- the loop skips a request whose context is non-positive, so a
+	// re-sum would silently drop tokens that request still contributes to every term
+	// derived from the step's token count. That would reprice a batch holding one, which
+	// a re-summed draft of this did: a two-token request resuming on a negative prefix
+	// priced 11.64 ms against 12.87 ms before.
 	//
 	// THIS IS THE RANK-LOCAL COUNT, AND THE EFFICIENCY RAMP THEREFORE SEES IT. That is a
 	// decision rather than a side effect, and the engine settles it: a prefill-context
@@ -430,7 +468,7 @@ func (k *Kernel) stepTime(b kernel.Batch,
 	// not split -- this is the same scalar it always was -- so the finding recorded at the
 	// ramp's own call site, that it is evaluated at the step's token count rather than a
 	// per-term one, still holds: what changed is how many tokens the step HAS.
-	tokens = prefillTokens + decodeTokens
+	tokens -= withheldByPCP
 
 	smBudget := b.SMBudget
 	if smBudget <= 0 || k.chip.SMCount == 0 {
@@ -613,13 +651,27 @@ func (k *Kernel) stepTime(b kernel.Batch,
 				if bounded := k.dcpDecodeTokens(l, l.AttnKind, decodeContexts); bounded >= 0 {
 					tokens = bounded
 				}
-				// The FLOOR stays outside the shard, deliberately. It is a per-call
-				// setup cost -- an MLA decode's is 51.5-89.5us against full attention's
-				// 9.5-19.5us precisely BECAUSE its setup reads a latent cache -- paid
-				// once per rank per launch however many tokens that rank holds. Dividing
-				// it by 8 would put an MLA floor at 6.4-11.2us, below full attention's,
-				// for the kernel the registry measures as several times costlier to set
-				// up. Sharding a sequence does not make a launch cheaper.
+				// The FLOOR stays outside the shard, deliberately. It is a KERNEL
+				// LAUNCH-AND-SETUP cost, paid once per rank per invocation however many
+				// tokens that rank holds, and sharding a sequence does not make a launch
+				// cheaper.
+				//
+				// The registry's own numbers are what settle this, and they settle it
+				// the opposite way round from the obvious argument. An MLA decode floor
+				// is 9.5-14.5us across the parts that carry one -- essentially the same
+				// as the part-wide attention floor, because blis-registry's
+				// attention_decode_floor_mla IS that figure reused: "this is this part's
+				// own measured attention-kernel decode floor, reused for the MLA kind"
+				// (cost-model-attention.yaml, attention_decode_floor_mla rationale). The
+				// larger module-derived floors, 4.7x-6.2x those, were measured and
+				// REJECTED, because they cover the whole MLA block including
+				// down-projections this kernel already prices as separate GEMM nodes.
+				//
+				// So the reason not to divide is not that an MLA setup is unusually
+				// expensive -- it is not -- but that a floor of 9.5-14.5us is a launch
+				// cost at any shard width. Dividing it by 8 would put it at 1.2-1.8us,
+				// below any measured attention floor on any part in the registry, for a
+				// kernel that still has to be launched on every rank.
 				attnSeconds += floor.Seconds() +
 					tokens*k.kvBytesPerToken/float64(k.plan.TotalLayers)/
 						rate
@@ -850,7 +902,7 @@ func (k *Kernel) stepTime(b kernel.Batch,
 		// make DCP look free in both directions.
 		//
 		// vLLM's default backend is "ag_rs" (dcp_comm_backend, vllm/config/parallel.py:40
-		// and set_dcp_defaults at :583-594 of v0.31.0), which runs three collectives per
+		// and set_dcp_defaults at :581-592 of v0.31.0), which runs three collectives per
 		// decode layer:
 		//
 		//	query all-gather      self.group.all_gather(query, dim=1)   dcp.py:1593
@@ -871,7 +923,7 @@ func (k *Kernel) stepTime(b kernel.Batch,
 		// the output. The catalog declares an MLA node `n_kv: 1, d_h: 576`, and d_h IS
 		// kv_lora_rank + qk_rope_head_dim, which is exactly the latent-plus-rope query
 		// that crosses. The output reduce-scatter carries kv_lora_rank alone (512 of that
-		// 576, before the v up-projection), so pricing it at d_h overstates it by 11% --
+		// 576, before the v up-projection), so pricing it at d_h overstates it by 12.5% --
 		// accepted rather than carrying another field through the plan for a fraction of
 		// one term, and recorded here so the choice is visible if it ever matters.
 		//
@@ -901,7 +953,7 @@ func (k *Kernel) stepTime(b kernel.Batch,
 		//
 		// A PCP rank computes only its share of a prefill, so it writes only its share of
 		// the new KV. Every rank must still hold the WHOLE cache, because PCP "does not
-		// increase the KV-cache shard count" (vllm/config/parallel.py:126-128 at v0.31.0)
+		// increase the KV-cache shard count" (vllm/config/parallel.py:131-133 at v0.31.0)
 		// -- that is what distinguishes it from DCP. So the ranks all-gather the cache
 		// inputs they just computed: _gather_prefill_cache_inputs all-gathers on dim 0,
 		// the token dimension (vllm/v1/attention/ops/pcp.py:31-35).
@@ -917,8 +969,17 @@ func (k *Kernel) stepTime(b kernel.Batch,
 		// the dtype is the same reasoning the secondary attention term uses -- the two
 		// cannot then drift.
 		if prefillTokens > 0 && k.layout.PCP > 1 && l.AttnQHeads > 0 {
+			// Divided by the KV-HOLDING layer count, not the total. kvBytesPerToken is
+			// summed over the layers that hold a cache (kvGeometry increments only for
+			// those), so that is the divisor which recovers one layer's share. On a
+			// hybrid stack the two differ sharply -- Nemotron-3-Ultra holds KV on 12 of
+			// 108 layers, so dividing by the total would understate this gather ninefold.
+			//
+			// The three decode-read sites still divide by TotalLayers, which is the same
+			// error in the same direction and predates this change; it is left alone here
+			// rather than corrected as a side effect of adding a collective.
 			payload := float64(prefillTokens) * k.kvBytesPerToken /
-				float64(k.plan.TotalLayers)
+				float64(max(k.kvLayers, 1))
 			key := collKey{Op: model.OpAllGather, Group: price.GroupPCP}
 			if k.crossesNodes(key) {
 				crossNode += k.collectiveSeconds(key, payload*k.spanFor(key))
@@ -1044,7 +1105,11 @@ func (k *Kernel) crossesNodes(key collKey) bool {
 	if k.layout.GPUsPerNode <= 0 {
 		return false
 	}
-	return k.groupSize(key.Group) > k.layout.GPUsPerNode
+	width, ok := k.groupSize(key.Group)
+	if !ok {
+		return false
+	}
+	return width > k.layout.GPUsPerNode
 }
 
 // groupSize returns the rank count a collective's group spans.
@@ -1052,23 +1117,37 @@ func (k *Kernel) crossesNodes(key collKey) bool {
 // Read from the GROUP rather than inferred from the op, because the op no longer decides
 // it: an all-gather spans tp ranks on the tensor-parallel axis and dcp ranks on the
 // decode-context-parallel one.
-func (k *Kernel) groupSize(group price.GroupAxis) int {
+func (k *Kernel) groupSize(group price.GroupAxis) (int, bool) {
 	switch group {
+	case price.GroupTP:
+		return max(k.layout.TP, 1), true
 	case price.GroupExpert:
-		return k.layout.ExpertWidth
+		return k.layout.ExpertWidth, true
 	case price.GroupDCP:
-		return max(k.layout.DCP, 1)
+		return max(k.layout.DCP, 1), true
 	case price.GroupPCP:
-		return max(k.layout.PCP, 1)
+		return max(k.layout.PCP, 1), true
 	}
-	return k.layout.TP
+	// EXHAUSTIVE RATHER THAN DEFAULTING TO THE TENSOR-PARALLEL WIDTH. An axis this
+	// function cannot name has no width, and pricing it at tp anyway is the exact failure
+	// the composite key exists to prevent: an all-gather's 8-rank floor is 1.35x to 1.59x
+	// its 4-rank figure across the nine parts measured at both, so a wrong axis is not a
+	// rounding error.
+	// Pipeline parallelism is the obvious future candidate -- Layout.PP exists and no
+	// collective spans it yet -- and it should arrive as a refusal rather than as a
+	// silently tensor-parallel price.
+	//
+	// This is the half of the resolve.Emits/Recognizes pair that a bare default would
+	// have left out: that pair exists so an unrecognized condition can be refused rather
+	// than quietly answered, and a width is no different.
+	return 0, false
 }
 
 // spanFor returns the cross-node scaling a collective pays. A ring reduces as it travels
 // and so crosses only a fraction of the fabric; a routed all-to-all must reach every peer.
 func (k *Kernel) spanFor(key collKey) float64 {
 	ratio := k.fabric.Ratio()
-	group := k.groupSize(key.Group)
+	group, _ := k.groupSize(key.Group)
 	if key.Op == model.OpAll2All && k.routedAll2All() {
 		return price.All2AllSpan(group, k.layout.GPUsPerNode, ratio)
 	}
@@ -1166,18 +1245,20 @@ func windowedCausalFLOPs(chunks []chunk, window int) float64 {
 // Summed per request rather than over the batch total, because min(sum) != sum(min): a
 // batch holding one request below the top-k and one far above it gets both wrong if the
 // bound is applied to the aggregate.
+//
+// NO LONGER ON THE PRICING PATH. dcpDecodeTokens composes this bound with the
+// decode-context shard per request and is what stepTime calls; this remains as the
+// selection bound stated on its own, which is what the sparse-MLA tests pin. The two
+// share sparseTopK and selectedKVTokensFor, so what those tests establish still holds for
+// the pricer.
 func selectedKVTokens(l *price.PlannedLayer, contexts []int) float64 {
-	if l.AttnKind != model.AttentionSparseMLA {
-		return -1
-	}
-	topk := l.AttnIndexTopK
+	// Delegates to sparseTopK rather than re-deriving the bound, so the claim that the
+	// two cannot disagree about which layers are sparse is structural. A zero means
+	// either a non-sparse kind or a sparse layer stating neither bound -- blis-schemas
+	// rejects the latter, so reaching it means a graph bypassed validation, and charging
+	// the full context is the conservative reading.
+	topk := sparseTopK(l)
 	if topk <= 0 {
-		topk = l.AttnWindow
-	}
-	if topk <= 0 {
-		// A sparse layer stating neither bound cannot be priced as sparse. blis-schemas
-		// rejects this, so reaching it means a graph bypassed validation; charging the
-		// full context is the conservative reading and keeps the old behaviour.
 		return -1
 	}
 	var total float64
@@ -1201,8 +1282,12 @@ func selectedKVTokensFor(l *price.PlannedLayer, ctx, topk int) float64 {
 }
 
 // sparseTopK is the bound a sparse-MLA layer selects within, or zero when this layer does
-// not select. Shared by selectedKVTokens and the per-request shard so the two cannot
-// disagree about which layers are sparse.
+// not select.
+//
+// The single source of that decision: both selectedKVTokens and dcpDecodeTokens call it,
+// so neither can disagree with the other about which layers are sparse or which bound
+// they select within. An earlier shape of this file derived the bound twice, and the two
+// copies were free to drift while a passing suite said nothing.
 func sparseTopK(l *price.PlannedLayer) int {
 	if l.AttnKind != model.AttentionSparseMLA {
 		return 0
@@ -1221,13 +1306,13 @@ func sparseTopK(l *price.PlannedLayer) int {
 // parallelism is off, so a caller keeps the whole chunk.
 //
 // PCP SPLITS THE PREFILL ITSELF, which is its defining purpose: vLLM calls it the "Number
-// of ranks that split prefill sequence computation" (vllm/config/parallel.py:126-128 at
+// of ranks that split prefill sequence computation" (vllm/config/parallel.py:131-133 at
 // v0.31.0). A rank builds a LOCAL batch of its own share and runs the forward on that
 // (num_local_tokens, vllm/v1/worker/gpu/pcp_manager.py:485), so every term proportional to
 // scheduled tokens falls with the split -- not only attention.
 //
 // THE SPLIT IS A ZIGZAG, NOT A SLICE, and that is the whole reason a single divisor is
-// defensible here. _iter_rank_chunks (pcp_manager.py:236-281) cuts each prefill into
+// defensible here. _iter_rank_chunks (pcp_manager.py:235-273) cuts each prefill into
 // 2*pcp chunks and gives rank r chunks r and 2*pcp-1-r, which its own docstring draws:
 //
 //	full:  | 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 |     (pcp = 4)
@@ -1249,7 +1334,7 @@ func sparseTopK(l *price.PlannedLayer) int {
 // rank holds 2*ceil(sched/(2*pcp)) tokens and the shards sum to sched exactly; where it
 // does not, the ragged remainder lands unevenly and the maximum is taken over the ranks
 // rather than assumed. The overhead over a nominal sched/pcp is bounded and small at any
-// realistic chunk -- 1.2% at 1,024 tokens and above, 0.34% at 4,096 and above -- and it is
+// realistic chunk -- under 1.5% above 1,024 tokens and under 0.4% above 4,096, for pcp up to 8 -- and it is
 // an OVERSTATEMENT, which is the safe direction.
 //
 // A SHORT PREFILL IS REPLICATED RATHER THAN SPLIT, BUT ONLY ALONGSIDE DCP. That gate is
@@ -1298,6 +1383,67 @@ func pcpLocalTokens(sched, pcp, dcp int) int {
 	return most
 }
 
+// appendPrefillRuns appends the prefill runs this rank computes for one request, reading
+// the split widths from the resolved layout.
+//
+// A method rather than a bare call so that the chunk geometry stepTime depends on is
+// reachable from outside stepTime: the quantity is a local, and the step time it feeds is
+// too insensitive to pin the geometry through (a dense GEMM dominates a windowed attention
+// term roughly five to one, so the difference between a positional reading and a
+// by-token-count one is a few percent of SM). Exercising the same path the pricer takes is
+// what makes that geometry testable at all.
+func (k *Kernel) appendPrefillRuns(dst []chunk, sched, prefix int) []chunk {
+	return appendPCPChunks(dst, sched, prefix, k.layout.PCP, k.layout.DCP)
+}
+
+// appendPCPChunks appends the prefill runs THIS RANK computes, each at its true global
+// offset, so a positional cost law sees where the tokens sit rather than only how many
+// there are.
+//
+// With prefill-context parallelism off, or for a request the engine replicates, that is
+// the one run the caller would have appended anyway: the whole query at its own prefix.
+// With the split on, it is the two zigzag chunks rank r owns -- chunk r near the cheap
+// start and chunk 2*pcp-1-r near the expensive end -- at offsets `prefix + lo`.
+//
+// WHICH RANK, and why it is the same one the token count comes from: pcpLocalTokens
+// maximises the token count over the ranks, so the chunks appended here are that rank's.
+// For a sliding-window layer the busiest rank by token count is not necessarily the
+// costliest by key count, but the two agree wherever the partition is even, and a window
+// term driven by the wrong rank of an uneven partition is a second-order error against
+// the 7.9x one this function exists to remove.
+func appendPCPChunks(dst []chunk, sched, prefix, pcp, dcp int) []chunk {
+	local := pcpLocalTokens(sched, pcp, dcp)
+	if local < 0 || local == sched {
+		// Not split, or replicated whole onto every rank.
+		return append(dst, chunk{sched: sched, prefix: prefix})
+	}
+	numChunks := 2 * pcp
+	size := (sched + numChunks - 1) / numChunks
+	// The rank holding the most tokens, matching pcpLocalTokens' own aggregation.
+	busiest, most := 0, 0
+	for rank := 0; rank < pcp; rank++ {
+		held := 0
+		for _, idx := range [...]int{rank, numChunks - 1 - rank} {
+			lo := min(idx*size, sched)
+			hi := min(lo+size, sched)
+			if hi > lo {
+				held += hi - lo
+			}
+		}
+		if held > most {
+			busiest, most = rank, held
+		}
+	}
+	for _, idx := range [...]int{busiest, numChunks - 1 - busiest} {
+		lo := min(idx*size, sched)
+		hi := min(lo+size, sched)
+		if hi > lo {
+			dst = append(dst, chunk{sched: hi - lo, prefix: prefix + lo})
+		}
+	}
+	return dst
+}
+
 // pcpCausalPairs is the attention work the BUSIEST prefill-context-parallel rank does for
 // one prefill chunk, in the same units the unsharded count uses: four times the
 // query-key pairs, since there are two FLOPs per multiply-accumulate and two matmuls.
@@ -1309,7 +1455,7 @@ func pcpLocalTokens(sched, pcp, dcp int) int {
 // EXACTLY equal and this reduces to the whole count over pcp -- verified equal to
 // 1.000000 of the ideal share with zero spread across ranks, at pcp 2, 4 and 8, with and
 // without a prefix. Where it does not divide, the busiest rank carries more than either
-// 1/pcp or its token share: at 100 tokens over 8 ranks it carries 0.1566 of the pairs
+// 1/pcp or its token share: at 100 tokens over 8 ranks it carries 0.1568 of the pairs
 // against 0.125 and 0.14 respectively, because a ragged partition hands one rank two short
 // chunks from the expensive end.
 //
@@ -1371,7 +1517,7 @@ func pcpCausalPairs(sched, prefix, pcp, dcp int) float64 {
 //     "DCP not support sliding window" (:868-872). ChunkedLocalAttentionSpec likewise
 //     divides by nothing.
 //   - recurrent state does not, for a reason the engine also states: "Mamba state is
-//     replicated across DCP/PCP ranks, never sharded" (:1095-1098). Nothing here has to
+//     replicated across DCP/PCP ranks, never sharded" (:1097-1098). Nothing here has to
 //     act on that, because a recurrent layer is priced through RecurrentStateBytes and
 //     never reaches the KV term this function gates.
 //
@@ -1405,7 +1551,7 @@ func dcpShardsKV(kind model.AttentionKind) bool {
 // from 128 up.
 //
 // THE SLOWEST RANK BINDS, NOT THE MEAN. The decode combine is a collective
-// (cp_lse_ag_out_rs, vllm/v1/attention/ops/dcp.py:275-298), so every rank waits for the
+// (cp_lse_ag_out_rs at vllm/v1/attention/ops/dcp.py:471), so every rank waits for the
 // one holding the most tokens. Charging the mean would make a step cheaper than any rank
 // can actually deliver.
 //

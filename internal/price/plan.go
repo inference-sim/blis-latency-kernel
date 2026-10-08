@@ -189,10 +189,17 @@ func (a PlannedAttention) HoldsKV() bool { return a.Role == "" }
 //
 // It exists because the primitive alone does not identify a collective's cost. A
 // tensor-parallel all-gather and a decode-context-parallel one are the same OP at two
-// different widths, and a measured floor at 8 ranks is 1.53x to 1.91x the 4-rank figure
-// across the parts swept at both -- so a consumer that keyed coefficients by op alone
-// would price one of the two against the other's width. The group is what picks the
+// different widths, and a collective's floor grows with its group: over the nine parts
+// this registry carries at both 4 and 8 ranks, the 8-rank floor is 1.35x to 1.59x the
+// 4-rank figure for an all-gather and 1.35x to 1.60x for a reduce-scatter, reaching
+// 1.02x to 1.89x for an all-reduce. So a consumer that keyed coefficients by op alone
+// would price one of two groups against the other's width. The group is what picks the
 // width, so it travels with the collective rather than being inferred from the op.
+//
+// The growth is not uniform across primitives, which is itself the reason to carry the
+// axis rather than a single correction factor: an all-to-all's floor barely moves with
+// width (1.00x to 1.16x in fp16), since a shuffle's setup does not grow the way a ring's
+// does.
 type GroupAxis uint8
 
 const (

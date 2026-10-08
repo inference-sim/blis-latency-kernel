@@ -252,9 +252,18 @@ func (k *Kernel) lift(c *resolve.Coefficients, g *model.Graph, cacheBytes float6
 	// is already right -- blis-catalog declares an MLA node as `n_kv: 1, d_h: 576`, so
 	// kvGeometry's NumKVHeads*HeadDim is the latent width kv_lora_rank + qk_rope_head_dim
 	// and needs no special case. What was missing is the RATE: an MLA decode sustains
-	// 0.61-0.80 of datasheet bandwidth against full attention's 0.52-0.88, with a floor
-	// several times larger (51.5-89.5us against 9.5-19.5us) because the per-call setup
-	// reads a latent cache.
+	// 0.61-0.80 of datasheet bandwidth against full attention's 0.52-0.88.
+	//
+	// The FLOOR is not what distinguishes them, which an earlier version of this comment
+	// had backwards: it claimed an MLA floor "several times larger (51.5-89.5us against
+	// 9.5-19.5us) because the per-call setup reads a latent cache". The registry says
+	// otherwise -- attention_decode_floor_mla is 9.5-14.5us against the part-wide
+	// 9.5-19.0us -- because that entry IS the part's own measured attention floor reused
+	// for the kind ("this is this part's own measured attention-kernel decode floor,
+	// reused for the MLA kind", cost-model-attention.yaml). The larger module-derived
+	// floors, 4.7x-6.2x those, were measured and REJECTED: they cover the whole MLA block
+	// including down-projections this kernel prices separately as GEMM nodes, and charging
+	// them took kimi-k2.5's TPOT error from 6.38% to 14.57%.
 	//
 	// Ten catalog models declare an mla or sparse_mla layer, and two of them
 	// (deepseek-v4-pro, kimi-k3) appear in both the FPM dataset and the InferenceX corpus,
@@ -417,6 +426,11 @@ func (k *Kernel) lift(c *resolve.Coefficients, g *model.Graph, cacheBytes float6
 	// head count floors at one because a head is never split across ranks.
 	nkv, headDim, layers := kvGeometry(g)
 	k.kvBytesPerToken = price.KVBytesPerToken(nkv, k.layout.TP, headDim, layers, cacheBytes)
+	// The layer count kvBytesPerToken is spread over. kvGeometry counts only layers that
+	// HOLD KV, so this is the divisor that recovers one layer's share of the cache -- on a
+	// hybrid stack it is not the total layer count, and the two differ ninefold on
+	// Nemotron-3-Ultra (12 KV layers of 108).
+	k.kvLayers = layers
 	// Whether EVERY KV-holding layer is a kind decode-context parallelism shards. A
 	// whole-model verdict, because kvBytesPerToken is a whole-model figure: see
 	// SequenceVariableBytes for what that costs and why it costs nothing real.
@@ -623,8 +637,16 @@ func (k *Kernel) groupWidth(
 	c *resolve.Coefficients, key collKey, measured, dtype, chip string,
 ) (int, error) {
 	// The group decides the width, not the op: an all-gather spans tp ranks on the
-	// tensor-parallel axis and dcp ranks on the decode-context-parallel one.
-	width := k.groupSize(key.Group)
+	// tensor-parallel axis and dcp ranks on the decode-context-parallel one. An axis with
+	// no width is refused here rather than resolved against a substitute, which is the
+	// same standard this function already holds for an unmeasured width.
+	width, ok := k.groupSize(key.Group)
+	if !ok {
+		return 0, fmt.Errorf(
+			"collective %s names parallelism axis %d, whose width this kernel cannot "+
+				"determine; pricing it at the tensor-parallel width would understate a "+
+				"narrower group's floor by up to 1.59x", key.Op, key.Group)
+	}
 	widths := measuredWidths(c, measured, dtype, chip)
 	if len(widths) == 0 {
 		return 0, fmt.Errorf(

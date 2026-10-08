@@ -17,16 +17,16 @@ import (
 // but only as a side effect of the expert group: ExpertParallelWidth is tp * max(DP, PCP),
 // so a wider PCP sharded more experts and paid a wider all-to-all. The sharding PCP is
 // NAMED for -- "Number of ranks that split prefill sequence computation"
-// (vllm/config/parallel.py:126-128 at v0.31.0) -- was not credited at all, so a PCP
+// (vllm/config/parallel.py:131-133 at v0.31.0) -- was not credited at all, so a PCP
 // deployment's prefill was priced as whole work on every rank. The error is one-sided and
 // the opposite of DCP's: prefill was OVERSTATED.
 //
 // WHAT THE ENGINE DOES, which these tests encode:
 //
 //	a rank runs a forward over its own share   worker/gpu/pcp_manager.py:485
-//	the split is a zigzag over 2*pcp chunks    worker/gpu/pcp_manager.py:236-281
+//	the split is a zigzag over 2*pcp chunks    worker/gpu/pcp_manager.py:235-273
 //	decodes are replicated, not split          worker/gpu/pcp_manager.py:260-263
-//	the KV cache stays replicated              config/parallel.py:126-128
+//	the KV cache stays replicated              config/parallel.py:131-133
 //	so the ranks all-gather what they wrote     attention/ops/pcp.py:31-35
 //
 // The asymmetry against DCP is the thing most easily got backwards, and two tests here
@@ -35,8 +35,14 @@ const pcpFixture = dcpMLAFixture
 
 // pcpKernel builds a kernel from a committed fixture with the prefill-context-parallel
 // width changed. The fixtures state dp 1, which matters: blis-schemas rejects pcp > 1
-// alongside dp > 1, matching the engine's own refusal ("PCP does not support data
-// parallelism yet", config/parallel.py:548-549).
+// alongside dp > 1.
+//
+// That constraint is blis-schemas' own (spec/deployment/validate.go:146-149), NOT a quote
+// from the engine: vLLM v0.31.0 carries no PCP-with-DP refusal, and an earlier draft of
+// this comment attributed one to config/parallel.py:548-549, which is in fact EPLB
+// validation. The schema's reasoning stands on its own -- combining the two makes the
+// expert group's extent ambiguous, since ExpertParallelWidth is tp * max(DP, PCP) -- and
+// is recorded here rather than borrowed.
 func pcpKernel(t testing.TB, fixture string, pcp int) *Kernel {
 	t.Helper()
 	in := fixtureInputs(t, fixture)
@@ -53,7 +59,7 @@ func pcpKernel(t testing.TB, fixture string, pcp int) *Kernel {
 // ---------------------------------------------------------------------------
 
 // vllmPCPRankTokens is _iter_rank_chunks transcribed for one rank
-// (vllm/v1/worker/gpu/pcp_manager.py:252-281 at v0.31.0): each prefill is cut into 2*pcp
+// (vllm/v1/worker/gpu/pcp_manager.py:235-273 at v0.31.0): each prefill is cut into 2*pcp
 // chunks of ceil(sched/(2*pcp)), and rank r takes chunks r and 2*pcp-1-r. It is the ORACLE
 // the closed form must match.
 func vllmPCPRankTokens(sched, pcp, rank int) int {
@@ -394,7 +400,7 @@ func TestPCPDividesTheCausalTermByExactlyTheSplit(t *testing.T) {
 
 // PCP MUST NOT TOUCH THE DECODE READ. It splits prefill computation and leaves the KV
 // cache replicated -- "PCP expands the process world size but does not increase the
-// KV-cache shard count" (config/parallel.py:126-128) -- which is exactly the opposite of
+// KV-cache shard count" (config/parallel.py:131-133) -- which is exactly the opposite of
 // DCP. Conflating the two is the single easiest thing to get backwards, so the non-effect
 // is asserted rather than inferred.
 func TestPCPDoesNotShardTheDecodeRead(t *testing.T) {
@@ -681,7 +687,7 @@ func TestThePCPGatherIsPricedAtItsOwnWidth(t *testing.T) {
 		t.Fatalf("this fixture is expected to be tp=8, got %d: the test needs the two "+
 			"widths to differ", k.layout.TP)
 	}
-	if got := k.groupSize(price.GroupPCP); got != 2 {
+	if got, ok := k.groupSize(price.GroupPCP); !ok || got != 2 {
 		t.Errorf("the prefill-context group spans %d ranks, want 2", got)
 	}
 	pcpFloor, ok := k.collectiveFloors[collKey{Op: model.OpAllGather, Group: price.GroupPCP}]
@@ -746,4 +752,137 @@ func TestPrefillContextParallelWidthComesFromTheResolvedLayout(t *testing.T) {
 	if got := k.DecodeContextParallelWidth(); got != 1 {
 		t.Errorf("setting pcp moved the decode-context width to %d", got)
 	}
+}
+
+// Changing how the step's token count is derived must not reprice a batch PCP does not
+// touch, and the request that exposes this is the one the accumulation loop SKIPS.
+//
+// THE DEFECT THIS WAS WRITTEN AGAINST. Crediting the prefill split meant the step's token
+// count could no longer be the batch's own, so a draft re-summed it from the per-request
+// loop. That loop skips a request whose context is non-positive -- `Computed + Scheduled
+// <= 0`, reachable with a negative Computed, which the schema documents as a real state
+// ("an engine advances it optimistically at dispatch and rolls it back on speculative
+// rejection") -- while Batch.Tokens() still counts its scheduled tokens. The re-sum
+// dropped them from every term derived from the token count, repricing such a batch by
+// 10% with PCP off entirely: 11.64 ms against 12.87 ms.
+//
+// The fix subtracts what the split WITHHOLDS rather than rebuilding the total, so a
+// skipped request contributes exactly what it always did.
+func TestTheStepTokenCountStillCountsARequestTheLoopSkips(t *testing.T) {
+	k := fixture(t, pcpFixture)
+
+	withSkipped := kernel.Batch{DecodeThreshold: 8, Reqs: []kernel.ReqShape{
+		{Scheduled: 2, Computed: -2},
+		{Scheduled: 4, Computed: 0, PromptLen: 4},
+	}}
+	withoutSkipped := kernel.Batch{DecodeThreshold: 8, Reqs: []kernel.ReqShape{
+		{Scheduled: 4, Computed: 0, PromptLen: 4},
+	}}
+	if withSkipped.Tokens() != 6 || withoutSkipped.Tokens() != 4 {
+		t.Fatalf("the batches must differ by the skipped request's tokens: %d and %d",
+			withSkipped.Tokens(), withoutSkipped.Tokens())
+	}
+
+	with := k.StepTime(withSkipped).NoOverlap
+	without := k.StepTime(withoutSkipped).NoOverlap
+	if with <= without {
+		t.Errorf("a batch of %d tokens priced %v, at or below the %v of a batch of %d; "+
+			"the tokens of a request the accumulation loop skips are being dropped from "+
+			"the step's token count", withSkipped.Tokens(), with, without,
+			withoutSkipped.Tokens())
+	}
+	// And PCP must not change that: it withholds only what it actually splits, and it
+	// splits nothing here, since neither request is in the prefill regime.
+	for _, pcp := range []int{2, 8} {
+		if got := pcpKernel(t, pcpFixture, pcp).StepTime(withSkipped).NoOverlap; got != with {
+			t.Errorf("pcp=%d repriced a batch it splits nothing in: %v against %v",
+				pcp, got, with)
+		}
+	}
+}
+
+// A SLIDING-WINDOW layer's prefill must be split by WHERE this rank's tokens sit, not
+// merely by how many it has.
+//
+// THE DEFECT THIS WAS WRITTEN AGAINST. prefillChunks carries `chunk{sched, prefix}`, which
+// windowedCausalFLOPs reads POSITIONALLY: a query at chunk-local offset j attends
+// min(prefix+j+1, window) keys. Crediting the split by replacing `sched` with the rank's
+// token COUNT while leaving `prefix` at the request's own offset described the rank as one
+// short run at the cheap start of the sequence. The zigzag gives it two runs, one near the
+// start and one near the END, where every query reads a full window. Measured on the
+// function: a 4,096-token chunk on no prefix at pcp 8 and window 2,176 was charged 524,288
+// pair-units against a true 2,359,296 -- understated 4.5x.
+//
+// WHY IT NEEDS A WIDE WINDOW TO SHOW, which is why a first draft of this test missed it:
+// the error needs the window to exceed the rank's token count. At window 128 a rank
+// holding 512 tokens saturates almost everywhere regardless of position, so both readings
+// agree to the digit -- and gpt-oss-120b's window IS 128, so the hybrid fixture the DCP
+// tests use cannot see this at all.
+func TestPCPSplitsAWindowedPrefillByPositionNotByCount(t *testing.T) {
+	// THROUGH THE PRICER'S OWN PATH. appendPrefillRuns is what stepTime calls, and it
+	// reads the split widths from the resolved layout -- so this exercises the same code
+	// the step does rather than a free function beside it.
+	k8 := pcpKernel(t, pcpFixture, 8)
+	runs := k8.appendPrefillRuns(nil, 4096, 0)
+	if len(runs) != 2 {
+		t.Fatalf("a split prefill over 8 ranks should yield two runs, got %d: %+v",
+			len(runs), runs)
+	}
+	lo, hi := runs[0], runs[1]
+	if hi.prefix < 4096/2 {
+		t.Errorf("the high run starts at %d, below the sequence midpoint; a zigzag rank "+
+			"owns a chunk from the expensive end and that is what makes its queries "+
+			"saturate a wide window", hi.prefix)
+	}
+	if lo.prefix+lo.sched > hi.prefix {
+		t.Errorf("the runs overlap (%d+%d > %d)", lo.prefix, lo.sched, hi.prefix)
+	}
+	if held, want := lo.sched+hi.sched, pcpLocalTokens(4096, 8, 1); held != want {
+		t.Errorf("the runs hold %d tokens, want the busiest rank's %d", held, want)
+	}
+	// Without the split, the runs are the request itself, so no existing deployment moves.
+	if off := fixture(t, pcpFixture).appendPrefillRuns(nil, 4096, 13); len(off) != 1 ||
+		off[0].sched != 4096 || off[0].prefix != 13 {
+		t.Errorf("with pcp off the runs should be the request itself, got %+v", off)
+	}
+
+	// THE WINDOWED TERM, as two metamorphic relations rather than pinned figures. A window
+	// WIDER than this rank's token count must cost more positionally than collapsed to the
+	// start, because the high run then reads a full window; a window much NARROWER must
+	// cost exactly the same, because it saturates wherever the tokens sit. Both sides are
+	// computed from the kernel's own function, so a registry refit cannot break them.
+	for _, pcp := range []int{2, 4, 8} {
+		positional := pcpKernel(t, pcpFixture, pcp).appendPrefillRuns(nil, 4096, 0)
+		held := 0
+		for _, c := range positional {
+			held += c.sched
+		}
+		flat := []chunk{{sched: held, prefix: 0}}
+		if wide, wideFlat := windowedCausalFLOPs(positional, 2176),
+			windowedCausalFLOPs(flat, 2176); wide <= wideFlat {
+			t.Errorf("pcp=%d: a 2,176-token window costs %v positionally against %v by "+
+				"token count; the high run must be charged for a full window",
+				pcp, wide, wideFlat)
+		}
+		if narrow, narrowFlat := windowedCausalFLOPs(positional, 8),
+			windowedCausalFLOPs(flat, 8); narrow != narrowFlat {
+			t.Errorf("pcp=%d: an 8-token window costs %v positionally against %v by "+
+				"token count; a window this narrow saturates wherever the tokens sit",
+				pcp, narrow, narrowFlat)
+		}
+	}
+
+	// COVERAGE LIMIT, STATED RATHER THAN PAPERED OVER. No sound relation on the STEP
+	// separates the two readings. On the most windowed fixture committed -- minimax-m3,
+	// 57 of 60 layers at a 2,176-token window -- the defect moves a 2,048-token prefill by
+	// 5.1% of the SM term, because a dense GEMM dominates a windowed attention term
+	// roughly five to one. Three step-level relations were tried and all three hold under
+	// the defect as well as without it: a pinned ratio (also fitted to the current
+	// registry, so unacceptable regardless), a sandwich between the unsplit figure and a
+	// same-length contiguous chunk, and a sandwich between a saturating and an unbounded
+	// window. A bound loose enough to survive a refit is wider than 5.1%.
+	//
+	// So the guard is the chunk geometry above, taken through the pricer's own method.
+	// Closing the step-level gap needs a fixture whose windowed layers dominate its GEMMs,
+	// which the catalog does not carry.
 }

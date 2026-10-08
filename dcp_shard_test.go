@@ -31,7 +31,7 @@ import (
 //
 //	tokens divide, bytes per token do not   kv_cache_interface.py:545-550, :578-583
 //	a sliding window is refused outright    kv_cache_interface.py:868-872
-//	recurrent state is never sharded        kv_cache_interface.py:1095-1098
+//	recurrent state is never sharded        kv_cache_interface.py:1097-1098
 //	the per-rank length, with striping      attention/backends/utils.py:1143-1156
 //	the ag_rs combine, three collectives    attention/ops/dcp.py:458, :493, :1593
 //
@@ -751,7 +751,7 @@ func TestTheDCPCollectivesArePricedAtTheirOwnWidthNotTheTensorParallelOne(t *tes
 	if dcp >= tp {
 		t.Errorf("a 2-rank all-gather floor of %v is not below the 8-rank %v", dcp, tp)
 	}
-	if got := k.groupSize(price.GroupDCP); got != 2 {
+	if got, ok := k.groupSize(price.GroupDCP); !ok || got != 2 {
 		t.Errorf("the decode-context group spans %d ranks, want 2", got)
 	}
 
