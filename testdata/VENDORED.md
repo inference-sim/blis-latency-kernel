@@ -12,7 +12,7 @@ default the test suite resolves against.
 | tree | upstream | commit |
 |---|---|---|
 | `testdata/catalog` | blis-catalog | `747a2213e13030ae675f9872c3e2a76b6b770d50` (2026-10-07) |
-| `testdata/registry` | blis-registry | `46d930c0fb96e603b76c507acaf14910d48c4ccb` (2026-10-07) |
+| `testdata/registry` | blis-registry | `7931f3807bacfadf6e59a34335e35fde675e32c3` (2026-10-08) |
 
 Copied verbatim — no edits. Only what a kernel actually opens is here, which is why the
 copy is ~800K rather than the 21M the two repositories occupy:
