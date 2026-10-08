@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	latencykernel "github.com/inference-sim/blis-latency-kernel"
+	"github.com/inference-sim/blis-latency-kernel/internal/artifacttest"
 	"github.com/inference-sim/blis-latency-kernel/internal/harness"
 )
 
@@ -216,9 +217,11 @@ func TestBatchForBuildsOneRequestPerResidentRequest(t *testing.T) {
 // --- The committed corpus ------------------------------------------------------
 
 func TestTheCommittedCorpusIsWellFormed(t *testing.T) {
-	raw, err := os.ReadFile("../../testdata/measurements/scoreable.json")
+	const corpusPath = "../../testdata/measurements/scoreable.json"
+	raw, err := os.ReadFile(corpusPath)
 	if err != nil {
-		t.Skipf("corpus unavailable: %v", err)
+		// Committed beside this test, so it is never merely absent.
+		t.Fatalf("committed corpus %s: %v", corpusPath, err)
 	}
 	var points []point
 	if err := json.Unmarshal(raw, &points); err != nil {
@@ -284,9 +287,7 @@ func scoreFixture(t *testing.T, scenario string) *latencykernel.Kernel {
 		Catalog:   harness.DefaultCatalog(),
 		Registry:  harness.DefaultRegistry(),
 	})
-	if err != nil {
-		t.Skipf("catalog or registry unavailable: %v", err)
-		return nil
-	}
+	artifacttest.RequireArtifact(t, harness.DefaultCatalog(),
+		harness.DefaultCatalog(), "catalog", err)
 	return k
 }

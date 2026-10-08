@@ -734,17 +734,17 @@ func (k *Kernel) stepTime(b kernel.Batch,
 	// The physical reason is PIECEWISE cudagraph mode: attention runs eagerly between
 	// captured segments, so per-layer overlap is structurally limited.
 	//
-	// A concentration-aware choice belongs here eventually -- where one resource holds
-	// most of a step, per-stage max IS right, and the single dissenting cell in that
-	// evidence is a whole model on two GPUs. Five cells is enough to reject the
-	// optimistic edge as a universal default and not enough to fit a blend, so this
-	// stays a constant until there is more.
+	// A concentration-aware choice would refine this -- where one resource holds most of a
+	// step, per-stage max IS right, and the single dissenting cell in that evidence is a
+	// whole model on two GPUs. Five cells is enough to reject the optimistic edge as a
+	// universal default and not enough to fit a blend.
 	//
-	// schemas v0.2.0 dropped StepEstimate.Expected, so the kernel no longer states this in
-	// the estimate and a caller reading one number reads NoOverlap. The finding is kept
-	// here because it is the reason that is the right edge, and it is measured rather than
-	// rederivable from the band: a reader with only Overlap and NoOverlap cannot tell
-	// which the evidence favours.
+	// schemas v0.2.0 removed StepEstimate.Expected, so the kernel no longer names an edge
+	// in the estimate and this paragraph is the only place the choice is recorded. It is
+	// kept because it is measured rather than rederivable: a caller holding only Overlap
+	// and NoOverlap cannot tell which the evidence favours, and the band is wide enough
+	// that guessing picks a different number. A caller that wants one figure should read
+	// NoOverlap.
 	return kernel.StepEstimate{
 		Overlap: overlap, NoOverlap: noOverlap,
 		Bottleneck: bottleneck, PerResource: per,

@@ -8,6 +8,8 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	"github.com/inference-sim/blis-latency-kernel/internal/artifacttest"
+
 	schemas "github.com/inference-sim/blis-schemas"
 	"github.com/inference-sim/blis-schemas/rules/v0_29"
 	"github.com/inference-sim/blis-schemas/spec/coefficient"
@@ -47,8 +49,9 @@ func envOr(key, fallback string) string {
 // that is PRESENT but unreadable fails, because that is a real incompatibility and
 // skipping it is how one hid: under the pseudo-version this repo was pinned to,
 // blis-catalog's storage.yaml failed to decode (it already carried v0.2.0's field names),
-// so every test here skipped on "catalog unavailable" and 35 of them were passing by not
-// running. absentCheckout below draws that line.
+// so every test here skipped on "catalog unavailable" and 41 of them were passing by not
+// running — measured by `go test -v .` at 3cf1ef1: 41 top-level skips, 46 counting
+// subtests, 0 failures, suite reporting ok. artifacttest.RequireArtifact draws that line.
 func fixture(t testing.TB, scenario string) *Kernel {
 	t.Helper()
 	// The fixture itself is committed beside this test, so it is never merely absent:
@@ -57,28 +60,28 @@ func fixture(t testing.TB, scenario string) *Kernel {
 	if err != nil {
 		t.Fatalf("committed fixture %s: %v", scenario, err)
 	}
-	graph, err := schemas.LoadModelGraph(
-		filepath.Join(catalogRoot, "models", sc.Model, "graph.yaml"))
-	requireArtifact(t, catalogRoot, "catalog", err)
-	chip, err := schemas.LoadChip(
-		filepath.Join(catalogRoot, "hardware", sc.Cluster.Hardware+".yaml"))
-	requireArtifact(t, catalogRoot, "catalog", err)
+	graphPath := filepath.Join(catalogRoot, "models", sc.Model, "graph.yaml")
+	graph, err := schemas.LoadModelGraph(graphPath)
+	artifacttest.RequireArtifact(t, catalogRoot, graphPath, "catalog", err)
+	chipPath := filepath.Join(catalogRoot, "hardware", sc.Cluster.Hardware+".yaml")
+	chip, err := schemas.LoadChip(chipPath)
+	artifacttest.RequireArtifact(t, catalogRoot, chipPath, "catalog", err)
 	var fabric *hardware.Fabric
 	if sc.Cluster.Fabric != "" {
-		fabric, err = schemas.LoadFabric(
-			filepath.Join(catalogRoot, "networks", sc.Cluster.Fabric+".yaml"))
-		requireArtifact(t, catalogRoot, "catalog", err)
+		fabricPath := filepath.Join(catalogRoot, "networks", sc.Cluster.Fabric+".yaml")
+		fabric, err = schemas.LoadFabric(fabricPath)
+		artifacttest.RequireArtifact(t, catalogRoot, fabricPath, "catalog", err)
 	}
 	var sets []*coefficient.Set
 	for _, name := range sc.Coefficients {
-		set, err := schemas.LoadCoefficientSet(
-			filepath.Join(registryRoot, "coefficients", name+".yaml"))
-		requireArtifact(t, registryRoot, "registry", err)
+		setPath := filepath.Join(registryRoot, "coefficients", name+".yaml")
+		set, err := schemas.LoadCoefficientSet(setPath)
+		artifacttest.RequireArtifact(t, registryRoot, setPath, "registry", err)
 		sets = append(sets, set)
 	}
-	devices, err := schemas.LoadStorageDevices(
-		filepath.Join(catalogRoot, "devices", "storage.yaml"))
-	requireArtifact(t, catalogRoot, "catalog", err)
+	devicesPath := filepath.Join(catalogRoot, "devices", "storage.yaml")
+	devices, err := schemas.LoadStorageDevices(devicesPath)
+	artifacttest.RequireArtifact(t, catalogRoot, devicesPath, "catalog", err)
 	k, err := New(Inputs{
 		Scenario: sc, Deployment: dep, PoolIndex: 0,
 		Model: graph, Chip: chip, Fabric: fabric,
@@ -118,24 +121,4 @@ func loadBundle(path string) (*scenario.Scenario, *deployment.Deployment, error)
 			"the deployment in %s declares no pools: there is nothing to price", path)
 	}
 	return &sc, &dep, nil
-}
-
-// requireArtifact reports a sibling-repository load failure as a skip or a failure,
-// depending on which of the two it actually is.
-//
-// A sibling checkout that is not there skips: not every working copy has blis-catalog and
-// blis-registry beside it, and a test cannot read what is absent. A checkout that IS there
-// and still failed to load is an incompatibility between this repo and that one — the
-// exact condition worth failing on, and the one a blanket skip hid for the whole life of
-// the pseudo-version pin.
-func requireArtifact(t testing.TB, root, what string, err error) {
-	t.Helper()
-	if err == nil {
-		return
-	}
-	if _, statErr := os.Stat(root); os.IsNotExist(statErr) {
-		t.Skipf("%s checkout absent at %s", what, root)
-	}
-	t.Fatalf("%s at %s is present but unreadable, which is an incompatibility rather "+
-		"than a missing checkout: %v", what, root, err)
 }

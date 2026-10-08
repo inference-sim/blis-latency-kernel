@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/inference-sim/blis-latency-kernel/internal/artifacttest"
 	"github.com/inference-sim/blis-latency-kernel/internal/harness"
 )
 
@@ -16,9 +17,11 @@ import (
 
 func loadCorpus(t *testing.T) corpus {
 	t.Helper()
-	raw, err := os.ReadFile("../../testdata/measurements/aisimulate_e2e.json")
+	const corpusPath = "../../testdata/measurements/aisimulate_e2e.json"
+	raw, err := os.ReadFile(corpusPath)
 	if err != nil {
-		t.Skipf("corpus unavailable: %v", err)
+		// Committed beside this test, so it is never merely absent.
+		t.Fatalf("committed corpus %s: %v", corpusPath, err)
 	}
 	var c corpus
 	if err := json.Unmarshal(raw, &c); err != nil {
@@ -98,9 +101,8 @@ func TestThePredictionCarriesNoAbsoluteScale(t *testing.T) {
 			Catalog:   harness.DefaultCatalog(),
 			Registry:  harness.DefaultRegistry(),
 		})
-		if err != nil {
-			t.Skipf("catalog or registry unavailable: %v", err)
-		}
+		artifacttest.RequireArtifact(t, harness.DefaultCatalog(),
+			harness.DefaultCatalog(), "catalog", err)
 		ctx := contextTokens(s)
 		anchor := stepSeconds(k, s.Points[0].Concurrency, ctx)
 		got := stepSeconds(k, s.Points[0].Concurrency, ctx) / anchor
@@ -205,9 +207,8 @@ func scoreSweeps(t *testing.T) (mine, theirs []float64, c corpus) {
 	// is two levels up. Passing it explicitly is what keeps this from skipping silently.
 	mine, theirs, err := score(c, scenarioRoot, harness.DefaultCatalog(),
 		harness.DefaultRegistry(), false)
-	if err != nil {
-		t.Skipf("catalog or registry unavailable: %v", err)
-	}
+	artifacttest.RequireArtifact(t, harness.DefaultCatalog(),
+		harness.DefaultCatalog(), "catalog", err)
 	return mine, theirs, c
 }
 

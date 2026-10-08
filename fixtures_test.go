@@ -30,18 +30,22 @@ func fixturePaths(t *testing.T) []string {
 			return err
 		}
 		if d.IsDir() {
-			switch d.Name() {
+			// Pruned by PATH rather than by base name, so a directory that happens to
+			// share one of these names deeper in the tree is still walked.
+			switch path {
 			// The corpora the fixtures are scored against, not fixtures.
-			case "measurements":
+			case filepath.Join("testdata", "measurements"):
 				return filepath.SkipDir
 			// The pinned upstream copies: chips, fabrics, model graphs and coefficient
 			// sets. They are catalog and registry documents with their own schemas, so
 			// they are not scenario+deployment pairs and must not be held to that shape.
-			case "catalog", "registry":
+			case filepath.Join("testdata", "catalog"), filepath.Join("testdata", "registry"):
 				return filepath.SkipDir
 			}
 		}
-		if !d.IsDir() && strings.HasSuffix(path, ".yaml") {
+		// Both spellings: a fixture written as .yml would otherwise be invisible to every
+		// contract below, which is the silent kind of gap this file exists to close.
+		if !d.IsDir() && (strings.HasSuffix(path, ".yaml") || strings.HasSuffix(path, ".yml")) {
 			out = append(out, path)
 		}
 		return nil
@@ -49,8 +53,16 @@ func fixturePaths(t *testing.T) []string {
 	if err != nil {
 		t.Fatalf("walking testdata: %v", err)
 	}
-	if len(out) == 0 {
-		t.Fatal("no fixtures found; testdata is where every committed scenario lives")
+	// A floor, not just non-empty. 678 of these are generated, so a glob or generator
+	// regression that emits one fixture instead of 678 would satisfy every assertion below
+	// while testing almost nothing — the "zero tests ran" failure in a subtler form. The
+	// bound is deliberately loose: it catches a collapse without breaking on the ordinary
+	// addition or removal of a handful of scenarios.
+	const floor = 600
+	if len(out) < floor {
+		t.Fatalf("found %d fixtures, want at least %d: the corpus is 685 files, of which "+
+			"678 are generated, so a count this low means a glob or the generator dropped "+
+			"most of them rather than that scenarios were deleted", len(out), floor)
 	}
 	return out
 }

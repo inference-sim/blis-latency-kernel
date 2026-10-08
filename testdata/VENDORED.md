@@ -38,7 +38,8 @@ the suite unrunnable for anyone else and, worse, quiet about it: a skip reads as
 It hid a real failure for the life of the `v0.0.0-20261005164647` pseudo-version pin. The
 sibling catalog had already moved to blis-schemas v0.2.0 field names
 (`read_bandwidth_mb_s`), which the pinned schema rejected, so **every** test that built a
-kernel from a committed fixture skipped on `catalog unavailable` — 35 of them — and
+kernel from a committed fixture skipped on `catalog unavailable` — 41 of them, 46 counting
+subtests, with the suite still reporting `ok` — and
 `cmd/score`, `cmd/shape` and `cmd/bandprobe` each exited 1 against the real catalog. A
 pinned copy makes the suite hermetic and that class of drift a test failure instead of a
 silent skip.
