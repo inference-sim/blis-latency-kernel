@@ -22,10 +22,10 @@ func TestStepTimeAgainstDesignSection21(t *testing.T) {
 		scenario                    string
 		requests, queryLen, context int
 	}{
-		{"256 req q=2 ctx8k EP16", "minimax-m25-h200-ep16.yaml", 256, 2, 8192},
+		{"256 req q=2 ctx8k EP16", "minimax-m25-h200-ep8.yaml", 256, 2, 8192},
 		{"256 req q=2 ctx8k EP72", "minimax-m25-h200-ep72.yaml", 256, 2, 8192},
-		{"32 req q=2 ctx8k EP16", "minimax-m25-h200-ep16.yaml", 32, 2, 8192},
-		{"1 req 2048 prefill EP16", "minimax-m25-h200-ep16.yaml", 1, 2048, 2048},
+		{"32 req q=2 ctx8k EP16", "minimax-m25-h200-ep8.yaml", 32, 2, 8192},
+		{"1 req 2048 prefill EP16", "minimax-m25-h200-ep8.yaml", 1, 2048, 2048},
 		{"4 req 2048 prefill EP72", "minimax-m25-h200-ep72.yaml", 4, 2048, 2048},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

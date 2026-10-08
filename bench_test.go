@@ -52,7 +52,7 @@ func BenchmarkMemoryQueries(b *testing.B) {
 // benchKernel builds a kernel once, outside the timed loop.
 func benchKernel(b *testing.B) *Kernel {
 	b.Helper()
-	return fixture(b, "minimax-m25-h200-ep16.yaml")
+	return fixture(b, "minimax-m25-h200-ep8.yaml")
 }
 
 // BenchmarkStepTimeIntoDecode is the form a simulator's inner loop uses: one reused map,
