@@ -96,7 +96,10 @@ func New(in Inputs) (*Kernel, error) {
 		return nil, fmt.Errorf("resolving coefficients: %w", err)
 	}
 
-	k := &Kernel{layout: layout, fabric: fab, pool: pool, chip: *in.Chip}
+	k := &Kernel{
+		layout: layout, fabric: fab, pool: pool, chip: *in.Chip,
+		modelName: in.Model.Name,
+	}
 	k.tp = float64(max(layout.TP, 1))
 
 	// The served weight format, which the scenario may override. A bf16 checkpoint

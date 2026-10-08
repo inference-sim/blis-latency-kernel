@@ -44,10 +44,35 @@ type Repos struct {
 // Every artifact is loaded through blis-schemas' own loaders, and the engine rules come from
 // that package's version registry rather than from a caller, so a scenario pinned to an
 // older release cannot silently get current behaviour.
+//
+// It prices the deployment's FIRST pool, which is what a colocated deployment has. Use
+// OpenPool to price one pool of a disaggregated one.
 func Open(scenario string, r Repos) (*Kernel, error) {
+	return OpenPool(scenario, r, 0)
+}
+
+// OpenPool resolves ONE pool of a scenario file into a kernel.
+//
+// A disaggregated deployment states a prefill pool and a decode pool, and the two differ in
+// the quantities that set step time: tensor-parallel width, whether expert parallelism is
+// on, the engine's token budget. One kernel prices one pool — each runs its own engine with
+// its own settings — so a caller serving the roles separately opens one kernel per pool.
+// Pricing both from pool 0 would charge the decode pool the prefill pool's parallelism, and
+// the simulation would still run.
+//
+// Open is this function at pool 0. Both exist because the common case should not have to
+// name an index, and the disaggregated case cannot be served without one.
+func OpenPool(scenario string, r Repos, poolIndex int) (*Kernel, error) {
 	sc, dep, err := LoadBundle(filepath.Join(r.Scenarios, scenario))
 	if err != nil {
 		return nil, err
+	}
+	// Bounds-checked here as well as in New, so the error can name the FILE. New sees
+	// documents and reports "outside the deployment's N pool(s)"; a caller that passed a
+	// filename needs to know which of several scenarios lacks the pool it asked for.
+	if poolIndex < 0 || poolIndex >= len(dep.Pools) {
+		return nil, fmt.Errorf("%s states %d pool(s); pool %d was requested",
+			scenario, len(dep.Pools), poolIndex)
 	}
 	graph, err := schemas.LoadModelGraph(
 		filepath.Join(r.Catalog, "models", sc.Model, "graph.yaml"))
@@ -88,7 +113,7 @@ func Open(scenario string, r Repos) (*Kernel, error) {
 				"changed between the two", sc.EngineVersion, rules.Versions())
 	}
 	return New(Inputs{
-		Scenario: sc, Deployment: dep, PoolIndex: 0,
+		Scenario: sc, Deployment: dep, PoolIndex: poolIndex,
 		Model: graph, Chip: chip, Fabric: fabric,
 		Devices: devices, Coefficients: sets, Rules: pack,
 	})

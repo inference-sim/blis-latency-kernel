@@ -46,6 +46,10 @@ type Kernel struct {
 	// scenario's --quantization is applied over the checkpoint's own format.
 	servedDType model.DType
 
+	// modelName is the catalog entry this kernel prices, kept so a consumer can state
+	// which deployment an answer describes without holding the scenario alongside.
+	modelName string
+
 	// Constants lifted out of the coefficient set once, so the hot path reads fields
 	// rather than hashing strings.
 	hbmBytesPerSecond     float64
@@ -1110,6 +1114,86 @@ func (k *Kernel) Provenance() []kernel.CoefficientOrigin { return k.origins }
 
 // Resolved reports the configuration after resolution, including overridden requests.
 func (k *Kernel) Resolved() kernel.Resolution { return k.resolution }
+
+// Engine returns the engine settings of the pool this kernel prices.
+//
+// Exported because a consumer needs them for the decisions a cost model does not make. A
+// simulator sizes its scheduler from block_size, max_num_seqs and max_num_batched_tokens:
+// those set which requests join a batch, not what a batch costs, so the kernel reads them
+// and prices nothing from them — but the simulator cannot run without them.
+//
+// Without this, a caller has to carry the Deployment and the pool index ALONGSIDE the
+// kernel and index back into Pools[i].Engine to reach settings the kernel already resolved.
+// That is the shape inference-sim's adapter had, and it is a second source of truth for
+// "which pool is this": the kernel's answer and the caller's bookkeeping can disagree, and
+// the disagreement prices a decode pool at a prefill pool's parallelism with nothing
+// reporting it.
+//
+// Returned by value, like the rest of this interface. The settings are frozen at
+// construction and a copy cannot be used to mutate the kernel.
+func (k *Kernel) Engine() deployment.Engine { return k.pool.Engine }
+
+// Role returns whether the pool this kernel prices is colocated, prefill or decode.
+//
+// A disaggregated deployment opens one kernel per pool, and a caller holding several needs
+// to know which is which. Reading it from the kernel rather than tracking the index that
+// produced it keeps one answer rather than two.
+func (k *Kernel) Role() deployment.Role { return k.pool.Role }
+
+// ModelName returns the catalog model this kernel prices.
+//
+// Completes the identity a consumer needs to say WHICH deployment an answer describes —
+// model, chip, the two parallel widths, the served format. A scoring harness comparing this
+// kernel against another backend configures that backend from the same identity, and must
+// read it from the kernel it actually opened rather than from a scenario it re-read, or the
+// two arms can describe different deployments while claiming to describe one.
+func (k *Kernel) ModelName() string { return k.modelName }
+
+// ServedDType returns the weight format the linear layers actually run in.
+//
+// Resolved, not declared: a bf16 checkpoint served fp8 reads half the weight bytes, runs
+// against a different compute peak and sits on a different efficiency envelope. A consumer
+// reading the engine's `quantization` field alone would see the REQUEST and miss the case
+// where the checkpoint's own format governs because no override was stated.
+func (k *Kernel) ServedDType() model.DType { return k.servedDType }
+
+// Chip returns the accelerator this kernel prices against.
+//
+// A consumer needs facts the cost model reads but does not price: total device memory, which
+// is what vLLM resolves its batch defaults from, and the chip's name, which identifies the
+// deployment an arm describes. Exposing the catalog entry the kernel already holds is
+// cheaper and safer than a caller loading it a second time — a second load can resolve a
+// different file, and then two arms that claim to describe one deployment do not.
+//
+// By value: the chip is frozen at construction and a copy cannot mutate the kernel.
+func (k *Kernel) Chip() hardware.Chip { return k.chip }
+
+// TensorParallelWidth returns the resolved tensor-parallel width.
+//
+// From the layout rather than the document, for the same reason as DataParallelWidth: a
+// Parallelism states a request and resolution settles it.
+func (k *Kernel) TensorParallelWidth() int { return max(k.layout.TP, 1) }
+
+// Experts returns the model's physical expert count, and zero for a dense model.
+//
+// It is resolved rather than read: the count includes any redundant experts EPLB adds, which
+// is the number that decides how a rank's shard is sized. A caller reading the graph instead
+// would get the pre-redundancy figure and size its own accounting differently from the
+// kernel's.
+func (k *Kernel) Experts() int { return k.totalExperts }
+
+// DataParallelWidth returns the pool's attention data-parallel width.
+//
+// vLLM runs this many independent EngineCores, each with its own sequence cap, token budget
+// and KV budget, splitting requests disjointly across them. A simulator modelling the
+// aggregate of one deployment has to scale all three, and this kernel prices ONE rank of
+// one instance — so the width is a property of the layout the caller needs and the step
+// time deliberately does not carry.
+//
+// From the resolved layout rather than from the deployment document: Parallelism states a
+// request, and resolution is what settles it. Reading the document directly would miss any
+// override the resolver recorded.
+func (k *Kernel) DataParallelWidth() int { return max(k.layout.DP, 1) }
 
 // Resource indices for the hot path's fixed array. A map allocation per step would show
 // up in a simulator calling this millions of times, so the accumulation is positional and
