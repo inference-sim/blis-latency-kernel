@@ -113,11 +113,10 @@ type Kernel struct {
 	// totalExperts is the model's physical expert count, which the expected-coverage
 	// term needs alongside the local count.
 	totalExperts int
-	// expertTensorShards is how many ranks one expert's weights are split across: the
-	// tensor-parallel width when expert parallelism is off, and 1 when it is on, because
-	// an expert-parallel rank owns whole experts. With expert parallelism off and dp or
-	// pcp above one, vLLM v0.31.0 shards an expert over dp x pcp x tp ranks, not tp (see
-	// the KNOWN DIVERGENCE in lift).
+	// expertTensorShards is how many ranks one expert's weights are split across: tp x dp
+	// when expert parallelism is off, since vLLM flattens the expert's tensor shard across
+	// the data-parallel ranks (see lift), and 1 when it is on, because an expert-parallel
+	// rank owns whole experts.
 	expertTensorShards float64
 
 	// tp and localExpertShare are the per-rank divisors, held as floats so the hot path
