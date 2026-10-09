@@ -28,9 +28,9 @@
 // conditions under which it holds.
 //
 // It also assumes the batch equals the concurrency, as cmd/score does, because the snapshot
-// states no resident batch. Where that assumption fails the error shape says so: a resident
-// batch smaller than the client level flattens the true curve, so an over-prediction that
-// grows with concurrency is the signature.
+// states no resident batch. Where that assumption fails, the true curve has a different shape
+// from the one priced: a resident batch smaller than the client level flattens it, a larger
+// one steepens it.
 //
 // Usage:
 //
@@ -115,7 +115,7 @@ func main() {
 	fmt.Println("Concurrency-response shape against NVIDIA's end-to-end accuracy snapshot")
 	fmt.Printf("%d sweeps, %d points\n\n", len(c.Sweeps), countPoints(c.Sweeps))
 
-	mine, theirs, err := score(c, *testdata, *catalog, *registry, *verbose)
+	mine, theirs, dir, err := score(c, *testdata, *catalog, *registry, *verbose)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
@@ -139,25 +139,15 @@ with batch width at a fixed deployment and says nothing about level. A model uni
 a constant factor scores perfectly here; cmd/score carries the level.
 
 The batch is taken as the client concurrency, since the snapshot states no resident batch.
-Where that fails the error shape says so: a resident batch below the client level flattens the
-true curve, so an over-prediction growing with concurrency is the signature.
-
-What this run found. The kernel over-predicts at every point and the excess grows with
-concurrency, which is that signature. It is also the OPPOSITE sign to the same kernel's error
-against the published report corpus in cmd/score, where it under-predicts on every point and
-the shortfall likewise grows with concurrency: -6.2%, -18.3%, -38.8% on Nemotron-3-Ultra and
--44.3%, -49.8%, -72.6% on Kimi-K3 at c=8/16/32. One kernel cannot be both too steep and too
-shallow in the same term, so the two residuals are not one mechanism, and the batch assumption
-is the term they disagree about: neither corpus arm states a resident batch.
-
-A cross-model test of the batch hypothesis fails. The Nemotron sweep is the only corpus arm
-that reports both client concurrency and resident batch, and its resident count grows
-SUPER-linearly — about c^1.44 — which would steepen a predicted curve rather than flatten it.
-Transferring a scheduler behaviour between two different models, engines and parts is not
-defensible as a correction, and the direction does not even agree, so nothing is adjusted here.
-
-What would settle it is a resident batch measured on these deployments, which is what an
-end-to-end simulation supplies and what no published snapshot in hand states.`)
+Where the engine held a different number of requests the true curve has a different shape: a
+resident batch below the client level flattens it, one above steepens it. What would settle
+it is a resident batch measured on these deployments, which an end-to-end simulation supplies
+and no published snapshot in hand states.`)
+	// Computed, not asserted: an earlier version printed a fixed paragraph claiming the kernel
+	// over-predicted at every point, which the data did not bear out.
+	fmt.Printf("\nDirection: of the %d points other than each sweep's anchor, the kernel's curve "+
+		"rises more slowly\nthan the measured one at %d and faster at %d.\n",
+		dir.shallower+dir.steeper, dir.shallower, dir.steeper)
 }
 
 // score runs the comparison and returns the per-point absolute errors for this kernel and for
@@ -171,11 +161,12 @@ end-to-end simulation supplies and what no published snapshot in hand states.`)
 // directory as its working directory while main runs from the repository root. Hard-coding it
 // made every test SKIP on a missing path, which reads as a pass and is worse than the flaw it
 // replaced.
-func score(c corpus, testdata, catalog, registry string, verbose bool) (mine, theirs []float64, err error) {
+func score(c corpus, testdata, catalog, registry string,
+	verbose bool) (mine, theirs []float64, dir direction, err error) {
 	for _, s := range c.Sweeps {
 		k, buildErr := build(testdata, s.Scenario, catalog, registry)
 		if buildErr != nil {
-			return nil, nil, fmt.Errorf("%s: %w", s.Scenario, buildErr)
+			return nil, nil, direction{}, fmt.Errorf("%s: %w", s.Scenario, buildErr)
 		}
 		context := contextTokens(s)
 		// The anchor: the lowest concurrency in this sweep, which is what the snapshot
@@ -183,7 +174,7 @@ func score(c corpus, testdata, catalog, registry string, verbose bool) (mine, th
 		// an absolute scale.
 		anchor := stepSeconds(k, s.Points[0].Concurrency, context)
 		if anchor <= 0 {
-			return nil, nil, fmt.Errorf("%s: anchor step time is not positive", s.Scenario)
+			return nil, nil, direction{}, fmt.Errorf("%s: anchor step time is not positive", s.Scenario)
 		}
 		// AISimulate's own anchor. The corpus normalises its predictions to the MEASURED
 		// anchor, not to AISimulate's own first point, so its published relatives carry a
@@ -196,7 +187,7 @@ func score(c corpus, testdata, catalog, registry string, verbose bool) (mine, th
 		// whole snapshot -- which is the check that this normalisation is the right one.
 		theirAnchor := s.Points[0].AISimulateRelative
 		if theirAnchor <= 0 {
-			return nil, nil, fmt.Errorf("%s: AISimulate anchor is not positive", s.Scenario)
+			return nil, nil, direction{}, fmt.Errorf("%s: AISimulate anchor is not positive", s.Scenario)
 		}
 		if verbose {
 			fmt.Printf("--- %s %s %s %s %s, tp=%d moe_ep=%d, context %d tokens\n",
@@ -209,6 +200,12 @@ func score(c corpus, testdata, catalog, registry string, verbose bool) (mine, th
 			predicted := stepSeconds(k, p.Concurrency, context) / anchor
 			errMine := math.Abs(predicted/p.MeasuredRelative-1) * 100
 			mine = append(mine, errMine)
+			switch {
+			case predicted > p.MeasuredRelative:
+				dir.steeper++
+			case predicted < p.MeasuredRelative:
+				dir.shallower++
+			}
 			// Recomputed from AISimulate's re-anchored relatives rather than read from the
 			// snapshot's aisimulate_tpot_error_pct field, which is that same un-anchored
 			// quantity and carries its level error. Both sides are now the same thing: a
@@ -226,8 +223,13 @@ func score(c corpus, testdata, catalog, registry string, verbose bool) (mine, th
 			fmt.Println()
 		}
 	}
-	return mine, theirs, nil
+	return mine, theirs, dir, nil
 }
+
+// direction counts the points where the kernel's normalised curve sits above the measured
+// one (it rises faster) and below it (it rises more slowly). Each sweep's anchor matches by
+// construction and is in neither count.
+type direction struct{ steeper, shallower int }
 
 // contextTokens returns the mean context a request carries during decode, from the workload
 // identity the snapshot states as input:output.
