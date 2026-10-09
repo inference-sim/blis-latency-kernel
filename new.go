@@ -75,7 +75,11 @@ func New(in Inputs) (*Kernel, error) {
 	if err := validateDocuments(in); err != nil {
 		return nil, err
 	}
-	pool := in.Deployment.Pools[in.PoolIndex]
+	// A deep copy: the engine block's optional settings are pointers, and a kernel that
+	// shared them with the caller's documents would change its answers when the caller
+	// edited a deployment it had already priced -- the config-search shape Inputs exists
+	// for. The kernel's purity is a promise about its own state, so it owns that state.
+	pool := clonePool(in.Deployment.Pools[in.PoolIndex])
 
 	fab := resolve.Fabric{IntraNodeBwGBps: in.Chip.IntraNodeBwGBps}
 	if in.Fabric != nil {
@@ -252,11 +256,19 @@ func (k *Kernel) resolveContextParallel(in Inputs) error {
 		}
 	}
 
+	// The release's own list of backend names, where the rules value is a blis-schemas pack.
+	// resolve.EngineRules cannot ask for it -- rules.Pack carries the list as a field, with no
+	// method an interface could name -- so any other rules value leaves the release's check
+	// undone, and that is disclosed rather than silent: the name is still checked against
+	// what this kernel prices, but not against what the engine release accepts.
 	var accepted map[string]bool
-	if pack, ok := in.Rules.(*rules.Pack); ok {
-		// The release's own list of names, where the rules value is a pack. A test double
-		// implementing only the resolver's interface has none, and gets the kernel's check.
+	if pack, ok := in.Rules.(*rules.Pack); ok && pack != nil {
 		accepted = pack.DCPCommBackends
+	}
+	if b := k.pool.Engine.DCPCommBackend; b != "" && accepted == nil {
+		k.assume("dcp_comm_backend", b,
+			"stated, and checked against the backends this kernel prices, but not against "+
+				"the names the engine release accepts: the rules value carries no list")
 	}
 	dc, overrides, err := resolve.ResolveDecodeContext(
 		k.pool, in.Deployment, k.blockSize, accepted)
@@ -281,6 +293,33 @@ func (k *Kernel) resolveContextParallel(in Inputs) error {
 // what the engine's MLA attention implementations serve.
 func latentAttention(kind model.AttentionKind) bool {
 	return kind == model.AttentionMLA || kind == model.AttentionSparseMLA
+}
+
+// clonePool copies a pool and everything its engine block points to, so the copy shares no
+// memory with the original. The pointees are flat structs and tri-state flags, so a field
+// copy of each is a deep copy.
+func clonePool(p deployment.Pool) deployment.Pool {
+	e := &p.Engine
+	for _, b := range []**bool{&e.DisableCustomAllReduce, &e.AsyncScheduling,
+		&e.DisableCascadeAttn, &e.EnablePrefixCaching, &e.DCPQReplicate} {
+		if *b != nil {
+			v := **b
+			*b = &v
+		}
+	}
+	if e.DBO != nil {
+		v := *e.DBO
+		e.DBO = &v
+	}
+	if e.EPLB != nil {
+		v := *e.EPLB
+		e.EPLB = &v
+	}
+	if e.Speculative != nil {
+		v := *e.Speculative
+		e.Speculative = &v
+	}
+	return p
 }
 
 // emitter adapts a layout to the plan builder's interface.
@@ -756,9 +795,20 @@ func defaultMaxNumBatchedTokens(chip hardware.Chip) int {
 // another width's floor would misprice by up to 2.7x in the measured set, and doing
 // so silently is what this refuses.
 func (k *Kernel) liftCollectiveFloors(c *resolve.Coefficients) error {
-	// The dtype the collectives move. Activations cross at the served width, and the
-	// sweeps measure fp16 and int8; an fp8 payload is priced at the fp16 rate, which
-	// is the nearer of the two in both width and reduction cost.
+	// The dtype the collectives move, which selects which measured sweep prices them; the
+	// sweeps measure fp16 and int8.
+	//
+	// KNOWN DIVERGENCE. The plan sizes a graph collective's payload at the SERVED weight
+	// width (BuildPlan's dtypeBytes), and this picks the int8 sweep for an int8-served
+	// model. At vLLM v0.31.0 a quantized linear returns its input's dtype
+	// (out_dtype=x.dtype, vllm/model_executor/kernels/linear/scaled_mm/cutlass.py:147,153),
+	// so the tensor-parallel reductions after a projection move bf16 activations whatever
+	// the weights are stored in: an fp8- or int8-served model's all-reduce payload is
+	// half what this charges for it, at the fp16 rate. (An MoE dispatch is a separate case;
+	// some all-to-all backends do move quantized activations.) Most scored fixtures are
+	// fp8-served, and the collective coefficients were fitted with this sizing, so
+	// correcting it is a refit, not a change to make silently. The decode-context and
+	// prefill-context collectives, which this repository sizes itself, cross at 16 bits.
 	dtype := "fp16"
 	if k.servedDType == model.DTypeINT8 {
 		dtype = "int8"

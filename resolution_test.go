@@ -226,3 +226,34 @@ func TestOpenInputsAreTheDocumentsOpenPoolPrices(t *testing.T) {
 		}
 	}
 }
+
+// THE KERNEL OWNS ITS STATE. The engine block's optional settings are pointers, so a kernel
+// that shared them would reprice when its caller edited a deployment it had already priced
+// -- which a configuration search sweeping variants does -- or wrote through what
+// Deployment returned. Neither may move any answer.
+func TestEditingTheDocumentsAfterNewChangesNothing(t *testing.T) {
+	in := fixtureInputs(t, "nemotron3-ultra-h100-agg.yaml") // states speculative decoding
+	k, err := New(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	batch := decodeBatch(32, 2, 8192)
+	step, fixed, perSeq := k.StepTime(batch).NoOverlap, k.SequenceFixedBytes(),
+		k.SequenceVariableBytes(8192)
+
+	spec := in.Deployment.Pools[0].Engine.Speculative
+	if spec == nil {
+		t.Fatal("the fixture states no speculative block to edit")
+	}
+	spec.NumSpecTokens = 7
+	if d := k.Deployment(); d.Engine.Speculative != nil {
+		d.Engine.Speculative.NumSpecTokens = 9
+	}
+	if got := k.Deployment().Engine.Speculative.NumSpecTokens; got == 7 || got == 9 {
+		t.Errorf("Deployment reports %d speculative tokens after the caller's edits", got)
+	}
+	if k.StepTime(batch).NoOverlap != step || k.SequenceFixedBytes() != fixed ||
+		k.SequenceVariableBytes(8192) != perSeq {
+		t.Error("editing the documents after New changed the kernel's answers")
+	}
+}

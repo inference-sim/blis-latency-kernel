@@ -1115,6 +1115,11 @@ func (k *Kernel) crossesNodes(key collKey) bool {
 // A stride that does not divide the node (tp=6 on 8-GPU nodes) has no uniform answer, and
 // is floored -- which charges more of the group to the fabric than some nodes carry, the
 // conservative direction.
+//
+// COVERAGE LIMIT: a rack that is one NVLink domain (an NVL72-class part, four GPUs to a
+// tray) is not consulted here, for any group. ResolveLayout treats such a rack as one node
+// when it counts NodesSpanned, but a group spanning trays inside it is still priced as
+// crossing, scaled by whatever inter-node ratio the deployment's fabric states.
 func (k *Kernel) groupPerNode(group price.GroupAxis) int {
 	gpn := k.layout.GPUsPerNode
 	if gpn <= 0 {
@@ -2046,7 +2051,12 @@ func (k *Kernel) Resolved() kernel.Resolution { return k.resolution }
 // scheduler sizes itself from. It is the pool New was given at PoolIndex, so a caller
 // holding several kernels of one disaggregated deployment needs no index of its own to
 // know which pool each prices.
-func (k *Kernel) Deployment() deployment.Pool { return k.pool }
+//
+// A deep copy, so a caller writing through one of the engine block's pointer fields
+// changes its copy and not the kernel. blis-schemas permits returning a shallow copy and
+// asking callers not to write; this is not a hot path, and a promise the type enforces is
+// worth more than one a reader has to keep.
+func (k *Kernel) Deployment() deployment.Pool { return clonePool(k.pool) }
 
 // DecodeContextParallelWidth returns how many ranks shard the decode KV cache.
 //

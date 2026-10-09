@@ -128,6 +128,26 @@ func TestEachDCPLayoutLaunchesTheCombineTheEngineRuns(t *testing.T) {
 	}
 }
 
+// AND WHAT IT DOES LAUNCH UNDER PCP: an LSE all-gather and an all-reduce over the
+// decode-context group (cp_lse_ag_out_ar, vllm/v1/attention/ops/dcp.py:503-526, chosen at
+// :1525-1531). Asserted positively, since the row above only shows what it does not launch.
+// At tp=2, pcp=4, dcp=4 the decode-context group is the only 4-rank group a decode step
+// touches -- the graph's own all-reduce is 2-rank, and the PCP gather runs on prefill rows
+// only -- so inflating either 4-rank primitive must move a decode step.
+func TestUnderPCPTheCombineIsAnLSEGatherAndAnAllReduce(t *testing.T) {
+	decode := decodeBatch(8, 1, 8192)
+	base := mustDCPVariant(t, dcpSparseFixture, 2, 4, 4, nil).StepTime(decode).NoOverlap
+	for _, prim := range []string{"all_reduce_fp16_4rank", "all_gather_fp16_4rank"} {
+		inflated := mustDCPVariant(t, dcpSparseFixture, 2, 4, 4, func(in *Inputs) {
+			in.Coefficients = scaleFloors(in.Coefficients, prim, 10)
+		}).StepTime(decode).NoOverlap
+		if inflated <= base {
+			t.Errorf("inflating %s floors left the decode step at %v (was %v); under PCP the "+
+				"combine launches it over the decode-context group", prim, inflated, base)
+		}
+	}
+}
+
 // THE QUERY GATHER UNDER PCP. With prefill-context parallelism on, a DSA layer -- the only
 // kind that runs PCP with DCP -- gathers its query over the tensor-parallel group only when
 // the decode-context group spans the whole tp x pcp block, and not at all when it spans the
@@ -243,6 +263,28 @@ func TestTheDCPBackendIsGatedByTheReleaseAndByWhatTheKernelPrices(t *testing.T) 
 			withBackend("all_gather_only")); err == nil {
 			t.Errorf("dcp=%d: an unknown backend name was priced", dcp)
 		}
+	}
+}
+
+// A rules value with no list of the release's backend names cannot gate a stated backend,
+// and the kernel says so rather than letting the check vanish: the stated name is still
+// held to what the kernel prices, and Provenance records that the release was not consulted.
+func TestAStatedBackendTheReleaseCouldNotCheckIsDisclosed(t *testing.T) {
+	noList := *v0_29.Pack()
+	noList.DCPCommBackends = nil
+	k, err := dcpVariant(t, dcpMLAFixture, 8, 1, 8, func(in *Inputs) {
+		withBackend("a2a")(in)
+		in.Rules = &noList
+	})
+	if err != nil {
+		t.Fatalf("a2a under a pack with no backend list was refused: %v", err)
+	}
+	if !hasAssumption(k, "dcp_comm_backend") {
+		t.Error("a stated backend the release could not check left no trace in Provenance")
+	}
+	checked := mustDCPVariant(t, dcpMLAFixture, 8, 1, 8, withBackend("a2a"))
+	if hasAssumption(checked, "dcp_comm_backend") {
+		t.Error("a stated backend the release did check was reported as an assumption")
 	}
 }
 

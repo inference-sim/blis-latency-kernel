@@ -455,11 +455,16 @@ func planNodes(nodes []model.Node, em Emitter, dtypeBytes, stateBytes float64,
 		case model.OpElementwise:
 			b := float64(n.BytesPerToken)
 			if b == 0 {
-				// A normalization reads and writes the hidden state.
+				// A normalization reads and writes the hidden state. At dtypeBytes, the
+				// served weight width, where the engine's activations are bf16 under any
+				// quantized format -- see the KNOWN DIVERGENCE in the kernel's
+				// liftCollectiveFloors, which this shares.
 				b = 2 * float64(hidden) * dtypeBytes
 			}
 			pl.ElementwiseBytesPerToken += b
 		case model.OpAllReduce, model.OpAllGather, model.OpReduceScatter:
+			// Sized at the served weight width; see the KNOWN DIVERGENCE in the kernel's
+			// liftCollectiveFloors.
 			pl.Collectives = append(pl.Collectives, PlannedCollective{
 				Op: n.Op, Group: GroupTP, BytesPerToken: float64(hidden) * dtypeBytes,
 			})
