@@ -186,6 +186,30 @@ func (k *Kernel) resolveContextParallel(in Inputs) error {
 		}
 	}
 
+	// PCP WITH DCP RUNS ONLY ON DSA SPARSE-MLA LAYERS. An MLA attention layer refuses the
+	// combination unless its class opts in -- "Under PCP+DCP only the decode rows carry an
+	// LSE; the base forward merges a full-batch LSE, so subclasses opt in"
+	// (MLAAttention.supports_pcp_dcp = False, vllm/model_executor/layers/attention/
+	// mla_attention.py:440-442, raised at :684-687) -- and the one class that opts in is
+	// DeepseekV32Attention (vllm/models/deepseek_v32/attention.py:121-124), the DSA layer
+	// the catalog states as sparse_mla. A plain mla layer therefore does not start.
+	//
+	// The converse is not certain: a sparse_mla layer served by another class may refuse
+	// too, and the kernel cannot see the class. It is admitted here because the DSA
+	// family -- DeepSeek-V3.2, GLM-5 -- is what the kind describes, and it is stated
+	// rather than assumed silent.
+	if pl.PCP > 1 && pl.DCP > 1 {
+		for _, l := range k.plan.Layers {
+			if l.AttnQHeads > 0 && l.AttnKind != model.AttentionSparseMLA {
+				return fmt.Errorf(
+					"prefill- and decode-context parallelism together (pcp %d, dcp %d) run "+
+						"only on DSA sparse-MLA attention, and layer kind %q is %s: its "+
+						"attention class does not support PCP with DCP, so the engine "+
+						"refuses this layout at startup", pl.PCP, pl.DCP, l.ID, l.AttnKind)
+			}
+		}
+	}
+
 	// A REPLICATED QUERY PROJECTION IS NOT PRICED, so it is refused where it would take
 	// effect rather than priced half-way. dcp_q_replicate skips the decode query
 	// all-gather, and pays for it by building the MLA query projection over tp/dcp ranks
@@ -224,10 +248,11 @@ func (k *Kernel) resolveContextParallel(in Inputs) error {
 	if pl.DCP > 1 && k.pool.Engine.DCPCommBackend == "" {
 		k.assume("dcp_comm_backend", dc.CommBackend,
 			"the engine's stock default (ParallelConfig.set_dcp_defaults, "+
-				"vllm/config/parallel.py:581-594 at v0.31.0); a model's configuration hook "+
-				"runs first and may choose otherwise -- GlmMoeDsaForCausalLM selects a2a "+
+				"vllm/config/parallel.py:581-594 at v0.31.0), with the query projection not "+
+				"replicated; a model's configuration hook runs first and may choose "+
+				"otherwise -- GlmMoeDsaForCausalLM selects a2a with dcp_q_replicate "+
 				"(vllm/model_executor/models/config.py:43-50) -- and the kernel cannot see "+
-				"which model class serves this graph, so state the backend to price it exactly")
+				"which model class serves this graph, so state both to price it exactly")
 	}
 	return nil
 }

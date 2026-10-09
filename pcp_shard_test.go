@@ -7,6 +7,9 @@ import (
 
 	schemas "github.com/inference-sim/blis-schemas"
 	"github.com/inference-sim/blis-schemas/kernel"
+	"github.com/inference-sim/blis-schemas/spec/model"
+
+	"github.com/inference-sim/blis-latency-kernel/internal/price"
 )
 
 // Prefill-context parallelism splits a prefill sequence across ranks, and these pin that
@@ -867,4 +870,50 @@ func TestPCPSplitsAWindowedPrefillByPositionNotByCount(t *testing.T) {
 	// So the guard is the chunk geometry above, taken through the pricer's own method.
 	// Closing the step-level gap needs a fixture whose windowed layers dominate its GEMMs,
 	// which the catalog does not carry.
+}
+
+// A LATENT LAYER'S PCP GATHER IS TWO LAUNCHES. _gather_prefill_cache_inputs launches one
+// all-gather per tensor (vllm/v1/attention/ops/pcp.py:31-35 at v0.31.0), and the MLA cache
+// write hands it kv_c_normed and k_pe separately (pcp.py:56-74). Each pays its own floor.
+//
+// Isolated by inflating the 2-rank all-gather floor: at tp=8 and pcp=2 on deepseek-v3 the
+// only 2-rank all-gather is the PCP group's, and a collective's floor adds to its byte
+// term, so inflating it tenfold moves the prefill's collective time by exactly nine floors
+// per launch. Two launches per layer gives a ratio of exactly 2.
+func TestALatentLayersPCPGatherIsTwoLaunches(t *testing.T) {
+	prefill := decodeBatch(1, 4096, 4096)
+	base := pcpKernel(t, pcpFixture, 2)
+	inflatedIn := pcpInputs(t, pcpFixture, 2)
+	inflatedIn.Coefficients = scaleFloors(inflatedIn.Coefficients, "all_gather_fp16_2rank", 10)
+	inflated, err := New(inflatedIn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	floor := base.collectiveFloors[collKey{Op: model.OpAllGather, Group: price.GroupPCP}]
+	moved := collectiveSeconds(inflated.StepTime(prefill)) - collectiveSeconds(base.StepTime(prefill))
+	launches := moved / (9 * floor.Seconds() * float64(base.plan.TotalLayers))
+	if math.Abs(launches-2) > 1e-6 {
+		t.Errorf("inflating the PCP all-gather floor moved the prefill by %.6f launches' worth "+
+			"per layer, want 2: kv_c_normed and k_pe are gathered separately", launches)
+	}
+}
+
+// THE PCP GATHER CROSSES AT THE MODEL DTYPE. It runs before the cache write quantizes
+// (vllm/model_executor/layers/attention/mla_attention.py:781-800 at v0.31.0), so an fp8
+// cache must not change what a prefill step's gather costs.
+func TestThePCPGatherIgnoresTheCacheDType(t *testing.T) {
+	prefill := decodeBatch(1, 4096, 4096)
+	coll := func(cache string) float64 {
+		in := pcpInputs(t, pcpFixture, 2)
+		in.Deployment.Pools[0].Engine.CacheDType = cache
+		k, err := New(in)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return collectiveSeconds(k.StepTime(prefill))
+	}
+	if a, b := coll("fp8"), coll("auto"); a != b {
+		t.Errorf("an fp8 cache priced the prefill's collectives at %.6f ms against %.6f ms "+
+			"for a bf16 one; the gather moves unquantized activations", a*1e3, b*1e3)
+	}
 }

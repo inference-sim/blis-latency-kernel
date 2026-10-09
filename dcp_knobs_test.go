@@ -70,9 +70,11 @@ func scaleFloors(sets []*coefficient.Set, primitive string, factor float64) []*c
 // WHICH COLLECTIVES EACH LAYOUT LAUNCHES, asked of the step rather than of the code.
 //
 // Inflating one primitive's floors tenfold moves a decode step exactly when that layout
-// launches the primitive. On deepseek-v3, whose graph emits only all-reduces (and an
-// all-to-all only with expert parallelism, which these layouts leave off), the
-// decode-context combine is the only source of a reduce-scatter or an all-to-all:
+// launches the primitive. On deepseek-v3 and glm5, whose graphs emit only all-reduces (and
+// an all-to-all only with expert parallelism, which these layouts leave off), the
+// decode-context combine is the only source of a reduce-scatter or an all-to-all. The
+// PCP row is glm5 because PCP with DCP runs only on DSA sparse-MLA layers
+// (resolveContextParallel); deepseek-v3's plain MLA refuses it.
 //
 //	ag_rs, pcp off   reduce-scatter                  (cp_lse_ag_out_rs, dcp.py:493)
 //	a2a,   pcp off   all-to-all, and no reduce-scatter (dcp_a2a_lse_reduce, :939-1010)
@@ -86,13 +88,14 @@ func TestEachDCPLayoutLaunchesTheCombineTheEngineRuns(t *testing.T) {
 	prefill := decodeBatch(1, 2048, 2048)
 	for _, c := range []struct {
 		name               string
+		fixture            string
 		tp, pcp, dcp       int
 		backend            string
 		reduceScatter, a2a bool
 	}{
-		{"ag_rs without pcp", 8, 1, 8, "ag_rs", true, false},
-		{"a2a without pcp", 8, 1, 8, "a2a", false, true},
-		{"ag_rs with pcp", 2, 4, 4, "ag_rs", false, false},
+		{"ag_rs without pcp", dcpMLAFixture, 8, 1, 8, "ag_rs", true, false},
+		{"a2a without pcp", dcpMLAFixture, 8, 1, 8, "a2a", false, true},
+		{"ag_rs with pcp", dcpSparseFixture, 2, 4, 4, "ag_rs", false, false},
 	} {
 		for _, prim := range []struct {
 			name     string
@@ -101,8 +104,8 @@ func TestEachDCPLayoutLaunchesTheCombineTheEngineRuns(t *testing.T) {
 			{"reduce_scatter", c.reduceScatter},
 			{"alltoall", c.a2a},
 		} {
-			base := mustDCPVariant(t, dcpMLAFixture, c.tp, c.pcp, c.dcp, withBackend(c.backend))
-			inflated := mustDCPVariant(t, dcpMLAFixture, c.tp, c.pcp, c.dcp, func(in *Inputs) {
+			base := mustDCPVariant(t, c.fixture, c.tp, c.pcp, c.dcp, withBackend(c.backend))
+			inflated := mustDCPVariant(t, c.fixture, c.tp, c.pcp, c.dcp, func(in *Inputs) {
 				withBackend(c.backend)(in)
 				in.Coefficients = scaleFloors(in.Coefficients, prim.name, 10)
 			})
@@ -125,10 +128,10 @@ func TestEachDCPLayoutLaunchesTheCombineTheEngineRuns(t *testing.T) {
 	}
 }
 
-// THE QUERY GATHER UNDER PCP. With prefill-context parallelism on, a latent layer gathers
-// its query over the tensor-parallel group only when the decode-context group spans the
-// whole tp x pcp block, and not at all when it spans the PCP axis alone
-// (vllm/model_executor/layers/attention/mla_attention.py:1113-1118 at v0.31.0).
+// THE QUERY GATHER UNDER PCP. With prefill-context parallelism on, a DSA layer -- the only
+// kind that runs PCP with DCP -- gathers its query over the tensor-parallel group only when
+// the decode-context group spans the whole tp x pcp block, and not at all when it spans the
+// PCP axis alone (vllm/models/deepseek_v32/attention.py:560-563 at v0.31.0).
 //
 // Asked the same way: at tp=2 the tensor-parallel all-gather is the 2-rank one, and the
 // decode-context group is 4 or 8 ranks wide, so inflating the 2-rank all-gather floor moves
@@ -142,8 +145,8 @@ func TestUnderPCPTheQueryIsGatheredOverTPOnlyWhenDCPSpansTheBlock(t *testing.T) 
 		{4, false}, // dcp == pcp: the PCP axis alone
 		{8, true},  // dcp == tp*pcp: the whole block, after a tensor-parallel gather
 	} {
-		base := mustDCPVariant(t, dcpMLAFixture, 2, 4, c.dcp, nil)
-		inflated := mustDCPVariant(t, dcpMLAFixture, 2, 4, c.dcp, func(in *Inputs) {
+		base := mustDCPVariant(t, dcpSparseFixture, 2, 4, c.dcp, nil)
+		inflated := mustDCPVariant(t, dcpSparseFixture, 2, 4, c.dcp, func(in *Inputs) {
 			in.Coefficients = scaleFloors(in.Coefficients, "all_gather_fp16_2rank", 10)
 		})
 		before, after := base.StepTime(decode).NoOverlap, inflated.StepTime(decode).NoOverlap
@@ -246,10 +249,10 @@ func TestTheDCPBackendIsGatedByTheReleaseAndByWhatTheKernelPrices(t *testing.T) 
 // a2a is refused alongside PCP: "MRV2 PCP + DCP requires dcp_comm_backend='ag_rs'"
 // (vllm/v1/worker/gpu/pcp_manager.py:188-194 at v0.31.0).
 func TestA2AIsRefusedAlongsidePCP(t *testing.T) {
-	if _, err := dcpVariant(t, dcpMLAFixture, 2, 4, 4, withBackend("a2a")); err == nil {
+	if _, err := dcpVariant(t, dcpSparseFixture, 2, 4, 4, withBackend("a2a")); err == nil {
 		t.Error("a2a with pcp=4, dcp=4 was priced; the engine refuses it")
 	}
-	if _, err := dcpVariant(t, dcpMLAFixture, 2, 4, 4, withBackend("ag_rs")); err != nil {
+	if _, err := dcpVariant(t, dcpSparseFixture, 2, 4, 4, withBackend("ag_rs")); err != nil {
 		t.Errorf("ag_rs with pcp=4, dcp=4 was refused: %v", err)
 	}
 }
@@ -281,7 +284,7 @@ func TestAReplicatedQueryIsRefusedOnlyWhereItWouldTakeEffect(t *testing.T) {
 	}{
 		{"stated false", dcpMLAFixture, 8, 1, 8, &no},
 		{"dcp off", dcpMLAFixture, 8, 1, 1, &yes},
-		{"pcp on", dcpMLAFixture, 2, 4, 4, &yes},
+		{"pcp on", dcpSparseFixture, 2, 4, 4, &yes},
 		{"full attention", "minimax-m25-h200-tp8.yaml", 8, 1, 8, &yes},
 	} {
 		k, err := dcpVariant(t, c.fixture, c.tp, c.pcp, c.dcp, qrep(c.v))

@@ -186,10 +186,13 @@ func TestDCPLocalTokensShardsSumToTheWholeContextWithNoReplication(t *testing.T)
 // blis-schemas v0.2.2 enforces all three, and New runs its field validation, so a kernel is
 // never built for a layout that does not start. Asserted here because it is the contract a
 // caller sweeping layouts relies on: a refused layout is an error, never a price.
+//
+// glm5, a DSA sparse-MLA stack, because PCP with DCP runs only on DSA layers; the plain-MLA
+// refusal is the last row.
 func TestNewRefusesTheContextParallelLayoutsTheEngineRefuses(t *testing.T) {
-	build := func(tp, pcp, dcp, nodes int) error {
+	build := func(fixture string, tp, pcp, dcp, nodes int) error {
 		t.Helper()
-		in := fixtureInputs(t, dcpMLAFixture)
+		in := fixtureInputs(t, fixture)
 		pool := &in.Deployment.Pools[0]
 		pool.Parallel.TP, pool.Parallel.PCP, pool.Parallel.DCP = tp, pcp, dcp
 		pool.Nodes, in.Scenario.Cluster.Nodes = nodes, nodes
@@ -206,19 +209,24 @@ func TestNewRefusesTheContextParallelLayoutsTheEngineRefuses(t *testing.T) {
 	}
 	for _, c := range []struct {
 		name                string
+		fixture             string
 		tp, pcp, dcp, nodes int
 		admitted            bool
 	}{
-		{"dcp divides tp", 8, 1, 4, 1, true},
-		{"dcp does not divide tp", 8, 1, 3, 1, false},
-		{"dcp wider than tp", 4, 1, 8, 1, false},
-		{"dcp spans the pcp axis", 8, 2, 2, 2, true},
-		{"dcp spans tp x pcp", 4, 2, 8, 1, true},
-		{"dcp is neither", 8, 2, 4, 2, false},
-		{"pcp fits the GPUs", 4, 2, 1, 1, true},
-		{"pcp needs more GPUs than the pool has", 8, 2, 1, 1, false},
+		{"dcp divides tp", dcpSparseFixture, 8, 1, 4, 1, true},
+		{"dcp does not divide tp", dcpSparseFixture, 8, 1, 3, 1, false},
+		{"dcp wider than tp", dcpSparseFixture, 4, 1, 8, 1, false},
+		{"dcp spans the pcp axis", dcpSparseFixture, 8, 2, 2, 2, true},
+		{"dcp spans tp x pcp", dcpSparseFixture, 4, 2, 8, 1, true},
+		{"dcp is neither", dcpSparseFixture, 8, 2, 4, 2, false},
+		{"pcp fits the GPUs", dcpSparseFixture, 4, 2, 1, 1, true},
+		{"pcp needs more GPUs than the pool has", dcpSparseFixture, 8, 2, 1, 1, false},
+		// MLAAttention.supports_pcp_dcp is False (mla_attention.py:440-442, raised at
+		// :684-687); only DeepseekV32Attention opts in.
+		{"plain mla runs pcp alone", dcpMLAFixture, 4, 2, 1, 1, true},
+		{"plain mla refuses pcp with dcp", dcpMLAFixture, 4, 2, 8, 1, false},
 	} {
-		err := build(c.tp, c.pcp, c.dcp, c.nodes)
+		err := build(c.fixture, c.tp, c.pcp, c.dcp, c.nodes)
 		if c.admitted && err != nil {
 			t.Errorf("%s (tp=%d pcp=%d dcp=%d on %d node(s)): refused, but the engine "+
 				"starts it: %v", c.name, c.tp, c.pcp, c.dcp, c.nodes, err)

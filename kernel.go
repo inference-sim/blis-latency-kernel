@@ -934,43 +934,20 @@ func (k *Kernel) stepTime(b kernel.Batch,
 			crossNode += cross
 		}
 
-		// Prefill-context parallelism's own collective, which no model graph emits either.
+		// Prefill-context parallelism's own collectives, which no model graph emits either.
 		//
 		// A PCP rank computes only its share of a prefill, so it writes only its share of
 		// the new KV. Every rank must still hold the WHOLE cache, because PCP "does not
 		// increase the KV-cache shard count" (vllm/config/parallel.py:131-133 at v0.31.0)
 		// -- that is what distinguishes it from DCP. So the ranks all-gather the cache
-		// inputs they just computed: _gather_prefill_cache_inputs all-gathers on dim 0,
-		// the token dimension (vllm/v1/attention/ops/pcp.py:31-35).
-		//
-		// ONE ALL-GATHER PER LAYER THAT HOLDS KV, carrying this rank's PREFILL tokens
-		// only. Decode writes are deliberately excluded, which the engine is explicit
-		// about -- "Keep replicated decode writes local and gather partitioned prefills"
-		// (pcp.py:16) -- because a replicated decode row is already present on every rank.
-		//
-		// The payload is the cache width per token, which is what kvBytesPerToken carries
-		// per layer: for MLA those are kv_c_normed and k_pe, the latent plus rope that the
-		// gather moves. Using the engine's own KV figure rather than recomputing it from
-		// the dtype is the same reasoning the secondary attention term uses -- the two
-		// cannot then drift.
+		// inputs they just computed, on the token dimension, carrying PREFILL tokens only:
+		// "Keep replicated decode writes local and gather partitioned prefills"
+		// (vllm/v1/attention/ops/pcp.py:16-50), since a replicated decode row is already
+		// on every rank. See pcpPrefillGathers for what crosses.
 		if prefillTokens > 0 && k.layout.PCP > 1 && l.AttnQHeads > 0 {
-			// Divided by the KV-HOLDING layer count, not the total. kvBytesPerToken is
-			// summed over the layers that hold a cache (kvGeometry increments only for
-			// those), so that is the divisor which recovers one layer's share. On a
-			// hybrid stack the two differ sharply -- Nemotron-3-Ultra holds KV on 12 of
-			// 108 layers, so dividing by the total would understate this gather ninefold.
-			//
-			// The three decode-read sites still divide by TotalLayers, which is the same
-			// error in the same direction and predates this change; it is left alone here
-			// rather than corrected as a side effect of adding a collective.
-			payload := float64(prefillTokens) * k.kvBytesPerToken /
-				float64(max(k.kvLayers, 1))
-			key := collKey{Op: model.OpAllGather, Group: price.GroupPCP}
-			if k.crossesNodes(key) {
-				crossNode += k.collectiveSeconds(key, payload*k.spanFor(key))
-			} else {
-				onNode += k.collectiveSeconds(key, payload)
-			}
+			on, cross := k.pcpPrefillGathers(l, prefillTokens)
+			onNode += on
+			crossNode += cross
 		}
 
 		// Max across resources within the layer, summed over the layers of this kind --
@@ -1797,6 +1774,56 @@ func (k *Kernel) dcpDecodeCollectives(l *price.PlannedLayer, rows int) (onNode, 
 		combine = model.OpAllReduce
 	}
 	charge(collKey{Op: combine, Group: price.GroupDCP}, r*attnHeads*outWidth*activationBytes)
+	return onNode, crossNode
+}
+
+// pcpPrefillGathers prices one layer's prefill-context all-gathers, returning the on-node
+// and cross-node seconds. localTokens is the prefill tokens THIS rank computed.
+//
+// ONE ALL-GATHER PER TENSOR, and a latent layer gathers two. _gather_prefill_cache_inputs
+// launches one all_gather per tensor it is given (pcp.py:31-35), and the MLA cache write
+// gives it kv_c_normed and k_pe separately (maybe_gather_mla_latent_cache_inputs,
+// pcp.py:56-74; called before the cache update, mla_attention.py:781-800). A layer with a
+// sparse indexer gathers the indexer's key as well, in its own launch
+// (maybe_gather_indexer_k, pcp.py:77-87, from sparse_attn_indexer.py:440). Each launch pays
+// its own floor, which at a prefill chunk's payload is most of the cost.
+//
+// AT THE MODEL DTYPE, NOT THE CACHE'S. The gather runs before do_kv_cache_update quantizes
+// into the cache (mla_attention.py:781-800), so an fp8 cache does not halve it: these are
+// bf16 activations.
+//
+// SIZED AT THE GATHERED OUTPUT, pcp times what this rank contributes, which is the
+// convention every all-gather in this kernel prices against (an all-gather's payload is
+// the tensor it produces). An earlier form sized it at the rank's own contribution, which
+// understated the bytes by the PCP width.
+//
+// PCP runs only where every layer is latent attention (resolveContextParallel), so the
+// widths here are a latent layer's: kv_lora_rank for kv_c_normed and the remainder of the
+// head width for k_pe. A latent node that states no kv_lora_rank is gathered as one tensor
+// of its head width.
+func (k *Kernel) pcpPrefillGathers(l *price.PlannedLayer, localTokens int) (onNode, crossNode float64) {
+	const activationBytes = 2
+	rows := float64(k.layout.PCP) * float64(localTokens)
+	key := collKey{Op: model.OpAllGather, Group: price.GroupPCP}
+	gather := func(width float64) {
+		bytes := rows * width * activationBytes
+		if k.crossesNodes(key) {
+			crossNode += k.collectiveSeconds(key, bytes*k.spanFor(key))
+		} else {
+			onNode += k.collectiveSeconds(key, bytes)
+		}
+	}
+	if lora := l.AttnKVLoRARank; lora > 0 && lora < l.AttnHeadDim {
+		gather(float64(lora))                 // kv_c_normed
+		gather(float64(l.AttnHeadDim - lora)) // k_pe
+	} else {
+		gather(float64(l.AttnHeadDim))
+	}
+	for _, a := range l.Attentions {
+		if !a.HoldsKV() && a.KVHeads > 0 && a.HeadDim > 0 {
+			gather(float64(a.KVHeads * a.HeadDim)) // the indexer's key
+		}
+	}
 	return onNode, crossNode
 }
 

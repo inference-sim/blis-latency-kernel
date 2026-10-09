@@ -68,9 +68,10 @@ func ResolveDecodeContext(pool deployment.Pool, dep *deployment.Deployment, bloc
 		// Nothing is sharded, so neither the combine nor the stripe exists.
 		return out, nil, nil
 	}
-	// PCP with DCP runs the combine as an all-gather and an all-reduce, and the engine
-	// refuses the all-to-all there outright: "MRV2 PCP + DCP requires
-	// dcp_comm_backend='ag_rs'" (vllm/v1/worker/gpu/pcp_manager.py:188-194).
+	// Where PCP with DCP runs at all (the DSA layers that opt in; New refuses the rest), the
+	// combine is an all-gather and an all-reduce, and the engine refuses the all-to-all
+	// there outright: "MRV2 PCP + DCP requires dcp_comm_backend='ag_rs'"
+	// (vllm/v1/worker/gpu/pcp_manager.py:188-194).
 	if pcp > 1 && out.CommBackend == DCPAllToAll {
 		return DecodeContext{}, nil, fmt.Errorf(
 			"dcp_comm_backend a2a with pcp %d: the engine requires ag_rs when prefill- "+
