@@ -46,26 +46,12 @@ jobs:
         run: go vet -tags scoring ./...
       - name: go test
         run: go test -count=1 -timeout 30m ./...
+      # The race detector reports only races between goroutines, and the one place this
+      # repository starts any is the concurrency test: the interface promises a kernel is
+      # safe to call from many goroutines, and that test calls every method concurrently
+      # on batches that reach each pricing path. Under -race it takes seconds; the whole
+      # suite under -race takes over ten minutes to instrument code that is single-threaded.
+      - name: go test -race (the concurrency contract)
+        run: go test -race -count=1 -run TestStepTimeIsPureAndSafeUnderConcurrency .
       - name: Python script tests that need no corpus
         run: python3 scripts/test_extract_inferencex_engine_settings.py
-
-  race:
-    name: race detector
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-      - uses: actions/cache@v4
-        with:
-          path: |
-            testdata/catalog
-            testdata/registry
-          key: testdata-${{ hashFiles('testdata/upstream.lock') }}
-      - name: Fetch the pinned upstreams
-        run: scripts/fetch-testdata.sh
-      # The root package alone takes over ten minutes under -race, past go test's default
-      # timeout, hence the explicit one.
-      - name: go test -race
-        run: go test -race -count=1 -timeout 60m ./...

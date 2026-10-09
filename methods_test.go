@@ -2,6 +2,7 @@ package latencykernel
 
 import (
 	"math"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -276,18 +277,52 @@ func TestOverlapNeverExceedsNoOverlap(t *testing.T) {
 
 func TestStepTimeIsPureAndSafeUnderConcurrency(t *testing.T) {
 	// Purity is the interface's central claim: it is what lets a simulator call this at
-	// any simulated instant from any goroutine. Repeated calls must agree exactly.
-	k := fixture(t, "minimax-m25-h200-ep8.yaml")
-	b := decodeBatch(37, 2, 4096)
-	want := k.StepTime(b)
-	results := make(chan time.Duration, 64)
-	for i := 0; i < 64; i++ {
-		go func() { results <- k.StepTime(b).Overlap }()
+	// any simulated instant from any goroutine. Repeated calls must agree exactly, and
+	// concurrent calls on one kernel -- every method, on batches that reach every pricing
+	// path -- must agree with the serial ones. CI runs this test under -race, which is the
+	// only place this repository starts goroutines, so it is also the race check.
+	kernels := []*Kernel{
+		fixture(t, "minimax-m25-h200-ep8.yaml"),
+		mustDCPVariant(t, dcpMLAFixture, 8, 1, 2, nil),
+		mustDCPVariant(t, dcpSparseFixture, 2, 4, 4, agRS),
 	}
-	for i := 0; i < 64; i++ {
-		if got := <-results; got != want.Overlap {
-			t.Fatalf("concurrent call gave %v, the serial call gave %v",
-				got, want.Overlap)
+	decode := decodeBatch(37, 2, 4096)
+	batches := []kernel.Batch{
+		decode,
+		decodeBatch(1, 3000, 3000),
+		{DecodeThreshold: 8, Reqs: append(append([]kernel.ReqShape{}, decode.Reqs...),
+			kernel.ReqShape{Scheduled: 512, Computed: 2048, PromptLen: 2560})},
+		{},
+	}
+	type answer struct {
+		step     kernel.StepEstimate
+		fixed    kernel.MemoryBreakdown
+		variable int64
+		origins  int
+		// Compared by value with reflect.DeepEqual, which follows pointers: Deployment
+		// returns a fresh deep copy on every call, by design, so its pointers differ.
+		resolved, deployment any
+	}
+	ask := func(k *Kernel, b kernel.Batch) answer {
+		return answer{
+			step: k.StepTime(b), fixed: k.FixedBytes(),
+			variable: k.SequenceVariableBytes(4096), origins: len(k.Provenance()),
+			resolved: k.Resolved(), deployment: k.Deployment(),
+		}
+	}
+	for ki, k := range kernels {
+		for bi, b := range batches {
+			want := ask(k, b)
+			results := make(chan answer, 16)
+			for i := 0; i < 16; i++ {
+				go func() { results <- ask(k, b) }()
+			}
+			for i := 0; i < 16; i++ {
+				if got := <-results; !reflect.DeepEqual(got, want) {
+					t.Fatalf("kernel %d, batch %d: a concurrent call gave %+v, the serial "+
+						"call %+v", ki, bi, got, want)
+				}
+			}
 		}
 	}
 }
