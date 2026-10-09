@@ -35,8 +35,9 @@ type Plan struct {
 	// Head is the final norm and language-model head, priced once per step rather than
 	// per layer.
 	Head PlannedLayer
-	// TotalLayers is the expanded layer count: the divisor that turns a whole-model per-token
-	// KV figure into one layer's share, and the base of PiecewiseSegments.
+	// TotalLayers is the expanded layer count: what eager launches are counted per, and the
+	// base of PiecewiseSegments. Not the divisor for one layer's share of the KV cache,
+	// which is the KV-holding count (the kernel's kvLayers).
 	TotalLayers int
 
 	// TotalKernels is the launch count for one step: every layer's kernels times its

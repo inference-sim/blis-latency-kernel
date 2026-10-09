@@ -84,6 +84,24 @@ func TestADecodeReadsTheCacheItHolds(t *testing.T) {
 				"bytes, which the attention rate reads in %.3f us", f, long-short, got*1e6,
 				grew, want*1e6)
 		}
+
+		// With no measured attention rate the read falls back to HBM bandwidth -- the
+		// chip's, derated by the registry's hbm_derate -- and must still be the cache's
+		// growth, not a ninth of it.
+		in.Coefficients = dropCoefficient(in.Coefficients, "attention_decode_rate")
+		fb, err := New(in)
+		if err != nil {
+			t.Fatal(err)
+		}
+		fbHBM := func(ctx int) float64 {
+			return fb.StepTime(decodeBatch(1, 1, ctx)).PerResource[kernel.ResourceHBM].Seconds()
+		}
+		bw := in.Chip.MemoryBandwidthTBs * 1e12 * registryValue(t, in, fb, "hbm_derate")
+		if got, want := fbHBM(long)-fbHBM(short), grew/bw; math.Abs(got-want) > 2e-9 {
+			t.Errorf("%s without an attention rate: %d more tokens added %.3f us of HBM; the "+
+				"cache grew %.0f bytes, which HBM reads in %.3f us", f, long-short, got*1e6,
+				grew, want*1e6)
+		}
 	}
 }
 

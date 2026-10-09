@@ -77,22 +77,17 @@ func TestTheCaptureCeilingFollowsTheEngineDefault(t *testing.T) {
 // layout. vLLM numbers ranks DP x PP x PCP x TP with TP innermost
 // (vllm/distributed/parallel_state.py:2054-2060), so a DCP group that spans the PCP axis has
 // members tp ranks apart. On glm5 at tp=8, pcp=2, dcp=2 that is two nodes, so a decode step
-// must charge the NIC; at tp=4, pcp=2, dcp=8 the group is the whole tp x pcp block on one
-// node, and must not. Without the stride, the first would be priced as two adjacent ranks on
-// one node's NVLink.
+// must charge the NIC: a decode step's only cross-node collective is that group's combine.
+// Without the stride it would be priced as two adjacent ranks on one node's NVLink.
+//
+// glm5 states the ag_rs combine here and in the next test: GLM-5's model hook would
+// otherwise choose a2a (vllm/model_executor/models/config.py:43-50), which PCP with DCP
+// refuses (vllm/v1/worker/gpu/pcp_manager.py:187-194).
 func TestADCPGroupSitsWhereTheRankLayoutPutsIt(t *testing.T) {
-	nic := func(tp, pcp, dcp int) time.Duration {
-		t.Helper()
-		k := mustDCPVariant(t, dcpSparseFixture, tp, pcp, dcp, nil)
-		return k.StepTime(decodeBatch(8, 1, 4096)).PerResource[kernel.ResourceNIC]
-	}
-	if got := nic(8, 2, 2); got <= 0 {
+	k := mustDCPVariant(t, dcpSparseFixture, 8, 2, 2, agRS)
+	if got := k.StepTime(decodeBatch(8, 1, 4096)).PerResource[kernel.ResourceNIC]; got <= 0 {
 		t.Errorf("tp=8, pcp=2, dcp=2: a decode charged %v of NIC; the DCP group spans two "+
 			"nodes", got)
-	}
-	if got := nic(4, 2, 8); got != 0 {
-		t.Errorf("tp=4, pcp=2, dcp=8: a decode charged %v of NIC; the DCP group is one node",
-			got)
 	}
 }
 
@@ -106,7 +101,7 @@ func TestADCPGroupSitsWhereTheRankLayoutPutsIt(t *testing.T) {
 func TestUnderPCPWithDCPAShortPrefillIsReplicated(t *testing.T) {
 	sm := func(dcp, tokens int) time.Duration {
 		t.Helper()
-		k := mustDCPVariant(t, dcpSparseFixture, 2, 4, dcp, nil)
+		k := mustDCPVariant(t, dcpSparseFixture, 2, 4, dcp, agRS)
 		return k.StepTime(decodeBatch(1, tokens, tokens)).PerResource[kernel.ResourceSM]
 	}
 	if a, b := sm(4, 17), sm(1, 17); a <= b {
@@ -116,5 +111,15 @@ func TestUnderPCPWithDCPAShortPrefillIsReplicated(t *testing.T) {
 	if a, b := sm(4, 16), sm(1, 16); a != b {
 		t.Errorf("a 16-token prefill at pcp=4 cost %v of SM with dcp=4 and %v without; it "+
 			"fills every chunk, so DCP must not change its share", a, b)
+	}
+}
+
+// agRS states the ag_rs DCP combine without a replicated query, which a GLM-5 deployment
+// under DCP must state to start (see TestADCPGroupSitsWhereTheRankLayoutPutsIt).
+func agRS(in *Inputs) {
+	e := &in.Deployment.Pools[0].Engine
+	if in.Deployment.Pools[0].Parallel.DCP > 1 {
+		off := false
+		e.DCPCommBackend, e.DCPQReplicate = "ag_rs", &off
 	}
 }

@@ -134,8 +134,8 @@ type sparseMLABackendRequest struct {
 func sparseMLABackend(r sparseMLABackendRequest) (backend, layout string, err error) {
 	if r.preHopper {
 		return "", "", fmt.Errorf("no sparse-MLA backend in vLLM v0.31.0 runs below compute " +
-			"capability 9.0 -- each requires SM90 or SM100 -- so the engine refuses a DSA " +
-			"model on this part at startup")
+			"capability 9.0 -- each requires SM90, SM100 or SM120 -- so the engine refuses a " +
+			"DSA model on this part at startup")
 	}
 	cache := r.cache
 	if cache == "" {

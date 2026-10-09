@@ -37,8 +37,10 @@ type DecodeContext struct {
 // accepted is the set of backend names the scenario's engine release accepts, from its
 // rules pack; nil means the caller has no pack to consult, and only the names this kernel
 // can price are checked. blockSize is the KV block size the kernel resolved, and blockFinal
-// whether it is the size the engine will run: a size the kernel assumed may be raised by the
-// platform, so a stated interleave is checked against it only when it is final.
+// whether it is the size the engine will run. A stated interleave that does not fit the block
+// is refused either way: against a final block because the engine refuses it, and against
+// one the kernel assumed because it cannot tell whether the engine would -- the platform
+// usually keeps the default 16 and may raise it -- so the deployment must state the block.
 //
 // What it does NOT settle is the model's own preference. An unstated backend is the stock
 // default here, ag_rs, but a model's configuration hook may choose otherwise before the
@@ -91,8 +93,8 @@ func ResolveDecodeContext(pool deployment.Pool, dep *deployment.Deployment, bloc
 		out.Interleave = stated
 		// And it must fit the block: no larger, and dividing it, unless NIXL P/D is
 		// configured, where each worker pins it instead (VllmConfig.validate_block_size,
-		// vllm/config/vllm.py:3388-3402; ParallelConfig, vllm/config/parallel.py:402-403).
-		if fits := stated <= blockSize && blockSize%stated == 0; blockFinal && !fits {
+		// vllm/config/vllm.py:3382-3404; ParallelConfig, vllm/config/parallel.py:402-403).
+		if fits := stated <= blockSize && blockSize%stated == 0; !fits {
 			names := connectorNames(dep)
 			switch {
 			case names["MultiConnector"]:
@@ -101,11 +103,19 @@ func ResolveDecodeContext(pool deployment.Pool, dep *deployment.Deployment, bloc
 						"engine refuses unless NixlConnector is configured, and a "+
 						"MultiConnector's children cannot be named in a deployment",
 					stated, blockSize)
-			case !names["NixlConnector"]:
+			case names["NixlConnector"]:
+			case blockFinal:
 				return DecodeContext{}, nil, fmt.Errorf(
 					"cp_kv_cache_interleave_size %d must be no larger than block_size %d "+
 						"and divide it; the engine refuses this layout at startup",
 					stated, blockSize)
+			default:
+				return DecodeContext{}, nil, fmt.Errorf(
+					"cp_kv_cache_interleave_size %d does not fit block_size %d; the engine "+
+						"refuses it if that is the block it runs, which the kernel cannot "+
+						"confirm -- an unstated block is assumed, and a hybrid model's may be "+
+						"re-aligned by the platform -- so the layout is refused rather than "+
+						"priced", stated, blockSize)
 			}
 		}
 	default:

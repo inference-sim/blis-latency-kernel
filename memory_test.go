@@ -551,8 +551,10 @@ func TestEPLBReplicasAreCountedOnce(t *testing.T) {
 // AN UNSTATED RECURRENT CACHE MODE IS WHAT THE ENGINE RUNS. The config default is "none"
 // (vllm/config/cache.py:190 at v0.31.0), but vLLM sets a hybrid model's mode to "align"
 // whenever prefix caching is on (vllm/model_executor/models/config.py:640-642), and prefix
-// caching is on by default (cache.py:142). So on Nemotron-3-Ultra an unstated mode must hold
-// what "align" holds, and "none" only once prefix caching is turned off.
+// caching is on by default (cache.py:142). The hook cannot tell a stated "none" from the
+// default, so a stated "none" runs as "align" too, and is reported in Resolved. So on
+// Nemotron-3-Ultra an unstated or stated-none mode must hold what "align" holds, and "none"
+// only once prefix caching is turned off.
 func TestAnUnstatedRecurrentCacheModeIsTheEnginesEffectiveDefault(t *testing.T) {
 	build := func(mode string, prefixCaching *bool) int64 {
 		t.Helper()
@@ -566,10 +568,28 @@ func TestAnUnstatedRecurrentCacheModeIsTheEnginesEffectiveDefault(t *testing.T) 
 		return k.SequenceFixedBytes()
 	}
 	off := false
-	align, none := build("align", nil), build("none", nil)
+	align, none := build("align", nil), build("none", &off)
 	if align <= none {
 		t.Fatalf("align holds %d bytes per sequence against none's %d; the comparison needs "+
 			"them to differ", align, none)
+	}
+	if got := build("none", nil); got != align {
+		t.Errorf("a stated none with prefix caching on holds %d bytes, want align's %d: the "+
+			"engine overrides it", got, align)
+	}
+	in := fixtureInputs(t, "nemotron3-ultra-h100-agg.yaml")
+	in.Deployment.Pools[0].Engine.MambaCacheMode = "none"
+	k, err := New(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reported := false
+	for _, o := range k.Resolved().Overrides {
+		reported = reported || (o.Field == "mamba_cache_mode" && o.Resolved == "align")
+	}
+	if !reported {
+		t.Errorf("a stated none run as align is not reported in Resolved: %+v",
+			k.Resolved().Overrides)
 	}
 	if got := build("", nil); got != align {
 		t.Errorf("an unstated mode with prefix caching on holds %d bytes, want align's %d",

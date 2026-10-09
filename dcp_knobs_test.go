@@ -445,7 +445,10 @@ func TestUnderNIXLAnUnstatedInterleaveIsTheBlockSize(t *testing.T) {
 // (VllmConfig.validate_block_size, vllm/config/vllm.py:3388-3402). On the disaggregated decode
 // pool at block 64: 32 starts, 48 and 128 do not, 128 does under NIXL, and under a
 // MultiConnector -- whose NIXL child a deployment cannot name -- a misfit is refused rather
-// than guessed. A block the kernel only assumed is not checked: the platform may change it.
+// than guessed. Against a block the kernel only assumed, a misfit is refused too: the
+// platform usually keeps the default 16 and the kernel cannot tell when it would not, so the
+// deployment must state the block. A DSA model's block, 64, is the engine's own and checked
+// as such: 64 fits it, 128 does not.
 func TestAStatedInterleaveMustFitTheBlock(t *testing.T) {
 	r := writeDisaggregated(t)
 	starts := func(connector string, block, interleave int) bool {
@@ -473,11 +476,27 @@ func TestAStatedInterleaveMustFitTheBlock(t *testing.T) {
 		{"MooncakeConnector", 64, 128, false},
 		{"NixlConnector", 64, 128, true},
 		{"MultiConnector", 64, 128, false},
-		{"MooncakeConnector", 0, 128, true},
+		{"MooncakeConnector", 0, 128, false},
+		{"MooncakeConnector", 0, 16, true},
 	} {
 		if got := starts(c.connector, c.block, c.interleave); got != c.want {
 			t.Errorf("%s, block %d, interleave %d: starts %v, want %v",
 				c.connector, c.block, c.interleave, got, c.want)
+		}
+	}
+	for _, c := range []struct {
+		interleave int
+		want       bool
+	}{{64, true}, {128, false}} {
+		_, err := dcpVariant(t, dcpSparseFixture, 8, 1, 2, func(in *Inputs) {
+			e := &in.Deployment.Pools[0].Engine
+			off := false
+			e.BlockSize, e.CPKVCacheInterleaveSize = 0, c.interleave
+			e.DCPCommBackend, e.DCPQReplicate = "ag_rs", &off
+		})
+		if got := err == nil; got != c.want {
+			t.Errorf("glm5 (DSA, block 64), interleave %d: starts %v, want %v (%v)",
+				c.interleave, got, c.want, err)
 		}
 	}
 }

@@ -115,7 +115,9 @@ func New(in Inputs) (*Kernel, error) {
 	}
 	k.servedDType = served
 
-	if err := checkCacheDTypes(pool.Engine.CacheDType, pool.Engine.MambaCacheDType); err != nil {
+	_, _, _, attnKind := kvGeometry(in.Model)
+	if err := checkCacheDTypes(pool.Engine.CacheDType, pool.Engine.MambaCacheDType,
+		attnKind); err != nil {
 		return nil, err
 	}
 	cacheBytes := cacheDTypeBytes(pool.Engine.CacheDType, served)
@@ -137,25 +139,42 @@ func New(in Inputs) (*Kernel, error) {
 	}
 	k.plan = plan
 
-	// The recurrent cache mode as it runs. An unstated mode is "none" in the config
-	// (vllm/config/cache.py:190), but vLLM v0.31.0 turns it into "align" for a hybrid model
-	// whenever prefix caching is on (vllm/model_executor/models/config.py:640-642), and
-	// prefix caching is on unless disabled (vllm/config/cache.py:142). So an unstated mode is
-	// "align" unless the deployment turns prefix caching off.
+	// The recurrent cache mode as it runs. The config's default is "none"
+	// (vllm/config/cache.py:190), and for a hybrid model vLLM v0.31.0 turns "none" into
+	// "align" whenever prefix caching is on (vllm/model_executor/models/config.py:640-642,
+	// run for every hybrid model from vllm/config/vllm.py:2797-2798) -- a STATED "none"
+	// included, since the hook cannot tell it from the default. Prefix caching is on unless
+	// disabled (vllm/config/cache.py:142).
 	hybrid := false
 	for _, l := range plan.Layers {
 		hybrid = hybrid || l.RecurrentKind != ""
 	}
-	k.recurrentCacheMode = price.RecurrentCacheMode(pool.Engine.MambaCacheMode)
-	if k.recurrentCacheMode == "" {
+	prefixCaching := true
+	if pc := pool.Engine.EnablePrefixCaching; pc != nil && !*pc {
+		prefixCaching = false
+	}
+	stated := price.RecurrentCacheMode(pool.Engine.MambaCacheMode)
+	k.recurrentCacheMode = stated
+	if stated == "" {
+		k.recurrentCacheMode = price.RecurrentCacheNone
+	}
+	if hybrid && prefixCaching && k.recurrentCacheMode == price.RecurrentCacheNone {
 		k.recurrentCacheMode = price.RecurrentCacheAlign
-		if pc := pool.Engine.EnablePrefixCaching; pc != nil && !*pc {
-			k.recurrentCacheMode = price.RecurrentCacheNone
-		}
-		if hybrid {
+	}
+	if hybrid {
+		switch {
+		case stated == "":
 			k.assume("mamba_cache_mode", string(k.recurrentCacheMode),
 				"vLLM v0.31.0's choice for a hybrid model: align with prefix caching on, "+
 					"none with it off (vllm/model_executor/models/config.py:640-642)")
+		case stated != k.recurrentCacheMode:
+			k.layout.Overrides = append(k.layout.Overrides, resolve.Override{
+				Field: "mamba_cache_mode", Requested: string(stated),
+				Resolved: string(k.recurrentCacheMode),
+				Reason: "with prefix caching on, vLLM v0.31.0 runs a hybrid model's " +
+					"recurrent cache in align mode whatever none was stated " +
+					"(vllm/model_executor/models/config.py:640-642)",
+			})
 		}
 	}
 
@@ -717,6 +736,15 @@ func (k *Kernel) lift(c *resolve.Coefficients, g *model.Graph, cacheBytes float6
 			}
 		}
 	}
+	// Then rounded up to a whole number of blocks -- of lcm(block, dcp x interleave) blocks
+	// under DCP, so every rank's share stays interleave-aligned
+	// (align_mla_chunked_context_workspace_size, mla_attention.py:1993-2005, applied at
+	// :2319).
+	align := max(k.blockSize, 1)
+	if k.layout.DCP > 1 {
+		align = lcm(align, k.layout.DCP*max(k.decodeContext.Interleave, 1))
+	}
+	chunk = (max(chunk, align) + align - 1) / align * align
 	k.mlaContextChunk = max(chunk, 1)
 
 	// Expert geometry, derived once.
@@ -975,6 +1003,15 @@ func activationWidth(p *price.Plan, g *model.Graph) float64 {
 		h = g.Global.HiddenSize
 	}
 	return float64(h)
+}
+
+// lcm is the least common multiple of two positive integers.
+func lcm(a, b int) int {
+	x, y := a, b
+	for y != 0 {
+		x, y = y, x%y
+	}
+	return a / x * b
 }
 
 // defaultMaxNumSeqs is vLLM v0.31.0's default sequence cap for a part in the
@@ -1392,7 +1429,13 @@ func cacheDTypeBytes(declared string, fallback model.DType) float64 {
 		return 1
 	case "bfloat16", "float16":
 		return 2
-	case "nvfp4", "nvfp4_4over6", "nvfp4_ds_mla":
+	case "nvfp4", "nvfp4_4over6":
+		// Four-bit data plus an fp8 scale per 16 elements: head_size/2 + head_size/16
+		// bytes a head (nvfp4_kv_cache_full_dim, vllm/utils/torch_utils.py:543-545).
+		return 0.5 + 1.0/16
+	case "nvfp4_ds_mla":
+		// Its 352-byte cell is applied where it is served (dsMLAStateBytes); this is only
+		// the per-element width a latent model never prices with.
 		return 0.5
 	case "float32":
 		return 4
@@ -1405,7 +1448,8 @@ func cacheDTypeBytes(declared string, fallback model.DType) float64 {
 // whether this kernel prices them. The turboquant and per-token-head formats are real but
 // carry per-token scales or packings whose page size this kernel does not compute
 // (MLACommonBackend.customize_spec, mla_attention.py:1580-1593, for the per-token-head
-// ones), so they are refused rather than priced at a width they do not have.
+// ones), so they are refused rather than priced at a width they do not have. Some of the
+// priced ones are refused for a model as well (checkCacheDTypes).
 var (
 	pricedCacheDTypes = map[string]bool{
 		"": true, "auto": true, "float16": true, "bfloat16": true, "fp8": true,
@@ -1423,11 +1467,29 @@ var (
 	}
 )
 
-// checkCacheDTypes refuses a cache dtype the engine does not accept, and one it accepts
-// that this kernel does not price. An unchecked name used to fall through to the weight
-// width, which on an nvfp4-served model charged an unknown cache at half a byte.
-func checkCacheDTypes(cache, mamba string) error {
+// checkCacheDTypes refuses a cache dtype the engine does not accept, one it accepts that
+// this kernel does not price, and one no backend serves for this model's attention kind:
+//
+//   - fp8_inc is listed by no CUDA attention backend (it appears only in
+//     vllm/config/cache.py:46 and vllm/utils/torch_utils.py:46);
+//   - fp8_ds_mla and nvfp4_ds_mla are listed only by the sparse-MLA backends;
+//   - plain nvfp4 on a latent model is refused outright (validate_nvfp4_kv_cache_with_mla,
+//     vllm/config/vllm.py:3414-3430).
+//
+// An unchecked name used to fall through to the weight width, which on an nvfp4-served
+// model charged an unknown cache at half a byte.
+func checkCacheDTypes(cache, mamba string, kind model.AttentionKind) error {
 	switch {
+	case cache == "fp8_inc":
+		return fmt.Errorf("cache_dtype fp8_inc is served by no CUDA attention backend in " +
+			"vLLM v0.31.0")
+	case strings.HasSuffix(cache, "_ds_mla") && kind != model.AttentionSparseMLA:
+		return fmt.Errorf("cache_dtype %q is served only by the sparse-MLA backends, and "+
+			"this model's attention is %s", cache, kind)
+	case strings.HasPrefix(cache, "nvfp4") && !strings.HasSuffix(cache, "_ds_mla") &&
+		latentAttention(kind):
+		return fmt.Errorf("cache_dtype %q on a latent-attention model: vLLM v0.31.0 "+
+			"refuses plain nvfp4 with MLA (vllm/config/vllm.py:3414-3430)", cache)
 	case unpricedCacheDTypes[cache]:
 		return fmt.Errorf("cache_dtype %q is a vLLM v0.31.0 format this kernel does not "+
 			"price: its page carries scales or a packing the kernel does not size", cache)
@@ -1612,14 +1674,6 @@ const KernelAssumptionSet = "blis-latency-kernel"
 // EngineBehaviourVersion is the vLLM release whose engine behaviour this kernel encodes.
 const EngineBehaviourVersion = "0.31.0"
 
-// assume records a value the kernel filled in on the deployment's behalf -- an engine
-// default for a setting the deployment left unstated, where the default is a judgement the
-// kernel made rather than a fact it read. It reaches Provenance as an entry from
-// KernelAssumptionSet with method "assumed", so Evidence counts it in the total and lists
-// it among the assumptions instead of leaving the prediction's footing overstated.
-//
-// name is the setting; scope carries the value and the reason, since a reader of the
-// provenance trail needs both and CoefficientOrigin has no other free-text field.
 // optional reads a coefficient the kernel can price without, returning zero when the
 // scenario's sets do not carry it. Where the deployment needs it, its absence is recorded as
 // an assumption, naming what is priced without it, so a registry that drops an entry moves
@@ -1635,6 +1689,14 @@ func (k *Kernel) optional(c *resolve.Coefficients, name string, needed bool,
 	return 0
 }
 
+// assume records a value the kernel filled in on the deployment's behalf -- an engine
+// default for a setting the deployment left unstated, where the default is a judgement the
+// kernel made rather than a fact it read. It reaches Provenance as an entry from
+// KernelAssumptionSet with method "assumed", so Evidence counts it in the total and lists
+// it among the assumptions instead of leaving the prediction's footing overstated.
+//
+// name is the setting; scope carries the value and the reason, since a reader of the
+// provenance trail needs both and CoefficientOrigin has no other free-text field.
 func (k *Kernel) assume(name, value, reason string) {
 	k.assumptions = append(k.assumptions, kernel.CoefficientOrigin{
 		Name: name, Set: KernelAssumptionSet, Method: string(vocab.MethodAssumed),

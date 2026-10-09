@@ -83,7 +83,9 @@ func TestAnAutoCacheFollowsTheComputeWidthNotTheStorageWidth(t *testing.T) {
 	if got := cacheDTypeBytes("fp8", model.DTypeINT4); got != 1 {
 		t.Errorf("an explicit fp8 cache = %.1f bytes, want 1", got)
 	}
-	if got := cacheDTypeBytes("nvfp4", model.DTypeBF16); got != 0.5 {
-		t.Errorf("an explicit nvfp4 cache = %.1f bytes, want 0.5", got)
+	// nvfp4 carries an fp8 scale per 16 elements beside its four-bit data:
+	// head_size/2 + head_size/16 bytes a head (vllm/utils/torch_utils.py:543-545).
+	if got := cacheDTypeBytes("nvfp4", model.DTypeBF16); got != 0.5625 {
+		t.Errorf("an explicit nvfp4 cache = %.4f bytes, want 0.5625", got)
 	}
 }
