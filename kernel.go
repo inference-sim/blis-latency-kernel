@@ -1974,7 +1974,7 @@ func (k *Kernel) pcpPrefillGathers(l *price.PlannedLayer,
 //
 // The runs are formed in the order the engine lays the batch out, which is not the order a
 // caller lists it. Model Runner V2 -- v0.31.0's runner unless a configuration needs V1
-// (VllmConfig.use_v2_model_runner, vllm/config/vllm.py:718-760), and the only one that runs
+// (VllmConfig.use_v2_model_runner, vllm/config/vllm.py:701-761), and the only one that runs
 // PCP -- sorts requests by (no drafts, not a decode-sized query, scheduled tokens), a stable
 // sort (sort_batch_req_ids, vllm/v1/worker/gpu/model_runner.py:2398-2410). So prefills run in
 // ascending scheduled-token order, ties in arrival order, and that is the order sorted here.

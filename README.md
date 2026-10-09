@@ -103,8 +103,8 @@ backend-preferred block size, a downgraded graph mode -- it does not guess silen
 refuses the deployment, or prices the engine's stock default and records that default in
 `Provenance()` as an entry from set `blis-latency-kernel` with method `assumed`, which
 `Evidence()` counts. Where v0.31.0's choice follows from the deployment, it is made as the
-engine makes it and recorded the same way: a DSA sparse-MLA model's block size, which is 64
-whatever the default (`sparse_mla.go`). A deployment that states every setting carries no
+engine makes it and recorded the same way: an unstated block size on a DSA sparse-MLA model,
+which is 64 rather than the stock 16 (`sparse_mla.go`). A deployment that states every setting carries no
 such entry, with two exceptions: a stated DCP backend that could not be checked against the
 release, because the rules value carries no list of accepted names; and a DSA model on
 Hopper whose cache selects FlashInfer's SM90 sparse MLA, which needs a FlashInfer release

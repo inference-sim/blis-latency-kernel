@@ -13,10 +13,10 @@
 # comparison scores the RATIO of step times across concurrency at a fixed deployment, which
 # is what a setting held constant affects least.
 #
-# block_size is 64, the only size vLLM v0.31.0 runs a DSA sparse-MLA model at: its indexer
-# runs on 64-token blocks, and a size 64 does not divide is refused
-# (vllm/v1/attention/backends/mla/indexer.py:203-204, vllm/v1/worker/utils.py:330-391). An
-# earlier form stated 16, a deployment the engine does not start.
+# block_size is 64, the size vLLM v0.31.0 picks for a DSA sparse-MLA model: its indexer runs
+# on 64-token kernel blocks, and a stated size that is not a multiple of 64 is refused
+# (vllm/v1/attention/backends/mla/indexer.py:203-204). An earlier form stated 16, a
+# deployment the engine does not start.
 #
 # The fp8 cache is served by FlashMLA-sparse on this part, which allocates it as fp8_ds_mla:
 # 656 bytes a token per layer, not 576 (see sparseMLABackend).

@@ -20,8 +20,9 @@
 # deployment that cannot serve its own points.
 #
 # block_size is 64 here, not 16: this is a DSA sparse-MLA model, whose indexer
-# runs on 64-token blocks, and vLLM v0.31.0 refuses a block size 64 does not divide
-# (vllm/v1/attention/backends/mla/indexer.py:203-204, vllm/v1/worker/utils.py:330-391).
+# runs on 64-token kernel blocks: vLLM v0.31.0 picks 64 for it when none is stated and
+# refuses a stated size that is not a multiple of 64
+# (vllm/v1/attention/backends/mla/indexer.py:203-204).
 kind: Scenario
 name: glm-5-b200-fp4-sglang-tp4
 engine_version: "0.29.0"

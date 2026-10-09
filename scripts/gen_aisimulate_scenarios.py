@@ -31,8 +31,8 @@ framework, precision, serving, gpu, model.
 NOT stated, and therefore set here: max_num_seqs, max_model_len, block_size,
 gpu_memory_utilization, cudagraph_mode. They are NOT vLLM's defaults, and the written header
 says how each differs: block_size 16 is only the nominal default, which a backend may raise
-(vllm/platforms/interface.py), and a DSA sparse-MLA model is stated at 64, the only size its
-indexer runs (see DSA_MODELS); gpu_memory_utilization's default is 0.92 (vllm/config/cache.py);
+(vllm/platforms/interface.py), and a DSA sparse-MLA model is stated at 64, the size vLLM picks
+for it and a multiple of the only kernel block its indexer runs (see DSA_MODELS); gpu_memory_utilization's default is 0.92 (vllm/config/cache.py);
 max_num_seqs 256 is the default only below 70 GiB or on an A100
 (EngineArgs.get_batch_defaults, vllm/engine/arg_utils.py); cudagraph_mode's default is
 FULL_AND_PIECEWISE (vllm/config/compilation.py) -- all at v0.29.0 and v0.31.0. They are held fixed so committed scores stay comparable,
@@ -76,14 +76,14 @@ COEFFICIENTS = (
 # compressed-tensors at group_size 32, which the catalog derives as weight_dtype int4.
 QUANT = {"fp4": "nvfp4", "fp8": "fp8", "bf16": None, "int4": None}
 
-# A KV cache dtype is not stated by the corpus. fp8 KV is the default for the fp8 and fp4
-# arms in these frameworks; bf16 serving keeps an unquantised cache.
 # The DSA sparse-MLA models in the corpus. Their indexer runs on 64-token kernel blocks
 # (vllm/v1/attention/backends/mla/indexer.py:203-204 at v0.31.0), so vLLM picks block_size 64
-# for them and refuses a stated size 64 does not divide (select_common_block_size,
-# vllm/v1/worker/utils.py:330-391). They are stated at 64; every other model at 16.
+# for them when none is stated and refuses a stated size that is not a multiple of 64. They
+# are stated at 64; every other model at 16.
 DSA_MODELS = {"glm-5"}
 
+# A KV cache dtype is not stated by the corpus. fp8 KV is the default for the fp8 and fp4
+# arms in these frameworks; bf16 serving keeps an unquantised cache.
 CACHE_DTYPE = {"fp4": "fp8", "fp8": "fp8", "bf16": "auto", "int4": "auto"}
 
 GPUS_PER_NODE = 8
@@ -142,8 +142,9 @@ def emit(dep: dict, workloads: set[str], labels: set[str]) -> str:
         lines += [
             "#",
             f"# block_size is {block_size} here, not 16: this is a DSA sparse-MLA model, whose indexer",
-            "# runs on 64-token blocks, and vLLM v0.31.0 refuses a block size 64 does not divide",
-            "# (vllm/v1/attention/backends/mla/indexer.py:203-204, vllm/v1/worker/utils.py:330-391).",
+            "# runs on 64-token kernel blocks: vLLM v0.31.0 picks 64 for it when none is stated and",
+            "# refuses a stated size that is not a multiple of 64",
+            "# (vllm/v1/attention/backends/mla/indexer.py:203-204).",
         ]
     lines += [
         "kind: Scenario",

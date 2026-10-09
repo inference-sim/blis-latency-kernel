@@ -141,9 +141,9 @@ func New(in Inputs) (*Kernel, error) {
 	switch {
 	case isDSA(in.Model) && k.blockSize > 0 && k.blockSize%dsaBlockSize != 0:
 		return nil, fmt.Errorf("block_size %d on a DSA sparse-MLA model: its indexer runs "+
-			"on %d-token kernel blocks, which no common block size reconciles with %d, so "+
-			"the engine refuses this layout at startup (see dsaBlockSize)",
-			k.blockSize, dsaBlockSize, k.blockSize)
+			"on %d-token kernel blocks, so a stated size must be a multiple of %d, and the "+
+			"engine refuses this layout at startup (see dsaBlockSize)",
+			k.blockSize, dsaBlockSize, dsaBlockSize)
 	case isDSA(in.Model) && k.blockSize <= 0:
 		k.blockSize = dsaBlockSize
 		k.assume("block_size", strconv.Itoa(dsaBlockSize),
@@ -296,7 +296,9 @@ func (k *Kernel) resolveContextParallel(in Inputs) error {
 				"replicated; a model's configuration hook runs first and may choose "+
 				"otherwise -- GlmMoeDsaForCausalLM selects a2a with dcp_q_replicate "+
 				"(vllm/model_executor/models/config.py:43-50) -- and the kernel cannot see "+
-				"which model class serves this graph, so state both to price it exactly")
+				"which model class serves this graph, so state both to price it exactly. On "+
+				"that model the difference decides whether it starts: FlashMLA-sparse runs "+
+				"DCP only with ag_rs (flashmla_sparse.py:416-422)")
 	}
 	return nil
 }
@@ -719,6 +721,7 @@ func (k *Kernel) lift(c *resolve.Coefficients, g *model.Graph, cacheBytes float6
 			cache:        k.pool.Engine.CacheDType,
 			headsPerRank: heads / max(k.layout.TP, 1),
 			sm100:        k.chip.NVFP4Peak > 0,
+			tp:           k.layout.TP,
 			dcp:          k.layout.DCP,
 			pcp:          k.layout.PCP,
 			dcpComm:      k.decodeContext.CommBackend,
