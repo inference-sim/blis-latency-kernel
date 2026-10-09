@@ -691,12 +691,10 @@ func (k *Kernel) stepTime(b kernel.Batch,
 		//	decode:  floor + kv_bytes / rate            (bandwidth-bound in context)
 		//	prefill: floor + causal_flops / (peak * eff * work_scale)
 		//
-		// A step holding both kinds of request pays both floors. That is the engine's
-		// behaviour on the MLA and FlashInfer backends, which split a mixed batch and
-		// launch a kernel per regime. KNOWN DIVERGENCE: FlashAttention runs one varlen
-		// kernel over the whole batch (vllm/v1/attention/backends/flash_attn.py:1450-1478 at v0.31.0), so on it
-		// a mixed step pays one floor and this charges one too many. Decode is charged to
-		// HBM and prefill to SM, which is what each regime binds on.
+		// A step holding both kinds of request pays both floors on the MLA and FlashInfer
+		// backends, which split a mixed batch and launch a kernel per regime, and one on
+		// FlashAttention, which runs one kernel over every row (see below). Decode is
+		// charged to HBM and prefill to SM, which is what each regime binds on.
 		if l.AttnQHeads > 0 {
 			// This layer kind's own decode terms, falling back to the part-wide pair.
 			floor, rate := k.attentionFloor, k.attentionRate
@@ -748,6 +746,21 @@ func (k *Kernel) stepTime(b kernel.Batch,
 			layerCausalFLOPs := causalFLOPs
 			if l.AttnWindow > 0 {
 				layerCausalFLOPs = windowedCausalFLOPs(prefillChunks, l.AttnWindow)
+			}
+			// ONE LAUNCH ON A ONE-KERNEL BACKEND. Where full or windowed attention runs on
+			// FlashAttention, a mixed step is one dense varlen kernel over every row
+			// (vllm/v1/attention/backends/flash_attn.py:1326-1478 at v0.31.0), so it pays one
+			// launch, not one per regime: the smaller of the two floors is taken back out.
+			// FlashAttention is v0.31.0's default for causal non-MLA attention everywhere
+			// but data-center Blackwell, where FlashInfer, which splits the batch, is
+			// (vllm/platforms/cuda.py:157-180); the catalog marks that family by native NVFP4.
+			if decodeRequests > 0 && prefillRequests > 0 && !latentAttention(l.AttnKind) &&
+				k.chip.NVFP4Peak <= 0 && rate > 0 && k.attentionPrefillScale > 0 {
+				if floor < k.attentionPrefillFloor {
+					attnSeconds -= floor.Seconds()
+				} else {
+					attnSMSeconds -= k.attentionPrefillFloor.Seconds()
+				}
 			}
 			if prefillRequests > 0 && k.attentionPrefillScale > 0 {
 				scale := price.Efficiency(tokensF, k.epsMax, k.mHalf) *
@@ -1823,7 +1836,8 @@ func (k *Kernel) dcpDecodeTokens(l *price.PlannedLayer, kind model.AttentionKind
 // one byte; this prices it at two, an overstatement of one of the three collectives.
 //
 // A latent prefill's context is read by its own gather, dcpPrefillContextGathers.
-func (k *Kernel) dcpDecodeCollectives(l *price.PlannedLayer, rows int) (onNode, crossNode float64) {
+func (k *Kernel) dcpDecodeCollectives(l *price.PlannedLayer,
+	rows int) (onNode, crossNode float64) {
 	const activationBytes = price.ActivationBytes
 	tp := float64(max(k.layout.TP, 1))
 	dcp := float64(k.layout.DCP)
@@ -1901,7 +1915,8 @@ func (k *Kernel) dcpDecodeCollectives(l *price.PlannedLayer, rows int) (onNode, 
 // widths here are a latent layer's: kv_lora_rank for kv_c_normed and the remainder of the
 // head width for k_pe. A latent node that states no kv_lora_rank is gathered as one tensor
 // of its head width.
-func (k *Kernel) pcpPrefillGathers(l *price.PlannedLayer, localTokens int) (onNode, crossNode float64) {
+func (k *Kernel) pcpPrefillGathers(l *price.PlannedLayer,
+	localTokens int) (onNode, crossNode float64) {
 	const activationBytes = price.ActivationBytes
 	rows := float64(k.layout.PCP) * float64(localTokens)
 	key := collKey{Op: model.OpAllGather, Group: price.GroupPCP}
@@ -1943,7 +1958,8 @@ func (k *Kernel) pcpPrefillGathers(l *price.PlannedLayer, localTokens int) (onNo
 // Each prefill request is chunked on its own, which is how the plan packs them
 // ("workspace-sized per-request chunks", :2023-2024); requests sharing one chunk would pay
 // one floor where this charges two, a small over-charge at short contexts.
-func (k *Kernel) dcpPrefillContextGathers(l *price.PlannedLayer, prefixes []int) (onNode, crossNode float64) {
+func (k *Kernel) dcpPrefillContextGathers(l *price.PlannedLayer,
+	prefixes []int) (onNode, crossNode float64) {
 	key := collKey{Op: model.OpAllGather, Group: price.GroupDCP}
 	width := float64(l.AttnHeadDim) * price.ActivationBytes
 	for _, prefix := range prefixes {
@@ -2172,8 +2188,8 @@ func (k *Kernel) Deployment() deployment.Pool { return clonePool(k.pool) }
 // A consumer sizing its own KV budget needs it and cannot derive it from anything else
 // this kernel exposes: it is the only axis that shards a LATENT cache, because
 // KVBytesPerToken floors at one KV head and a latent cache has exactly one, so no
-// tensor-parallel width reduces it. A simulator that read Resolution's TensorParallelWidth alone would
-// size an MLA deployment's cache as if DCP did nothing.
+// tensor-parallel width reduces it. A simulator that read Resolution's TensorParallelWidth
+// alone would size an MLA deployment's cache as if DCP did nothing.
 //
 // From the resolved layout rather than the deployment document: a Parallelism states a
 // request and resolution settles it.

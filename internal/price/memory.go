@@ -25,16 +25,17 @@ import "math"
 // latent vector per state; there is no separate V", head_size_v = 0
 // (vllm/v1/kv_cache_interface.py:674-676 at v0.31.0), and a page is
 // (head_size + head_size_v) * dtype per head unless a spec states its own state size
-// (:521-525). So a latent layer is charged one tensor, not two.
+// (:521-525). So a latent layer is charged one tensor, not two. Its head count is one
+// whatever the config says and no tensor-parallel width reduces it; the model graph records
+// nKV = 1 for those kinds. An earlier form charged a latent layer two tensors -- every MLA
+// and sparse-MLA model's cache at double its size -- against a decode rate blis-registry
+// fitted on the single vector (scripts/fit_attention_mla.py: "kv_bytes = batch * step *
+// 576 * dtype_width").
 //
 // The layouts that state their own size are applied by the kernel where a deployment names
 // them (the packed ds_mla caches; see lift). COVERAGE LIMIT: per-token-head quantization
 // adds two fp32 scales a token (mla_attention.py:1580-1594), and compressed or padded pages
-// are sized by their own specs (:529-535); neither is modelled. Its head count is one whatever the config says and no tensor-parallel
-// width reduces it; the model graph records nKV = 1 for those kinds. An earlier form
-// charged a latent layer two tensors -- every MLA and sparse-MLA model's cache at double
-// its size -- against a decode rate blis-registry fitted on the single vector
-// (scripts/fit_attention_mla.py: "kv_bytes = batch * step * 576 * dtype_width").
+// are sized by their own specs (:529-535); neither is modelled.
 //
 // The cache dtype is independent of the weight dtype. A bf16 model with an fp8 cache
 // halves this, which is the difference between a deployment holding one long sequence and

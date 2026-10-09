@@ -24,7 +24,8 @@ import (
 // dcpVariant is a committed fixture with one pool's DCP, PCP, TP and node count set, and
 // any engine edits applied, laid out as the engine needs it (pcpInputs adds the nodes and
 // fabric a PCP layout requires).
-func dcpVariant(t *testing.T, fixture string, tp, pcp, dcp int, edit func(*Inputs)) (*Kernel, error) {
+func dcpVariant(t *testing.T, fixture string, tp, pcp, dcp int,
+	edit func(*Inputs)) (*Kernel, error) {
 	t.Helper()
 	in := pcpInputs(t, fixture, 1)
 	pool := &in.Deployment.Pools[0]
@@ -444,7 +445,8 @@ func TestUnderNIXLAnUnstatedInterleaveIsTheBlockSize(t *testing.T) {
 // The fabric pcpInputs adds must be loadable from the same catalog the fixtures read; this
 // keeps dcpVariant's multi-node layouts honest if the catalog moves.
 func TestTheFabricDCPLayoutsDeclareIsInTheCatalog(t *testing.T) {
-	if _, err := schemas.LoadFabric(filepath.Join(catalogRoot, "networks", "ib-400g.yaml")); err != nil {
+	path := filepath.Join(catalogRoot, "networks", "ib-400g.yaml")
+	if _, err := schemas.LoadFabric(path); err != nil {
 		t.Fatal(err)
 	}
 }

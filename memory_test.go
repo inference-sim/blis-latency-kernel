@@ -12,6 +12,7 @@ import (
 	"github.com/inference-sim/blis-schemas/kernel"
 	"github.com/inference-sim/blis-schemas/spec/coefficient"
 	"github.com/inference-sim/blis-schemas/spec/deployment"
+	"github.com/inference-sim/blis-schemas/spec/model"
 	"github.com/inference-sim/blis-schemas/vocab"
 
 	"github.com/inference-sim/blis-latency-kernel/internal/resolve"
@@ -766,5 +767,67 @@ func TestAPackedSparseMLACacheIsItsOwnSize(t *testing.T) {
 			t.Errorf("%s: a 16-token page holds %d bytes, want %d (%d a token per layer)",
 				c.cache, got, want, c.cell)
 		}
+	}
+}
+
+// A MIXED STEP IS ONE ATTENTION LAUNCH ON FLASHATTENTION. Without DCP, FlashAttention runs
+// one dense varlen kernel over every row of a mixed batch
+// (vllm/v1/attention/backends/flash_attn.py:1326-1478 at v0.31.0), so it pays one launch per
+// layer where FlashInfer, which splits decode from prefill, pays two. v0.31.0 picks
+// FlashAttention for causal full attention everywhere but data-center Blackwell
+// (vllm/platforms/cuda.py:157-180).
+//
+// Asserted as a contrast on one deployment: minimax-m2.5 on h200, and the same chip marked as
+// data-center Blackwell (native NVFP4, which nothing else in this fp8-served deployment
+// reads). Decode-only and prefill-only steps must price identically on both; a mixed step
+// must be cheaper on the FlashAttention part by exactly the smaller floor per attention layer.
+func TestAMixedStepIsOneAttentionLaunchOnFlashAttention(t *testing.T) {
+	build := func(blackwell bool) *Kernel {
+		t.Helper()
+		in := fixtureInputs(t, "minimax-m25-h200-tp8.yaml")
+		if blackwell {
+			chip := *in.Chip
+			chip.NVFP4Peak = 1
+			in.Chip = &chip
+		}
+		k, err := New(in)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return k
+	}
+	fa, fi := build(false), build(true)
+	busy := func(k *Kernel, b kernel.Batch) time.Duration {
+		p := k.StepTime(b).PerResource
+		return p[kernel.ResourceSM] + p[kernel.ResourceHBM]
+	}
+	decode := decodeBatch(8, 1, 4096)
+	prefill := decodeBatch(1, 256, 256)
+	mixed := kernel.Batch{DecodeThreshold: 8, Reqs: append(append([]kernel.ReqShape{},
+		decode.Reqs...), prefill.Reqs...)}
+	for name, b := range map[string]kernel.Batch{"decode": decode, "prefill": prefill} {
+		if a, c := busy(fa, b), busy(fi, b); a != c {
+			t.Errorf("a %s-only step priced %v on FlashAttention and %v on FlashInfer", name, a, c)
+		}
+	}
+	// The decode floor is the layer kind's own where the registry carries one, the
+	// part-wide one otherwise; the smaller of it and the prefill floor is what one launch
+	// saves.
+	decodeFloor := fa.attentionFloor
+	if fr, ok := fa.attentionByKind[model.AttentionGQA]; ok {
+		decodeFloor = fr.floor
+	}
+	smaller := min(decodeFloor, fa.attentionPrefillFloor)
+	var attnLayers int
+	for _, l := range fa.plan.Layers {
+		if l.AttnQHeads > 0 {
+			attnLayers += l.Count
+		}
+	}
+	saved := busy(fi, mixed) - busy(fa, mixed)
+	want := time.Duration(float64(smaller) * float64(attnLayers))
+	if d := saved - want; d < -2 || d > 2 {
+		t.Errorf("a mixed step saved %v on FlashAttention, want one smaller floor per "+
+			"attention layer, %v", saved, want)
 	}
 }
