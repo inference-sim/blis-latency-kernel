@@ -137,7 +137,8 @@ type Kernel struct {
 	// is what lets a whole-model capacity figure carry the shard at all.
 	dcpShardsAllKVLayers bool
 	// kvLayers is how many layers hold KV, which is the count kvBytesPerToken is summed
-	// over and so the divisor for one layer's share of the cache.
+	// over and so the divisor for one layer's share of the cache. Not TotalLayers: on a
+	// hybrid stack the two differ, and Nemotron-3-Ultra holds KV on 12 of 108 layers.
 	kvLayers int
 
 	// Host overheads.
@@ -741,7 +742,7 @@ func (k *Kernel) stepTime(b kernel.Batch,
 				// below any measured attention floor on any part in the registry, for a
 				// kernel that still has to be launched on every rank.
 				attnSeconds += floor.Seconds() +
-					tokens*k.kvBytesPerToken/float64(k.plan.TotalLayers)/
+					tokens*k.kvBytesPerToken/float64(max(k.kvLayers, 1))/
 						rate
 			} else if decodeRequests > 0 {
 				// No measured decode form for this part: the KV read is charged below and
@@ -820,7 +821,7 @@ func (k *Kernel) stepTime(b kernel.Batch,
 					continue
 				}
 				ratio := float64(a.KVHeads) * float64(a.HeadDim) / primary
-				perToken := k.kvBytesPerToken / float64(k.plan.TotalLayers) * ratio
+				perToken := k.kvBytesPerToken / float64(max(k.kvLayers, 1)) * ratio
 				tokens := decodeKVTokens
 				if a.Window > 0 {
 					tokens = math.Min(tokens, float64(a.Window)*float64(decodeRequests))
@@ -883,7 +884,7 @@ func (k *Kernel) stepTime(b kernel.Batch,
 			if bounded := k.dcpDecodeTokens(l, l.AttnKind, decodeContexts); bounded >= 0 {
 				tokens = bounded
 			}
-			kvBytes = tokens * k.kvBytesPerToken / float64(k.plan.TotalLayers)
+			kvBytes = tokens * k.kvBytesPerToken / float64(max(k.kvLayers, 1))
 		}
 
 		// The efficiency ramp is evaluated at the STEP's token count for every term,
