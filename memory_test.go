@@ -367,7 +367,9 @@ func TestTheGraphModeIsChosenPerBatch(t *testing.T) {
 // 1.3 GB of hardcoded occupancy had no entry at all, so Evidence's "measured of total"
 // overstated the prediction's footing. Every memory coefficient the composition read must
 // now appear, from the registry set that supplied it; and an engine default the kernel
-// filled in must appear as a kernel assumption, which a fully stated deployment has none of.
+// filled in must appear as a kernel assumption, which a fully stated deployment has none of
+// -- except the cudagraph capture ceiling, which blis-schemas has no field to state, so any
+// capturing deployment reports vLLM's default for it.
 func TestProvenanceSeesEveryFigureFixedBytesReports(t *testing.T) {
 	k := fixture(t, memoryFixture)
 	sets := map[string]string{}
@@ -388,7 +390,7 @@ func TestProvenanceSeesEveryFigureFixedBytesReports(t *testing.T) {
 		}
 	}
 	for _, o := range k.Provenance() {
-		if o.Set == KernelAssumptionSet {
+		if o.Set == KernelAssumptionSet && o.Name != "max_cudagraph_capture_size" {
 			t.Errorf("a deployment stating every engine setting reported the kernel "+
 				"assumption %s", o.Name)
 		}

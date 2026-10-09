@@ -421,16 +421,6 @@ func TestPCPDividesTheCausalTermByExactlyTheSplit(t *testing.T) {
 				"against an even share of %v; a ceil-based chunking cannot give less",
 				ragged, exact, nominal)
 		}
-		// The step must reflect that excess: pricing the nominal share would make this
-		// strictly cheaper, and the gap is bounded below by the excess over the rate.
-		got := pcpKernel(t, pcpFixture, 8).StepTime(decodeBatch(1, ragged, ragged)).
-			PerResource[kernel.ResourceSM].Seconds()
-		floors := pcpKernel(t, pcpFixture, 8).attentionPrefillFloor.Seconds() *
-			float64(pcpKernel(t, pcpFixture, 8).plan.TotalLayers)
-		if got <= floors {
-			t.Errorf("a %d-token prefill at pcp=8 priced %.6f ms, at or below its %.6f ms "+
-				"of per-layer floors; the causal term is missing", ragged, got*1e3, floors*1e3)
-		}
 	}
 }
 

@@ -10,7 +10,7 @@ import (
 
 // The decode-context-parallel combine backends this kernel prices. They are the engine's
 // DCPCommBackend literal at v0.31.0 (vllm/config/parallel.py:40), and each launches a
-// different set of collectives per decode layer; see the DCP block in stepTime.
+// different set of collectives per decode layer; see dcpDecodeCollectives.
 const (
 	// DCPAllGatherReduceScatter is the engine default: a log-sum-exp all-gather, then an
 	// output reduce-scatter (vllm/v1/attention/ops/dcp.py:438-500).
@@ -29,12 +29,16 @@ type DecodeContext struct {
 	Interleave int
 }
 
-// ResolveDecodeContext settles the three decode-context-parallel engine knobs that blis-schemas
-// v0.2.2 made expressible, the way vLLM v0.31.0 settles them.
+// ResolveDecodeContext settles two of the three decode-context-parallel engine knobs that
+// blis-schemas v0.2.2 made expressible -- the combine backend and the interleave -- the way
+// vLLM v0.31.0 settles them. The third, dcp_q_replicate, is refused where it would take
+// effect, by the kernel's resolveContextParallel.
 //
 // accepted is the set of backend names the scenario's engine release accepts, from its
 // rules pack; nil means the caller has no pack to consult, and only the names this kernel
-// can price are checked. blockSize is the KV block size the kernel resolved.
+// can price are checked. blockSize is the KV block size the kernel resolved, and blockFinal
+// whether it is the size the engine will run: a size the kernel assumed may be raised by the
+// platform, so a stated interleave is checked against it only when it is final.
 //
 // What it does NOT settle is the model's own preference. An unstated backend is the stock
 // default here, ag_rs, but a model's configuration hook may choose otherwise before the
@@ -44,7 +48,7 @@ type DecodeContext struct {
 // identity to dispatch on, so a deployment of such a model must state the backend it runs;
 // the caller records the default as an assumption so the gap is visible.
 func ResolveDecodeContext(pool deployment.Pool, dep *deployment.Deployment, blockSize int,
-	accepted map[string]bool) (DecodeContext, []Override, error) {
+	blockFinal bool, accepted map[string]bool) (DecodeContext, []Override, error) {
 	e := pool.Engine
 	dcp, pcp := pool.Parallel.DCP, pool.Parallel.PCP
 	out := DecodeContext{CommBackend: DCPAllGatherReduceScatter, Interleave: 1}
@@ -85,6 +89,25 @@ func ResolveDecodeContext(pool deployment.Pool, dep *deployment.Deployment, bloc
 		// (_allow_auto_resolve_cp_interleave_size is set exactly when the flag is omitted,
 		// vllm/engine/arg_utils.py:2509-2516).
 		out.Interleave = stated
+		// And it must fit the block: no larger, and dividing it, unless NIXL P/D is
+		// configured, where each worker pins it instead (VllmConfig.validate_block_size,
+		// vllm/config/vllm.py:3388-3402; ParallelConfig, vllm/config/parallel.py:402-403).
+		if fits := stated <= blockSize && blockSize%stated == 0; blockFinal && !fits {
+			names := connectorNames(dep)
+			switch {
+			case names["MultiConnector"]:
+				return DecodeContext{}, nil, fmt.Errorf(
+					"cp_kv_cache_interleave_size %d does not fit block_size %d, which the "+
+						"engine refuses unless NixlConnector is configured, and a "+
+						"MultiConnector's children cannot be named in a deployment",
+					stated, blockSize)
+			case !names["NixlConnector"]:
+				return DecodeContext{}, nil, fmt.Errorf(
+					"cp_kv_cache_interleave_size %d must be no larger than block_size %d "+
+						"and divide it; the engine refuses this layout at startup",
+					stated, blockSize)
+			}
+		}
 	default:
 		pinned, err := nixlPinsInterleave(dep)
 		if err != nil {
@@ -119,29 +142,30 @@ func ResolveDecodeContext(pool deployment.Pool, dep *deployment.Deployment, bloc
 // so a MultiConnector leaves the answer unknown, and that is an error rather than a guess:
 // guessing 1 or the block size misstates a rank's share of every sequence.
 func nixlPinsInterleave(dep *deployment.Deployment) (bool, error) {
-	if dep == nil {
-		return false, nil
+	names := connectorNames(dep)
+	if names["MultiConnector"] {
+		return false, fmt.Errorf(
+			"cp_kv_cache_interleave_size is unstated under a MultiConnector, whose " +
+				"children a deployment cannot name; the engine pins the size to the " +
+				"block size only if one of them is NixlConnector, so state the size")
 	}
-	var names []string
+	return names["NixlConnector"], nil
+}
+
+// connectorNames is the set of KV connectors a deployment configures: one for
+// prefill-to-decode transfer and one for offload.
+func connectorNames(dep *deployment.Deployment) map[string]bool {
+	names := map[string]bool{}
+	if dep == nil {
+		return names
+	}
 	if dep.PDTransfer != nil {
-		names = append(names, dep.PDTransfer.Connector)
+		names[dep.PDTransfer.Connector] = true
 	}
 	if dep.Offload != nil {
-		names = append(names, dep.Offload.Connector)
+		names[dep.Offload.Connector] = true
 	}
-	pinned := false
-	for _, n := range names {
-		switch n {
-		case "NixlConnector":
-			pinned = true
-		case "MultiConnector":
-			return false, fmt.Errorf(
-				"cp_kv_cache_interleave_size is unstated under a MultiConnector, whose " +
-					"children a deployment cannot name; the engine pins the size to the " +
-					"block size only if one of them is NixlConnector, so state the size")
-		}
-	}
-	return pinned, nil
+	return names
 }
 
 func sortedNames(m map[string]bool) []string {

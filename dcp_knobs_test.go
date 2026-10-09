@@ -1,8 +1,6 @@
 package latencykernel
 
 import (
-	"github.com/inference-sim/blis-latency-kernel/internal/price"
-	"github.com/inference-sim/blis-schemas/spec/model"
 	"math"
 	"path/filepath"
 	"strings"
@@ -442,6 +440,48 @@ func TestUnderNIXLAnUnstatedInterleaveIsTheBlockSize(t *testing.T) {
 	}
 }
 
+// A STATED STRIPE MUST FIT THE BLOCK. Under DCP v0.31.0 asserts the interleave is no larger
+// than the block and divides it, unless NIXL P/D is configured, where each worker pins it
+// (VllmConfig.validate_block_size, vllm/config/vllm.py:3388-3402). On the disaggregated decode
+// pool at block 64: 32 starts, 48 and 128 do not, 128 does under NIXL, and under a
+// MultiConnector -- whose NIXL child a deployment cannot name -- a misfit is refused rather
+// than guessed. A block the kernel only assumed is not checked: the platform may change it.
+func TestAStatedInterleaveMustFitTheBlock(t *testing.T) {
+	r := writeDisaggregated(t)
+	starts := func(connector string, block, interleave int) bool {
+		t.Helper()
+		in, err := OpenInputs("disagg.yaml", r, 1)
+		if err != nil {
+			t.Fatal(err)
+		}
+		in.Deployment.PDTransfer.Connector = connector
+		pool := &in.Deployment.Pools[1]
+		pool.Parallel.DCP = 4
+		pool.Engine.BlockSize = block
+		pool.Engine.CPKVCacheInterleaveSize = interleave
+		_, err = New(in)
+		return err == nil
+	}
+	for _, c := range []struct {
+		connector         string
+		block, interleave int
+		want              bool
+	}{
+		{"MooncakeConnector", 64, 32, true},
+		{"MooncakeConnector", 64, 64, true},
+		{"MooncakeConnector", 64, 48, false},
+		{"MooncakeConnector", 64, 128, false},
+		{"NixlConnector", 64, 128, true},
+		{"MultiConnector", 64, 128, false},
+		{"MooncakeConnector", 0, 128, true},
+	} {
+		if got := starts(c.connector, c.block, c.interleave); got != c.want {
+			t.Errorf("%s, block %d, interleave %d: starts %v, want %v",
+				c.connector, c.block, c.interleave, got, c.want)
+		}
+	}
+}
+
 // The fabric pcpInputs adds must be loadable from the same catalog the fixtures read; this
 // keeps dcpVariant's multi-node layouts honest if the catalog moves.
 func TestTheFabricDCPLayoutsDeclareIsInTheCatalog(t *testing.T) {
@@ -506,56 +546,74 @@ func TestAFullAttentionDCPLayerCombinesEveryRowWhenContextIsRead(t *testing.T) {
 // context reads share a chunk; listed as 256, fresh 512, 1,024, it sorts between them.
 func TestALatentPrefillGathersItsContextOnceAChunk(t *testing.T) {
 	type req struct{ scheduled, prefix int }
-	launchesOf := func(reqs ...req) float64 {
+	// moved is how much a step's NVLink time rises when the 2-rank all-gather floor is
+	// inflated tenfold, at the fixture's max_model_len or a stated one. Only the floor moves,
+	// so the rise is proportional to the gathers launched, and a count is the rise over a
+	// one-gather reference's -- no private state read.
+	moved := func(maxModelLen int, reqs ...req) float64 {
 		t.Helper()
 		b := kernel.Batch{DecodeThreshold: 8}
 		for _, r := range reqs {
 			b.Reqs = append(b.Reqs, kernel.ReqShape{
 				Scheduled: r.scheduled, Computed: r.prefix, PromptLen: r.prefix + r.scheduled})
 		}
-		base := mustDCPVariant(t, dcpMLAFixture, 8, 1, 2, nil)
+		setLen := func(in *Inputs) {
+			if maxModelLen > 0 {
+				in.Deployment.Pools[0].Engine.MaxModelLen = maxModelLen
+			}
+		}
+		base := mustDCPVariant(t, dcpMLAFixture, 8, 1, 2, setLen)
 		inflated := mustDCPVariant(t, dcpMLAFixture, 8, 1, 2, func(in *Inputs) {
+			setLen(in)
 			in.Coefficients = scaleFloors(in.Coefficients, "all_gather_fp16_2rank", 10)
 		})
-		floor := base.collectiveFloors[collKey{Op: model.OpAllGather, Group: price.GroupDCP}]
-		moved := (inflated.StepTime(b).PerResource[kernel.ResourceNVLink] -
+		return (inflated.StepTime(b).PerResource[kernel.ResourceNVLink] -
 			base.StepTime(b).PerResource[kernel.ResourceNVLink]).Seconds()
-		return moved / (9 * floor.Seconds() * float64(base.plan.TotalLayers))
 	}
-	launches := func(prefixes ...int) float64 {
+	launches := func(maxModelLen int, reqs ...req) float64 {
 		t.Helper()
-		reqs := make([]req, len(prefixes))
-		for i, p := range prefixes {
-			reqs[i] = req{256, p}
-		}
-		return launchesOf(reqs...)
+		return moved(maxModelLen, reqs...) / moved(maxModelLen, req{256, 1000})
 	}
 	for _, c := range []struct {
-		prefixes []int
-		want     float64
+		name        string
+		maxModelLen int
+		reqs        []req
+		want        float64
 	}{
-		{[]int{0}, 0},
-		{[]int{1000}, 1},
-		{[]int{70000}, 2},
-		{[]int{1000, 1000}, 1},
-		{[]int{1000, 0, 1000}, 2},
-		{[]int{40000, 40000}, 2},
+		{"a fresh prefill", 0, []req{{256, 0}}, 0},
+		{"two adjacent context reads share a chunk", 0,
+			[]req{{256, 1000}, {256, 1000}}, 1},
+		{"a fresh prefill between them splits the run", 0,
+			[]req{{256, 1000}, {256, 0}, {256, 1000}}, 2},
+		{"a fresh prefill first does not", 0,
+			[]req{{256, 0}, {256, 1000}, {256, 1000}}, 1},
+		{"three 30k contexts overflow one 65,536-token chunk", 0,
+			[]req{{256, 30000}, {256, 30000}, {256, 30000}}, 2},
+		// 130,000 tokens fit two chunks only if the overflowing request is split across
+		// them, as plan_mla_context_chunks does (mla_attention.py:1966-1975); starting a new
+		// chunk for each whole request that overflows would take three.
+		{"the overflowing request is split", 0, []req{{256, 30000}, {256, 30000},
+			{256, 30000}, {256, 30000}, {256, 10000}}, 2},
+		// The sort puts the 256-token fresh prefill first, so the two context reads share a
+		// chunk; listed as 256, fresh 512, 1,024 it sorts between them.
+		{"the engine sorts before packing", 0,
+			[]req{{512, 1000}, {256, 0}, {1024, 1000}}, 1},
+		{"a fresh prefill that sorts between them splits", 0,
+			[]req{{256, 1000}, {512, 0}, {1024, 1000}}, 2},
+		// The chunk follows max_model_len: at 2,048 the workspace is
+		// min(max(8 x 2048, 4 x 256 x 16), 65536) = 16,384 rows, so 18,000 tokens of context
+		// take two gathers where the default chunk takes one.
+		{"a short max_model_len shrinks the chunk", 2048, func() []req {
+			r := make([]req, 12)
+			for i := range r {
+				r[i] = req{256, 1500}
+			}
+			return r
+		}(), 2},
 	} {
-		if got := launches(c.prefixes...); math.Abs(got-c.want) > 1e-6 {
-			t.Errorf("prefills on prefixes %v ran %.6f context gathers per layer, want %v",
-				c.prefixes, got, c.want)
-		}
-	}
-	for _, c := range []struct {
-		reqs []req
-		want float64
-	}{
-		{[]req{{512, 1000}, {256, 0}, {1024, 1000}}, 1},
-		{[]req{{256, 1000}, {512, 0}, {1024, 1000}}, 2},
-	} {
-		if got := launchesOf(c.reqs...); math.Abs(got-c.want) > 1e-6 {
-			t.Errorf("prefills %v (scheduled, prefix) ran %.6f context gathers per layer, "+
-				"want %v", c.reqs, got, c.want)
+		if got := launches(c.maxModelLen, c.reqs...); math.Abs(got-c.want) > 1e-6 {
+			t.Errorf("%s: %v (scheduled, prefix) ran %.6f context gathers per layer, "+
+				"want %v", c.name, c.reqs, got, c.want)
 		}
 	}
 }

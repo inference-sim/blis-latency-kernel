@@ -107,9 +107,8 @@ type Kernel struct {
 	activationWidth   float64
 	batchedTokens     int
 
-	// Per-rank expert counts, derived once.
-	expertsPerRank  float64
-	expertImbalance float64
+	// The heaviest rank's expert count, derived once.
+	expertsPerRank float64
 
 	// totalExperts is the model's physical expert count, which the expected-coverage
 	// term needs alongside the local count.
@@ -129,6 +128,11 @@ type Kernel struct {
 	// KV geometry, derived once from the graph and the cache dtype.
 	kvBytesPerToken float64
 	blockSize       int
+	// blockSizeFinal is whether blockSize is the size the engine will run: stated by the
+	// deployment, or the 64 a DSA model always picks, on a model with no recurrent layer
+	// (whose block the platform may re-align even over a stated size). A check against the
+	// block size runs only when it is final.
+	blockSizeFinal bool
 	// dcpShardsAllKVLayers is whether every KV-holding layer is a kind DCP shards, which
 	// is what lets a whole-model capacity figure carry the shard at all.
 	dcpShardsAllKVLayers bool

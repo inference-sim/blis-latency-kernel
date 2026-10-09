@@ -105,10 +105,13 @@ refuses the deployment, or prices the engine's stock default and records that de
 `Evidence()` counts. Where v0.31.0's choice follows from the deployment, it is made as the
 engine makes it and recorded the same way: an unstated block size on a DSA sparse-MLA model,
 which is 64 rather than the stock 16 (`sparse_mla.go`). A deployment that states every setting carries no
-such entry, with two exceptions: a stated DCP backend that could not be checked against the
-release, because the rules value carries no list of accepted names; and a DSA model on
-Hopper whose cache selects FlashInfer's SM90 sparse MLA, which needs a FlashInfer release
-the kernel cannot see installed.
+such entry, with three exceptions: the cudagraph capture ceiling, which blis-schemas has no
+field to state, so a capturing deployment always runs vLLM's default; a stated DCP backend
+that could not be checked against the release, because the rules value carries no list of
+accepted names; and a DSA model on Hopper whose cache selects FlashInfer's SM90 sparse MLA,
+which needs a FlashInfer release the kernel cannot see installed. An optional coefficient
+the deployment needs and the scenario's coefficient sets do not carry is recorded the same
+way, naming what is priced without it.
 
 Where the kernel knowingly prices something differently from v0.31.0 -- because correcting it
 would move scored results fitted under the current structure, and is therefore a refit rather

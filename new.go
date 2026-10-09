@@ -115,8 +115,21 @@ func New(in Inputs) (*Kernel, error) {
 	}
 	k.servedDType = served
 
+	if err := checkCacheDTypes(pool.Engine.CacheDType, pool.Engine.MambaCacheDType); err != nil {
+		return nil, err
+	}
 	cacheBytes := cacheDTypeBytes(pool.Engine.CacheDType, served)
 	stateBytes := cacheDTypeBytes(pool.Engine.MambaCacheDType, model.DTypeFP32)
+
+	// PIPELINE PARALLELISM IS NOT PRICED. No collective here spans the pipeline axis, a
+	// stage's layers are not split out of the stack, and the rank-layout strides assume
+	// pp = 1 (groupStride), so a pp > 1 deployment would be priced as one stage holding the
+	// whole model. Refused rather than priced as something it is not.
+	if pool.Parallel.PP > 1 {
+		return nil, fmt.Errorf("pipeline parallelism (pp %d) is not priced by this kernel: "+
+			"it has no pipeline-stage split or inter-stage transfer, and pricing the whole "+
+			"model on one stage would misstate every term", pool.Parallel.PP)
+	}
 
 	plan, err := price.BuildPlan(in.Model, emitter{layout}, served.Bytes(), stateBytes)
 	if err != nil {
@@ -129,15 +142,25 @@ func New(in Inputs) (*Kernel, error) {
 	// whenever prefix caching is on (vllm/model_executor/models/config.py:640-642), and
 	// prefix caching is on unless disabled (vllm/config/cache.py:142). So an unstated mode is
 	// "align" unless the deployment turns prefix caching off.
+	hybrid := false
+	for _, l := range plan.Layers {
+		hybrid = hybrid || l.RecurrentKind != ""
+	}
 	k.recurrentCacheMode = price.RecurrentCacheMode(pool.Engine.MambaCacheMode)
 	if k.recurrentCacheMode == "" {
 		k.recurrentCacheMode = price.RecurrentCacheAlign
 		if pc := pool.Engine.EnablePrefixCaching; pc != nil && !*pc {
 			k.recurrentCacheMode = price.RecurrentCacheNone
 		}
+		if hybrid {
+			k.assume("mamba_cache_mode", string(k.recurrentCacheMode),
+				"vLLM v0.31.0's choice for a hybrid model: align with prefix caching on, "+
+					"none with it off (vllm/model_executor/models/config.py:640-642)")
+		}
 	}
 
 	k.blockSize = pool.Engine.BlockSize
+	k.blockSizeFinal = !hybrid && (k.blockSize > 0 || isDSA(in.Model))
 	switch {
 	case isDSA(in.Model) && k.blockSize > 0 && k.blockSize%dsaBlockSize != 0:
 		return nil, fmt.Errorf("block_size %d on a DSA sparse-MLA model: its indexer runs "+
@@ -283,7 +306,7 @@ func (k *Kernel) resolveContextParallel(in Inputs) error {
 				"the names the engine release accepts: the rules value carries no list")
 	}
 	dc, overrides, err := resolve.ResolveDecodeContext(
-		k.pool, in.Deployment, k.blockSize, accepted)
+		k.pool, in.Deployment, k.blockSize, k.blockSizeFinal, accepted)
 	if err != nil {
 		return fmt.Errorf("resolving decode-context parallelism: %w", err)
 	}
@@ -415,14 +438,33 @@ func (k *Kernel) lift(c *resolve.Coefficients, g *model.Graph, cacheBytes float6
 	// Recurrent families, one entry per kind the registry measures. A kind with no entries
 	// is left out of the map rather than defaulted to zero cost, so the difference between
 	// "measured as cheap" and "not measured" stays visible.
+	//
+	// Every coefficient read from here to the host terms is optional: the kernel prices
+	// without it. Each one the deployment needs and the scenario's sets do not carry is
+	// recorded as an assumption (optional), so Provenance and Evidence show what the
+	// prediction lacks. A per-kind entry is needed only where the model has a layer of that
+	// kind.
+	usedAttn, usedRec := map[model.AttentionKind]bool{}, map[model.RecurrentKind]bool{}
+	moe := false
+	for _, l := range k.plan.Layers {
+		if l.AttnQHeads > 0 {
+			usedAttn[l.AttnKind] = true
+		}
+		if l.RecurrentKind != "" {
+			usedRec[l.RecurrentKind] = true
+		}
+		moe = moe || l.ExpertWeightBytesPerExpert > 0
+	}
 	k.recurrent = map[model.RecurrentKind]floorRate{}
 	for kind, suffix := range map[model.RecurrentKind]string{
 		model.RecurrentMamba2: "mamba2",
 		model.RecurrentKDA:    "kda",
 		model.RecurrentGDN:    "gdn",
 	} {
-		floor := c.ValueOr("recurrent_decode_floor_"+suffix, 0)
-		rate := c.ValueOr("recurrent_decode_rate_"+suffix, 0)
+		without := "no measured decode form for the " + suffix + " mixer, so its decode " +
+			"term is not charged"
+		floor := k.optional(c, "recurrent_decode_floor_"+suffix, usedRec[kind], without)
+		rate := k.optional(c, "recurrent_decode_rate_"+suffix, usedRec[kind], without)
 		if floor <= 0 || rate <= 0 {
 			continue
 		}
@@ -433,10 +475,14 @@ func (k *Kernel) lift(c *resolve.Coefficients, g *model.Graph, cacheBytes float6
 	}
 
 	// The attention primitive's measured floor and rate. Absent for a part with no
-	// generation-attention sweep, in which case the FLOPs fallback runs and says so.
-	k.attentionFloor = time.Duration(
-		c.ValueOr("attention_decode_floor", 0) * float64(time.Microsecond))
-	k.attentionRate = c.ValueOr("attention_decode_rate", 0) * 1e6
+	// generation-attention sweep, in which case the KV read is charged at HBM bandwidth
+	// with no floor, and the absence is recorded.
+	k.attentionFloor = time.Duration(k.optional(c, "attention_decode_floor",
+		len(usedAttn) > 0, "the per-layer attention decode floor is not charged") *
+		float64(time.Microsecond))
+	k.attentionRate = k.optional(c, "attention_decode_rate", len(usedAttn) > 0,
+		"no measured attention decode rate, so the KV read is charged at HBM "+
+			"bandwidth and no attention floor is charged") * 1e6
 
 	// Per-attention-kind decode terms, where the registry carries them. A kind absent from the
 	// registry falls back to the unsuffixed pair above, so a deployment with no per-kind fit
@@ -488,9 +534,9 @@ func (k *Kernel) lift(c *resolve.Coefficients, g *model.Graph, cacheBytes float6
 	// separate GEMM nodes, which cost 2.45 points of end-to-end TPOT before
 	// correct_mla_floor.py undid it.
 	//
-	// So a kind may supply a rate alone and inherit the part-wide floor. What it may NOT
-	// do is supply a floor alone: a floor without its rate leaves the read uncharged,
-	// which is silently cheap rather than visibly wrong.
+	// So a kind may supply a rate alone and inherit the part-wide floor. A floor without its
+	// rate is not used -- the kind is priced with the part-wide pair -- and the missing rate
+	// is recorded, so the floor's listing in Provenance is not mistaken for its use.
 	k.attentionByKind = map[model.AttentionKind]floorRate{}
 	for kind, suffix := range map[model.AttentionKind]string{
 		model.AttentionSWA:       "swa",
@@ -498,7 +544,9 @@ func (k *Kernel) lift(c *resolve.Coefficients, g *model.Graph, cacheBytes float6
 		model.AttentionSparseMLA: "sparse_mla",
 	} {
 		floor := c.ValueOr("attention_decode_floor_"+suffix, 0)
-		rate := c.ValueOr("attention_decode_rate_"+suffix, 0)
+		rate := k.optional(c, "attention_decode_rate_"+suffix, usedAttn[kind],
+			"no per-kind decode rate for "+suffix+" attention, so it is priced with the "+
+				"part-wide attention pair and any per-kind floor is not used")
 		if rate <= 0 {
 			continue
 		}
@@ -516,31 +564,42 @@ func (k *Kernel) lift(c *resolve.Coefficients, g *model.Graph, cacheBytes float6
 			rate:  rate * 1e6, // bytes per microsecond to bytes per second
 		}
 	}
-	k.attentionPrefillFloor = time.Duration(
-		c.ValueOr("attention_prefill_floor", 0) * float64(time.Microsecond))
-	k.attentionPrefillScale = c.ValueOr("attention_prefill_work_scale", 0)
+	k.attentionPrefillFloor = time.Duration(k.optional(c, "attention_prefill_floor",
+		len(usedAttn) > 0, "the per-layer attention prefill floor is not charged") *
+		float64(time.Microsecond))
+	k.attentionPrefillScale = k.optional(c, "attention_prefill_work_scale",
+		len(usedAttn) > 0, "no measured attention prefill scale, so prefill attention "+
+			"is charged on the unmodified GEMM efficiency ramp with no floor")
 
-	k.hostBytesPerSecond = c.ValueOr("host_link_bandwidth", 0) * 1e6
-	k.moeImbalance = c.ValueOr("moe_routing_imbalance_median", 1.0)
+	k.hostBytesPerSecond = k.optional(c, "host_link_bandwidth", true,
+		"no host-link rate, so an offload transfer is not capped at it") * 1e6
+	k.moeImbalance = 1
+	if v := k.optional(c, "moe_routing_imbalance_median", moe,
+		"no measured routing imbalance, so experts are priced as evenly loaded"); v > 0 {
+		k.moeImbalance = v
+	}
 
-	k.admissionPerToken = time.Duration(
-		c.ValueOr("host_admission_per_token", 0) * float64(time.Microsecond))
-	k.admissionPerRequest = time.Duration(
-		c.ValueOr("host_admission_per_request", 0) * float64(time.Microsecond))
-	k.outputTokenCost = time.Duration(
-		c.ValueOr("host_output_token", 0) * float64(time.Microsecond))
-	k.completionCost = time.Duration(
-		c.ValueOr("host_completion", 0) * float64(time.Microsecond))
-	k.launchPerLayer = time.Duration(
-		c.ValueOr("host_launch_eager_per_layer", 0) * float64(time.Microsecond))
-	// Per-kernel dispatch, which dominates a single-request decode step. Defaulted to zero
+	hostWithout := func(what string) string {
+		return "no measured " + what + ", so that host cost is charged at zero"
+	}
+	k.admissionPerToken = time.Duration(k.optional(c, "host_admission_per_token", true,
+		hostWithout("admission cost per token")) * float64(time.Microsecond))
+	k.admissionPerRequest = time.Duration(k.optional(c, "host_admission_per_request", true,
+		hostWithout("admission cost per request")) * float64(time.Microsecond))
+	k.outputTokenCost = time.Duration(k.optional(c, "host_output_token", true,
+		hostWithout("per-output-token cost")) * float64(time.Microsecond))
+	k.completionCost = time.Duration(k.optional(c, "host_completion", true,
+		hostWithout("completion cost")) * float64(time.Microsecond))
+	k.launchPerLayer = time.Duration(k.optional(c, "host_launch_eager_per_layer", true,
+		hostWithout("eager launch cost per layer")) * float64(time.Microsecond))
+	// Per-kernel dispatch, which dominates a single-request decode step. Charged at zero
 	// when the registry carries none, like the other host terms here -- which removes the
 	// term two published runs say is most of a small step's cost, so a registry that
-	// carries the host set is what a scored deployment needs.
-	k.launchPerKernel = time.Duration(
-		c.ValueOr("host_launch_per_kernel", 0) * float64(time.Microsecond))
-	k.replayPerStep = time.Duration(
-		c.ValueOr("host_replay_graph_per_step", 0) * float64(time.Microsecond))
+	// carries the host set is what a scored deployment needs, and its absence is recorded.
+	k.launchPerKernel = time.Duration(k.optional(c, "host_launch_per_kernel", true,
+		hostWithout("per-kernel launch cost")) * float64(time.Microsecond))
+	k.replayPerStep = time.Duration(k.optional(c, "host_replay_graph_per_step", true,
+		hostWithout("graph replay cost")) * float64(time.Microsecond))
 	// How much of a step a captured graph covers, which sets the launch count rather
 	// than only whether capture happens. The mode decides it PER BATCH: vLLM v0.31.0
 	// documents each (vllm/config/compilation.py:604-640) and dispatches each step by
@@ -621,6 +680,11 @@ func (k *Kernel) lift(c *resolve.Coefficients, g *model.Graph, cacheBytes float6
 			platform = 1024
 		}
 		k.captureTokens = min(seqs*k.uniformDecodeWidth*2, platform)
+		k.assume("max_cudagraph_capture_size", strconv.Itoa(k.captureTokens),
+			"vLLM v0.31.0's default, min(max_num_seqs x decode_query_len x 2, "+
+				strconv.Itoa(platform)+") (VllmConfig._set_cudagraph_sizes, "+
+				"vllm/config/vllm.py:2442-2460); blis-schemas has no field to state it, and "+
+				"a step above it runs with no graph")
 	}
 
 	// The rows one chunk of an MLA prefill's context gather covers:
@@ -632,6 +696,15 @@ func (k *Kernel) lift(c *resolve.Coefficients, g *model.Graph, cacheBytes float6
 	chunk := 65536
 	if mml := k.pool.Engine.MaxModelLen; mml > 0 {
 		chunk = min(max(8*mml, 4*seqs*k.blockSize), 65536)
+	} else if k.layout.DCP > 1 {
+		for _, l := range k.plan.Layers {
+			if latentAttention(l.AttnKind) {
+				k.assume("mla_context_chunk", strconv.Itoa(chunk),
+					"max_model_len is unstated, so the MLA context-gather chunk is taken at "+
+						"its 65,536-row cap, exact for a model window of 8,192 tokens or more")
+				break
+			}
+		}
 	}
 	k.mlaContextChunk = max(chunk, 1)
 
@@ -682,18 +755,22 @@ func (k *Kernel) lift(c *resolve.Coefficients, g *model.Graph, cacheBytes float6
 		}
 		// With expert parallelism off the width is 1, so every rank holds every expert
 		// — which is right: the division is by tensor shard, applied at pricing time.
-		base, _, _, imbalance := price.ExpertsPerRank(experts+redundant, k.layout.ExpertWidth)
+		base, heaviest, _, _ := price.ExpertsPerRank(experts+redundant, k.layout.ExpertWidth)
 		if base == 0 {
 			return fmt.Errorf(
 				"expert-parallel width %d exceeds the model's %d physical experts, so some "+
 					"ranks would hold none", k.layout.ExpertWidth, experts+redundant)
 		}
-		k.expertsPerRank = float64(base)
-		k.expertImbalance = imbalance
-		// The share of the model's experts one rank holds. Computed from the local
-		// count rather than as 1/width, so an uneven split prices each rank by what it
-		// actually holds.
-		k.localExpertShare = float64(base) / float64(experts+redundant)
+		// The HEAVIEST rank is the one priced. An uneven split gives the first
+		// experts % width ranks one expert more (vllm/model_executor/layers/fused_moe/
+		// expert_map_manager.py:67-69 at v0.31.0), and that rank bounds both answers: its
+		// memory fills first, and the dispatch and combine wait for its experts to finish.
+		// An earlier form priced the lighter rank, understating minimax-m2.5 at ep72 --
+		// 256 experts, 40 ranks holding 4 -- by a quarter of its expert weights.
+		k.expertsPerRank = float64(heaviest)
+		// The share of the model's experts that rank holds, from its count rather than as
+		// 1/width.
+		k.localExpertShare = float64(heaviest) / float64(experts+redundant)
 		k.totalExperts = experts + redundant
 	}
 
@@ -721,6 +798,7 @@ func (k *Kernel) lift(c *resolve.Coefficients, g *model.Graph, cacheBytes float6
 			cache:        k.pool.Engine.CacheDType,
 			headsPerRank: heads / max(k.layout.TP, 1),
 			sm100:        k.chip.NVFP4Peak > 0,
+			preHopper:    preHopperParts[k.chip.Name],
 			tp:           k.layout.TP,
 			dcp:          k.layout.DCP,
 			pcp:          k.layout.PCP,
@@ -733,6 +811,14 @@ func (k *Kernel) lift(c *resolve.Coefficients, g *model.Graph, cacheBytes float6
 			k.assume("sparse_mla_backend", backend,
 				"chosen as vLLM v0.31.0 would choose it, which needs FlashInfer 0.6.18 or "+
 					"later installed (flashinfer_mla_sparse_sm90.py:194-199)")
+		}
+		if stated := k.pool.Engine.CacheDType; dsaLayout != stated && stated != "" {
+			k.layout.Overrides = append(k.layout.Overrides, resolve.Override{
+				Field: "cache_dtype", Requested: stated, Resolved: dsaLayout,
+				Reason: backend + " serves this cache as " + dsaLayout +
+					" (_canonicalize_sparse_mla_kv_cache_dtype, " +
+					"vllm/model_executor/layers/attention/mla_attention.py:358-375)",
+			})
 		}
 		layout = dsaLayout
 	}
@@ -1291,12 +1377,53 @@ func cacheDTypeBytes(declared string, fallback model.DType) float64 {
 		return 1
 	case "bfloat16", "float16":
 		return 2
-	case "nvfp4", "nvfp4_4over6":
+	case "nvfp4", "nvfp4_4over6", "nvfp4_ds_mla":
 		return 0.5
+	case "float32":
+		return 4
 	}
-	// An unrecognized cache dtype falls back to the model's width rather than guessing a
-	// narrower one, which would overstate capacity.
+	// checkCacheDTypes has refused every other name, so this is unreachable from New.
 	return fallback.Bytes()
+}
+
+// The KV cache dtypes vLLM v0.31.0 accepts (CacheDType, vllm/config/cache.py:39-58), split by
+// whether this kernel prices them. The turboquant and per-token-head formats are real but
+// carry per-token scales or packings whose page size this kernel does not compute
+// (MLACommonBackend.customize_spec, mla_attention.py:1580-1593, for the per-token-head
+// ones), so they are refused rather than priced at a width they do not have.
+var (
+	pricedCacheDTypes = map[string]bool{
+		"": true, "auto": true, "float16": true, "bfloat16": true, "fp8": true,
+		"fp8_e4m3": true, "fp8_e5m2": true, "fp8_inc": true, "fp8_ds_mla": true,
+		"nvfp4_ds_mla": true, "nvfp4": true, "nvfp4_4over6": true,
+	}
+	unpricedCacheDTypes = map[string]bool{
+		"turboquant_k8v4": true, "turboquant_4bit_nc": true, "turboquant_k3v4_nc": true,
+		"turboquant_3bit_nc": true, "int4_per_token_head": true,
+		"int8_per_token_head": true, "fp8_per_token_head": true,
+	}
+	// The recurrent state dtypes (MambaDType, vllm/config/cache.py:61).
+	mambaCacheDTypes = map[string]bool{
+		"": true, "auto": true, "float32": true, "float16": true, "bfloat16": true,
+	}
+)
+
+// checkCacheDTypes refuses a cache dtype the engine does not accept, and one it accepts
+// that this kernel does not price. An unchecked name used to fall through to the weight
+// width, which on an nvfp4-served model charged an unknown cache at half a byte.
+func checkCacheDTypes(cache, mamba string) error {
+	switch {
+	case unpricedCacheDTypes[cache]:
+		return fmt.Errorf("cache_dtype %q is a vLLM v0.31.0 format this kernel does not "+
+			"price: its page carries scales or a packing the kernel does not size", cache)
+	case !pricedCacheDTypes[cache]:
+		return fmt.Errorf("cache_dtype %q is not a vLLM v0.31.0 cache dtype "+
+			"(vllm/config/cache.py:39-58); the engine refuses it", cache)
+	case !mambaCacheDTypes[mamba]:
+		return fmt.Errorf("mamba_cache_dtype %q is not a vLLM v0.31.0 recurrent state "+
+			"dtype (vllm/config/cache.py:61); the engine refuses it", mamba)
+	}
+	return nil
 }
 
 // kvGeometry returns the KV head count, head dimension and layer count that hold KV. A
@@ -1475,6 +1602,21 @@ const KernelAssumptionSet = "blis-latency-kernel"
 //
 // name is the setting; scope carries the value and the reason, since a reader of the
 // provenance trail needs both and CoefficientOrigin has no other free-text field.
+// optional reads a coefficient the kernel can price without, returning zero when the
+// scenario's sets do not carry it. Where the deployment needs it, its absence is recorded as
+// an assumption, naming what is priced without it, so a registry that drops an entry moves
+// Evidence rather than silently cheapening the step.
+func (k *Kernel) optional(c *resolve.Coefficients, name string, needed bool,
+	without string) float64 {
+	if c.Has(name) {
+		return c.ValueOr(name, 0)
+	}
+	if needed {
+		k.assume(name, "absent", "not in the scenario's coefficient sets: "+without)
+	}
+	return 0
+}
+
 func (k *Kernel) assume(name, value, reason string) {
 	k.assumptions = append(k.assumptions, kernel.CoefficientOrigin{
 		Name: name, Set: KernelAssumptionSet, Method: string(vocab.MethodAssumed),

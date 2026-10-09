@@ -25,9 +25,15 @@ import (
 // (supports_compute_capability in vllm/v1/attention/backends/mla/flashattn_mla_sparse.py,
 // flashmla_sparse.py, flashinfer_mla_sparse.py, flashinfer_mla_sparse_sm90.py). The catalog
 // records no compute capability, so data-center Blackwell is recognised, as elsewhere in
-// this kernel, by native NVFP4 support, and every other part is treated as Hopper. The
-// pre-Hopper parts (A100, L40S) have no sparse-MLA backend; a deployment on them is one the
-// engine refuses, and pricing it here is not a claim that it runs.
+// this kernel, by native NVFP4 support, the pre-Hopper parts by name (preHopperParts), and
+// every other part is treated as Hopper. A DSA model on a pre-Hopper part is refused: no
+// sparse-MLA backend runs there.
+
+// preHopperParts are the catalog's parts below compute capability 9.0, by catalog name:
+// A100 (SM80) and L40S (SM89). The catalog records no compute capability, and none of its
+// fields separates an fp8-capable Ada part from Hopper, so they are named. A part not named
+// here is treated as Hopper or newer.
+var preHopperParts = map[string]bool{"a100-80": true, "a100-sxm": true, "l40s": true}
 
 // dsaHeadDim is the head width that marks a DSA sparse-MLA layer: kv_lora_rank 512 plus
 // qk_rope_head_dim 64.
@@ -69,6 +75,7 @@ type sparseMLABackendRequest struct {
 	cache        string // the stated cache dtype; "" is "auto"
 	headsPerRank int    // query heads per tensor-parallel rank
 	sm100        bool
+	preHopper    bool // a part below compute capability 9.0 (see preHopperParts)
 	tp, dcp, pcp int
 	dcpComm      string // the resolved DCP combine backend
 }
@@ -124,6 +131,11 @@ type sparseMLABackendRequest struct {
 // the graph does not state; and the SM120 parts' backend, which repacks "auto" too, has no
 // part in the catalog.
 func sparseMLABackend(r sparseMLABackendRequest) (backend, layout string, err error) {
+	if r.preHopper {
+		return "", "", fmt.Errorf("no sparse-MLA backend in vLLM v0.31.0 runs below compute " +
+			"capability 9.0 -- each requires SM90 or SM100 -- so the engine refuses a DSA " +
+			"model on this part at startup")
+	}
 	cache := r.cache
 	if cache == "" {
 		cache = "auto"

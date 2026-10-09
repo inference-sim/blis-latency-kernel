@@ -69,11 +69,24 @@ func TestADSAModelRunsSixtyFourTokenBlocks(t *testing.T) {
 //   - Blackwell leads with FlashInfer for a quantized cache and for a 16-bit one at 16 heads
 //     a rank or fewer; past that FlashMLA-sparse leads, and a 16-bit cache under DCP fails it
 //     (vllm/platforms/cuda.py:95-131). FlashInfer refuses PCP with DCP, which FlashMLA-sparse
-//     serves only on fp8_ds_mla (flashinfer_mla_sparse.py:117-125).
+//     serves only on fp8_ds_mla (flashinfer_mla_sparse.py:117-125), so nvfp4_ds_mla, which
+//     it keeps as stated, does not start there.
+//   - With PCP, the gathered head count is heads x tp only where dcp spans tp x pcp, and the
+//     heads otherwise: at tp2/pcp2/dcp4, 32 local heads gather to 64 and pad alike.
+//
+// Every DCP layout states the ag_rs combine without a replicated query. GLM-5's model hook
+// would otherwise choose a2a with q_replicate (vllm/model_executor/models/config.py:43-50),
+// which FlashMLA-sparse refuses (flashmla_sparse.py:416-422); a GLM-5 deployment on that
+// backend has to state ag_rs to start at all.
 func TestTheBackendDecidesWhichContextParallelLayoutsADSAModelStarts(t *testing.T) {
 	variant := func(tp, pcp, dcp int, cache string, blackwell bool) (*Kernel, error) {
 		t.Helper()
 		return dcpVariant(t, dcpSparseFixture, tp, pcp, dcp, func(in *Inputs) {
+			e := &in.Deployment.Pools[0].Engine
+			if dcp > 1 {
+				off := false
+				e.DCPCommBackend, e.DCPQReplicate = "ag_rs", &off
+			}
 			in.Deployment.Pools[0].Engine.CacheDType = cache
 			if blackwell {
 				chip := *in.Chip
@@ -100,6 +113,10 @@ func TestTheBackendDecidesWhichContextParallelLayoutsADSAModelStarts(t *testing.
 		{"blackwell, nvfp4_ds_mla", 8, 1, 1, "nvfp4_ds_mla", true, true},
 		{"blackwell pcp+dcp, fp8", 2, 4, 4, "fp8", true, true},
 		{"blackwell pcp+dcp, bfloat16", 2, 4, 4, "bfloat16", true, false},
+		{"blackwell pcp+dcp, nvfp4_ds_mla", 2, 4, 4, "nvfp4_ds_mla", true, false},
+		{"hopper pcp+dcp spanning pcp, 32 heads a rank", 2, 2, 2, "fp8", false, true},
+		{"hopper pcp+dcp spanning tp x pcp, 32 heads gather to 64", 2, 2, 4, "fp8", false,
+			true},
 		{"blackwell dcp, fp8, 32 heads a rank", 2, 1, 2, "fp8", true, true},
 		{"blackwell dcp, auto, 16 heads a rank", 4, 1, 2, "auto", true, true},
 		{"blackwell dcp, auto, 32 heads a rank", 2, 1, 2, "auto", true, false},
@@ -134,8 +151,10 @@ func TestTheBackendDecidesWhichContextParallelLayoutsADSAModelStarts(t *testing.
 // model (DeepSeek-V3.2) at tp=8 holds 16 heads a rank: at dcp=8 they gather to 128, which pads
 // to a different fp8 decode size from the local 16, and FlashMLA-sparse refuses it; at dcp=4
 // they gather to 64 and it starts (flashmla_sparse.py:436-460, :684-687). With PCP the gathered
-// count is heads x tp when dcp exceeds pcp. The a2a combine is refused on FlashMLA-sparse
-// (:416-422), and a dtype no backend lists has none.
+// count is heads x tp when dcp spans tp x pcp: at tp4/pcp2/dcp8, 32 local heads gather to
+// 128 and are refused, where pcp2/dcp2 leaves them at 32 (vLLM admits dcp only as 1, pcp or
+// tp x pcp under PCP, vllm/config/parallel.py:571-577). The a2a combine is refused on
+// FlashMLA-sparse (:416-422), and a dtype no backend lists has none.
 func TestSparseMLABackendRefusesWhatNoBackendServes(t *testing.T) {
 	starts := func(r sparseMLABackendRequest) bool {
 		if r.dcpComm == "" {
@@ -153,8 +172,8 @@ func TestSparseMLABackendRefusesWhatNoBackendServes(t *testing.T) {
 			tp: 8, dcp: 8, pcp: 1}, false},
 		{"128 heads, tp8 dcp4", sparseMLABackendRequest{cache: "fp8", headsPerRank: 16,
 			tp: 8, dcp: 4, pcp: 1}, true},
-		{"128 heads, tp8 pcp2 dcp8", sparseMLABackendRequest{cache: "fp8", headsPerRank: 16,
-			tp: 8, dcp: 8, pcp: 2}, false},
+		{"128 heads, tp4 pcp2 dcp8", sparseMLABackendRequest{cache: "fp8", headsPerRank: 32,
+			tp: 4, dcp: 8, pcp: 2}, false},
 		{"128 heads, tp8 pcp2 dcp2", sparseMLABackendRequest{cache: "fp8", headsPerRank: 16,
 			tp: 8, dcp: 2, pcp: 2}, true},
 		{"a2a combine", sparseMLABackendRequest{cache: "fp8", headsPerRank: 8, tp: 8, dcp: 2,
@@ -191,5 +210,39 @@ func TestTheFlashInferSM90ChoiceIsDisclosed(t *testing.T) {
 	}
 	if disclosed("fp8") {
 		t.Error("fp8 on h200 selects FlashMLA-sparse, but a FlashInfer assumption was disclosed")
+	}
+}
+
+// A REPACKED CACHE IS REPORTED AS RESOLVED. Where the backend serves a stated "fp8" cache as
+// fp8_ds_mla (h200), Resolved says so, since the priced layout is not the one requested;
+// where it serves it as stated (the same chip marked data-center Blackwell), nothing is
+// reported.
+func TestARepackedCacheIsReportedAsResolved(t *testing.T) {
+	repack := func(blackwell bool) string {
+		t.Helper()
+		in := fixtureInputs(t, dcpSparseFixture)
+		in.Deployment.Pools[0].Engine.CacheDType = "fp8"
+		if blackwell {
+			chip := *in.Chip
+			chip.NVFP4Peak = 1
+			in.Chip = &chip
+		}
+		k, err := New(in)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, o := range k.Resolved().Overrides {
+			if o.Field == "cache_dtype" {
+				return o.Resolved
+			}
+		}
+		return ""
+	}
+	if got := repack(false); got != "fp8_ds_mla" {
+		t.Errorf("fp8 on h200: Resolved reports the cache as %q, want fp8_ds_mla", got)
+	}
+	if got := repack(true); got != "" {
+		t.Errorf("fp8 on Blackwell: Resolved reports a repack to %q; FlashInfer serves it "+
+			"as stated", got)
 	}
 }
