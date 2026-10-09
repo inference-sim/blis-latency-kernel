@@ -795,24 +795,12 @@ func defaultMaxNumBatchedTokens(chip hardware.Chip) int {
 // another width's floor would misprice by up to 2.7x in the measured set, and doing
 // so silently is what this refuses.
 func (k *Kernel) liftCollectiveFloors(c *resolve.Coefficients) error {
-	// The dtype the collectives move, which selects which measured sweep prices them; the
-	// sweeps measure fp16 and int8.
-	//
-	// KNOWN DIVERGENCE. The plan sizes a graph collective's payload at the SERVED weight
-	// width (BuildPlan's dtypeBytes), and this picks the int8 sweep for an int8-served
-	// model. At vLLM v0.31.0 a quantized linear returns its input's dtype
-	// (out_dtype=x.dtype, vllm/model_executor/kernels/linear/scaled_mm/cutlass.py:147,153),
-	// so the tensor-parallel reductions after a projection move bf16 activations whatever
-	// the weights are stored in: an fp8- or int8-served model's all-reduce payload is
-	// half what this charges for it, at the fp16 rate. (An MoE dispatch is a separate case;
-	// some all-to-all backends do move quantized activations.) Most scored fixtures are
-	// fp8-served, and the collective coefficients were fitted with this sizing, so
-	// correcting it is a refit, not a change to make silently. The decode-context and
-	// prefill-context collectives, which this repository sizes itself, cross at 16 bits.
-	dtype := "fp16"
-	if k.servedDType == model.DTypeINT8 {
-		dtype = "int8"
-	}
+	// The dtype the collectives move, which selects which measured sweep prices them: the
+	// 16-bit one, always. Collectives carry activations, which are bf16 whatever the weights
+	// are served in (price.ActivationBytes has the citation); an int8-served model's
+	// all-reduce is a bf16 all-reduce, and the int8 sweep describes a payload no layer here
+	// sends. An earlier form picked the int8 sweep for an int8-served model.
+	const dtype = "fp16"
 	chip := strings.ReplaceAll(k.chip.Name, "-", "_")
 	k.collectiveFloors = map[collKey]time.Duration{}
 	k.collectiveRates = map[collKey]float64{}
@@ -1270,7 +1258,7 @@ func (k *Kernel) computeFixedBytes(g *model.Graph) kernel.MemoryBreakdown {
 	// cutlass.py at v0.31.0), so an fp8 deployment's residual stream and inter-layer
 	// buffers stay bf16. Sizing it at the served width would halve this term on an fp8
 	// deployment and understate its occupancy.
-	const activationBytes = 2
+	const activationBytes = price.ActivationBytes
 	act := math.Max(
 		k.activationBuffers*float64(k.batchedTokens)*k.activationWidth*activationBytes,
 		k.activationFloor)

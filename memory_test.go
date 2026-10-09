@@ -573,3 +573,35 @@ func TestAnUnstatedRecurrentCacheModeIsTheEnginesEffectiveDefault(t *testing.T) 
 			got, none)
 	}
 }
+
+// COLLECTIVES MOVE ACTIVATIONS, AND ACTIVATIONS ARE BF16. Serving a bf16 checkpoint fp8
+// halves its weight bytes and must leave every collective exactly where it was: a quantized
+// linear returns its input's dtype (vllm/model_executor/kernels/linear/scaled_mm/
+// cutlass.py:147,153 at v0.31.0), so the hidden state a tensor-parallel all-reduce carries is
+// bf16 either way. An earlier form sized it at the served width and halved it under fp8.
+func TestServingFP8LeavesTheCollectivesWhereTheyWere(t *testing.T) {
+	qwen, err := schemas.LoadModelGraph(
+		filepath.Join(catalogRoot, "models", "qwen3-30b-a3b", "graph.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	build := func(quant string) *Kernel {
+		t.Helper()
+		in := fixtureInputs(t, "minimax-m25-h200-tp8.yaml")
+		in.Model, in.Scenario.Model = qwen, qwen.Name
+		in.Deployment.Pools[0].Engine.Quantization = quant
+		k, err := New(in)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return k
+	}
+	bf16, fp8 := build(""), build("fp8")
+	for shape, b := range batchShapes() {
+		x, y := bf16.StepTime(b).PerResource, fp8.StepTime(b).PerResource
+		if x[kernel.ResourceNVLink] != y[kernel.ResourceNVLink] {
+			t.Errorf("%s: collectives cost %v served bf16 and %v served fp8", shape,
+				x[kernel.ResourceNVLink], y[kernel.ResourceNVLink])
+		}
+	}
+}

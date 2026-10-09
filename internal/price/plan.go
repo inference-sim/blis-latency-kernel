@@ -249,6 +249,20 @@ type Emitter interface {
 // Any condition the emitter does not recognize is an error rather than a dropped node:
 // silently omitting a collective would remove a cost with nothing reporting it, and the
 // resulting step time would look plausible.
+// ActivationBytes is the width an activation crosses a collective or a normalization at:
+// the model's compute dtype, bf16, whatever format the weights are served in. vLLM's
+// quantized linears quantize their input transiently and return out_dtype=x.dtype
+// (vllm/model_executor/kernels/linear/scaled_mm/cutlass.py:147,153 at v0.31.0), so the
+// hidden state between projections, the reductions over it and the norms that read it are
+// 16-bit on an fp8, int8 or fp4 deployment as on a bf16 one. The MoE dispatch is priced at
+// the same width: the default allgather_reducescatter backend moves hidden states
+// unquantized (vllm/config/parallel.py:202); a backend that quantizes its dispatch moves
+// fewer bytes, which this does not see.
+//
+// An earlier form sized all three at the served weight width, so an fp8 deployment's
+// collectives and norms were charged half their bytes.
+const ActivationBytes = 2.0
+
 func BuildPlan(g *model.Graph, em Emitter, dtypeBytes, stateDtypeBytes float64) (*Plan, error) {
 	if g == nil {
 		return nil, fmt.Errorf("no graph to plan")
@@ -455,22 +469,19 @@ func planNodes(nodes []model.Node, em Emitter, dtypeBytes, stateBytes float64,
 		case model.OpElementwise:
 			b := float64(n.BytesPerToken)
 			if b == 0 {
-				// A normalization reads and writes the hidden state. At dtypeBytes, the
-				// served weight width, where the engine's activations are bf16 under any
-				// quantized format -- see the KNOWN DIVERGENCE in the kernel's
-				// liftCollectiveFloors, which this shares.
-				b = 2 * float64(hidden) * dtypeBytes
+				// A normalization reads and writes the hidden state, at the activation
+				// width.
+				b = 2 * float64(hidden) * ActivationBytes
 			}
 			pl.ElementwiseBytesPerToken += b
 		case model.OpAllReduce, model.OpAllGather, model.OpReduceScatter:
-			// Sized at the served weight width; see the KNOWN DIVERGENCE in the kernel's
-			// liftCollectiveFloors.
+			// The hidden state a projection produced, at the activation width.
 			pl.Collectives = append(pl.Collectives, PlannedCollective{
-				Op: n.Op, Group: GroupTP, BytesPerToken: float64(hidden) * dtypeBytes,
+				Op: n.Op, Group: GroupTP, BytesPerToken: float64(hidden) * ActivationBytes,
 			})
 		case model.OpAll2All:
 			pl.Collectives = append(pl.Collectives, PlannedCollective{
-				Op: n.Op, Group: GroupExpert, BytesPerToken: float64(hidden) * dtypeBytes,
+				Op: n.Op, Group: GroupExpert, BytesPerToken: float64(hidden) * ActivationBytes,
 				// Whether top_k multiplies this is a backend property, set by the caller
 				// that knows the resolved backend.
 				RoutedByTopK: true,

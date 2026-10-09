@@ -1748,7 +1748,7 @@ func (k *Kernel) dcpDecodeTokens(l *price.PlannedLayer, kind model.AttentionKind
 // of its context-prefill rows as well as its decode rows (flash_attn.py:1591). Neither is
 // priced: this charges decode rows only.
 func (k *Kernel) dcpDecodeCollectives(l *price.PlannedLayer, rows int) (onNode, crossNode float64) {
-	const activationBytes = 2
+	const activationBytes = price.ActivationBytes
 	tp := float64(max(k.layout.TP, 1))
 	dcp := float64(k.layout.DCP)
 	pcpOn := k.layout.PCP > 1
@@ -1826,7 +1826,7 @@ func (k *Kernel) dcpDecodeCollectives(l *price.PlannedLayer, rows int) (onNode, 
 // head width for k_pe. A latent node that states no kv_lora_rank is gathered as one tensor
 // of its head width.
 func (k *Kernel) pcpPrefillGathers(l *price.PlannedLayer, localTokens int) (onNode, crossNode float64) {
-	const activationBytes = 2
+	const activationBytes = price.ActivationBytes
 	rows := float64(k.layout.PCP) * float64(localTokens)
 	key := collKey{Op: model.OpAllGather, Group: price.GroupPCP}
 	gather := func(width float64) {

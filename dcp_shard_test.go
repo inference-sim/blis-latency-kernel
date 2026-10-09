@@ -800,9 +800,12 @@ func TestDCPAddsACombineCollectiveSizedByDecodeTokens(t *testing.T) {
 		t.Fatalf("the combine's byte term is %.6f ms, not positive above its floors",
 			bytesAtTwo*1e3)
 	}
-	if ratio := bytesAtFour / bytesAtTwo; math.Abs(ratio-2) > 1e-6 {
+	// Exactly 2 up to the reporting resolution: each step's resource totals are whole
+	// nanoseconds, and each byte term is a difference of two of them less a floor sum, so
+	// it carries a few nanoseconds of truncation.
+	if diff := bytesAtFour - 2*bytesAtTwo; math.Abs(diff) > 6e-9 {
 		t.Errorf("doubling the decode rows scaled the combine's byte term by %.6f, want "+
-			"exactly 2: one query row crosses per decode token", ratio)
+			"exactly 2: one query row crosses per decode token", bytesAtFour/bytesAtTwo)
 	}
 
 	// A prefill-only step must carry no DCP combine at all.
