@@ -95,9 +95,16 @@ type Kernel struct {
 	attentionPrefillFloor time.Duration
 	attentionPrefillScale float64
 
-	// Memory reservations NVIDIA's own system descriptor states per part.
-	commBytes      int64
-	workspaceBytes int64
+	// Memory occupancy outside the KV budget, every magnitude from the registry (see
+	// liftMemory): the communicator reservation, the engine workspace, the graph capture,
+	// and the activation form's multiple, floor, width and token bound.
+	commBytes         int64
+	workspaceBytes    int64
+	captureBytes      int64
+	activationBuffers float64
+	activationFloor   float64
+	activationWidth   float64
+	batchedTokens     int
 
 	// Per-rank expert counts, derived once.
 	expertsPerRank  float64
@@ -140,8 +147,15 @@ type Kernel struct {
 	launchPerLayer      time.Duration
 	launchPerKernel     time.Duration
 	replayPerStep       time.Duration
-	graphCaptured       bool
-	graphMode           graphMode
+	// graphDecode is the graph mode a uniform decode batch runs under, graphOther the
+	// mode every other batch does; they differ under FULL_AND_PIECEWISE and
+	// FULL_DECODE_ONLY. graphModeName is the resolved mode in vLLM's lowercase spelling,
+	// which keys the capture's memory. uniformDecodeWidth is the tokens per request that
+	// make a decode batch uniform.
+	graphDecode        graphMode
+	graphOther         graphMode
+	graphModeName      string
+	uniformDecodeWidth int
 
 	// decodeContext is how the decode-context-parallel combine runs: its backend and the
 	// stripe each rank holds. Meaningful only when the layout's DCP exceeds one.
@@ -317,7 +331,7 @@ func (k *Kernel) stepTime(b kernel.Batch,
 	tokens := b.Tokens()
 	if tokens == 0 {
 		// An empty step launches no work but still costs the host its per-step overhead.
-		host := k.hostPerStep()
+		host := k.hostPerStep(b)
 		per := into
 		if per == nil {
 			per = make(map[kernel.Resource]time.Duration, 1)
@@ -995,7 +1009,7 @@ func (k *Kernel) stepTime(b kernel.Batch,
 	// with itself, and its work is not hidden behind a stage the way device work is. Per
 	// kernel dispatch joins it, for the same reason — a kernel cannot run before it has
 	// been dispatched.
-	host := k.hostPerStep() + seconds(k.launchSeconds())
+	host := k.hostPerStep(b) + seconds(k.launchSeconds())
 	perResource[idxHost] = host.Seconds()
 
 	// The breakdown map is the only thing that can allocate here. A caller that supplied
@@ -1804,8 +1818,10 @@ func (k *Kernel) moeDPFunnel() float64 {
 
 // hostPerStep returns the host cost of one step.
 //
-// The graph mode decides how many launches a step makes, and PIECEWISE — vLLM's default
-// — is not one launch.
+// The graph mode that runs decides how many launches a step makes, and it is chosen per
+// batch: under FULL_AND_PIECEWISE -- vLLM v0.31.0's default -- and FULL_DECODE_ONLY a uniform
+// decode batch replays one full graph, and every other batch runs piecewise or with no graph
+// respectively (see the mode table in lift).
 //
 //	NONE       one launch per layer's kernels, all eager.
 //	PIECEWISE  the graph is split at every attention op, because attention takes a
@@ -1823,8 +1839,18 @@ func (k *Kernel) moeDPFunnel() float64 {
 // The split points are vLLM's `_attention_ops` (`vllm/config/compilation.py`), which fire
 // once per attention or recurrent-mixer layer, so the segment count is the layer count
 // plus one.
-func (k *Kernel) hostPerStep() time.Duration {
-	switch k.graphMode {
+//
+// NOT MODELLED: the engine runs a batch of more tokens than max_cudagraph_capture_size
+// with no graph at all, whatever the mode (vllm/v1/cudagraph_dispatcher.py:270-279). A large
+// prefill step is therefore priced with replays it does not make. The host coefficients
+// were fitted with this structure, so changing it is a refit, not a correction to make here.
+func (k *Kernel) hostPerStep(b kernel.Batch) time.Duration {
+	mode := k.graphOther
+	// An empty step runs no forward; it is charged as the decode loop's idle step.
+	if len(b.Reqs) == 0 || b.UniformDecode(k.uniformDecodeWidth) {
+		mode = k.graphDecode
+	}
+	switch mode {
 	case graphModeFull:
 		return k.replayPerStep
 	case graphModePiecewise:

@@ -28,10 +28,15 @@ one of them to say nothing it does not already say. harness.LoadBundle reads the
 STATED, and written here: tp_size, pp_size, attention_dp_size, moe_ep_size, moe_tp_size,
 framework, precision, serving, gpu, model.
 
-NOT stated, and therefore engine defaults: max_num_seqs, max_model_len, block_size,
-gpu_memory_utilization, cudagraph_mode. The comparison scores the RATIO of step times across
-concurrency at a fixed deployment, so a constant cancels. Where a default could NOT cancel it
-is derived from the workload instead -- max_model_len must admit the longest sequence the
+NOT stated, and therefore set here: max_num_seqs, max_model_len, block_size,
+gpu_memory_utilization, cudagraph_mode. They are NOT all vLLM's defaults, and the written
+header says which are: block_size 16 and gpu_memory_utilization 0.9 are; max_num_seqs 256 is
+only below 70 GiB or on an A100 (EngineArgs.get_batch_defaults, vllm/engine/arg_utils.py at
+v0.31.0); cudagraph_mode PIECEWISE is not -- FULL_AND_PIECEWISE is the default at v0.29.0 and
+v0.31.0 (vllm/config/compilation.py). They are held fixed so committed scores stay comparable,
+and the comparison scores the RATIO of step times across concurrency at a fixed deployment,
+which is what a setting held constant affects least. Where a value could NOT be held it is
+derived from the workload instead -- max_model_len must admit the longest sequence the
 workload runs, or the scenario would describe a deployment that cannot serve its own points.
 
 # Expert parallelism
@@ -54,7 +59,7 @@ import sys
 
 COEFFICIENTS = (
     "[cost-model-primitives, cost-model-collectives, cost-model-host-overheads, "
-    "cost-model-attention, cost-model-recurrent]"
+    "cost-model-attention, cost-model-recurrent, cost-model-memory]"
 )
 
 # Artifact precision -> the engine's quantization name. bf16 means the checkpoint is served
@@ -110,11 +115,16 @@ def emit(dep: dict, workloads: set[str], labels: set[str]) -> str:
         f"# moe_ep_size {ep}, moe_tp_size {par['moe_tp_size']}. Workloads scored at this",
         f"# deployment: {', '.join(sorted(labels))}.",
         "#",
-        "# max_num_seqs, block_size, gpu_memory_utilization and cudagraph_mode are engine",
-        "# defaults: the comparison scores a ratio across concurrency at a fixed deployment,",
-        "# so a constant cancels. max_model_len is derived from the workload instead, since a",
-        "# window shorter than isl+osl would describe a deployment that cannot serve its",
-        "# own points.",
+        "# max_num_seqs, block_size, gpu_memory_utilization and cudagraph_mode are not in the",
+        "# corpus, so they are set here -- and not all to vLLM's defaults. block_size 16 and",
+        "# gpu_memory_utilization 0.9 are its defaults; max_num_seqs 256 is its default only",
+        "# below 70 GiB or on an A100, and cudagraph_mode PIECEWISE is not its default anywhere",
+        "# (FULL_AND_PIECEWISE is, at v0.29.0 and v0.31.0). They are held fixed so committed",
+        "# scores stay comparable; moving them to the engine's defaults is a re-scoring decision.",
+        "# The comparison scores a ratio across concurrency at a fixed deployment, which is what",
+        "# a setting held constant affects least. max_model_len is derived from the workload",
+        "# instead, since a window shorter than isl+osl would describe a deployment that cannot",
+        "# serve its own points.",
         "kind: Scenario",
         f"name: {name}",
         'engine_version: "0.29.0"',

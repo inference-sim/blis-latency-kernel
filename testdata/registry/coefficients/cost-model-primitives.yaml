@@ -80,7 +80,7 @@ coefficients:
       sources:
         - {kind: model, cite: "NVIDIA AISimulate systems/a100_pcie.yaml", role: primary}
       rationale: >
-        Bytes a rank reserves for NCCL communicator buffers at 2 ranks, from NVIDIA's descriptor. It enters the memory breakdown's CommBuffers term, and it is a real per-rank-count figure rather than the order-of-magnitude constant this model previously carried.
+        Bytes a rank reserves for NCCL communicator buffers at 2 ranks, from NVIDIA's descriptor. It enters the memory breakdown's CommBuffers term, and it is a real per-rank-count figure rather than the order-of-magnitude constant this model previously carried. It is the WHOLE of a rank's collective-buffer reservation in NVIDIA's composition: engine_workspace_bytes is a separate allowance that adds to it, not part of it (AISimulate sdk/backends/base_backend.py sums nccl_mem and other_mem; cost-model-memory.yaml states the full sum). The descriptor declares 0 at one rank, which is why no 1-rank entry exists, and AISimulate takes the 8-rank figure for any wider group, clamping at min(tp, 8).
   - nccl_communicator_bytes_4rank:
       value: 411041792
       units: bytes_per_rank
@@ -90,7 +90,7 @@ coefficients:
       sources:
         - {kind: model, cite: "NVIDIA AISimulate systems/a100_pcie.yaml", role: primary}
       rationale: >
-        Bytes a rank reserves for NCCL communicator buffers at 4 ranks, from NVIDIA's descriptor. It enters the memory breakdown's CommBuffers term, and it is a real per-rank-count figure rather than the order-of-magnitude constant this model previously carried.
+        Bytes a rank reserves for NCCL communicator buffers at 4 ranks, from NVIDIA's descriptor. It enters the memory breakdown's CommBuffers term, and it is a real per-rank-count figure rather than the order-of-magnitude constant this model previously carried. It is the WHOLE of a rank's collective-buffer reservation in NVIDIA's composition: engine_workspace_bytes is a separate allowance that adds to it, not part of it (AISimulate sdk/backends/base_backend.py sums nccl_mem and other_mem; cost-model-memory.yaml states the full sum). The descriptor declares 0 at one rank, which is why no 1-rank entry exists, and AISimulate takes the 8-rank figure for any wider group, clamping at min(tp, 8).
   - nccl_communicator_bytes_8rank:
       value: 411041792
       units: bytes_per_rank
@@ -100,7 +100,7 @@ coefficients:
       sources:
         - {kind: model, cite: "NVIDIA AISimulate systems/a100_pcie.yaml", role: primary}
       rationale: >
-        Bytes a rank reserves for NCCL communicator buffers at 8 ranks, from NVIDIA's descriptor. It enters the memory breakdown's CommBuffers term, and it is a real per-rank-count figure rather than the order-of-magnitude constant this model previously carried.
+        Bytes a rank reserves for NCCL communicator buffers at 8 ranks, from NVIDIA's descriptor. It enters the memory breakdown's CommBuffers term, and it is a real per-rank-count figure rather than the order-of-magnitude constant this model previously carried. It is the WHOLE of a rank's collective-buffer reservation in NVIDIA's composition: engine_workspace_bytes is a separate allowance that adds to it, not part of it (AISimulate sdk/backends/base_backend.py sums nccl_mem and other_mem; cost-model-memory.yaml states the full sum). The descriptor declares 0 at one rank, which is why no 1-rank entry exists, and AISimulate takes the 8-rank figure for any wider group, clamping at min(tp, 8).
   - engine_workspace_bytes:
       value: 3758096384
       units: bytes_per_rank
@@ -110,7 +110,7 @@ coefficients:
       sources:
         - {kind: model, cite: "NVIDIA AISimulate systems/a100_pcie.yaml", role: primary}
       rationale: >
-        3.8 GB of non-weight, non-KV occupancy NVIDIA's descriptor reserves, described there as covering CUDA-graph capture, workspace and the inaccuracy of the rest of the memory calculation. It is a lumped allowance rather than a decomposition, so the memory breakdown reports it as one term and does not claim to split it.
+        3.8 GB of non-weight, non-KV occupancy NVIDIA's descriptor reserves, which AISimulate's memory model labels as CUDA context, cuBLAS and the like ("cuda, cublas, etc.", sdk/backends/base_backend.py) and the descriptor annotates as a safety reserve that also covers part of the inaccuracy of the rest of its memory calculation. It does NOT include CUDA-graph capture: AISimulate annotates other_mem as excluding the graph reservation (support/config_profile.py) and takes that reservation as a separate argument (capacity.py, cuda_graph_reserved_bytes), so cudagraph_capture_bytes_<mode> in cost-model-memory.yaml adds to this rather than sitting inside it. Nor is it part of the collective reservation: NVIDIA's composition sums it with nccl_communicator_bytes_<N>rank. It is a lumped allowance rather than a decomposition, so a memory breakdown reports it as one term and does not claim to split it.
 
   # --- a100-sxm (a100_sxm) ---
   - gemm_eps_max_bf16:
@@ -203,7 +203,7 @@ coefficients:
       sources:
         - {kind: model, cite: "NVIDIA AISimulate systems/a100_sxm.yaml", role: primary}
       rationale: >
-        Bytes a rank reserves for NCCL communicator buffers at 2 ranks, from NVIDIA's descriptor. It enters the memory breakdown's CommBuffers term, and it is a real per-rank-count figure rather than the order-of-magnitude constant this model previously carried.
+        Bytes a rank reserves for NCCL communicator buffers at 2 ranks, from NVIDIA's descriptor. It enters the memory breakdown's CommBuffers term, and it is a real per-rank-count figure rather than the order-of-magnitude constant this model previously carried. It is the WHOLE of a rank's collective-buffer reservation in NVIDIA's composition: engine_workspace_bytes is a separate allowance that adds to it, not part of it (AISimulate sdk/backends/base_backend.py sums nccl_mem and other_mem; cost-model-memory.yaml states the full sum). The descriptor declares 0 at one rank, which is why no 1-rank entry exists, and AISimulate takes the 8-rank figure for any wider group, clamping at min(tp, 8).
   - nccl_communicator_bytes_4rank:
       value: 411041792
       units: bytes_per_rank
@@ -213,7 +213,7 @@ coefficients:
       sources:
         - {kind: model, cite: "NVIDIA AISimulate systems/a100_sxm.yaml", role: primary}
       rationale: >
-        Bytes a rank reserves for NCCL communicator buffers at 4 ranks, from NVIDIA's descriptor. It enters the memory breakdown's CommBuffers term, and it is a real per-rank-count figure rather than the order-of-magnitude constant this model previously carried.
+        Bytes a rank reserves for NCCL communicator buffers at 4 ranks, from NVIDIA's descriptor. It enters the memory breakdown's CommBuffers term, and it is a real per-rank-count figure rather than the order-of-magnitude constant this model previously carried. It is the WHOLE of a rank's collective-buffer reservation in NVIDIA's composition: engine_workspace_bytes is a separate allowance that adds to it, not part of it (AISimulate sdk/backends/base_backend.py sums nccl_mem and other_mem; cost-model-memory.yaml states the full sum). The descriptor declares 0 at one rank, which is why no 1-rank entry exists, and AISimulate takes the 8-rank figure for any wider group, clamping at min(tp, 8).
   - nccl_communicator_bytes_8rank:
       value: 411041792
       units: bytes_per_rank
@@ -223,7 +223,7 @@ coefficients:
       sources:
         - {kind: model, cite: "NVIDIA AISimulate systems/a100_sxm.yaml", role: primary}
       rationale: >
-        Bytes a rank reserves for NCCL communicator buffers at 8 ranks, from NVIDIA's descriptor. It enters the memory breakdown's CommBuffers term, and it is a real per-rank-count figure rather than the order-of-magnitude constant this model previously carried.
+        Bytes a rank reserves for NCCL communicator buffers at 8 ranks, from NVIDIA's descriptor. It enters the memory breakdown's CommBuffers term, and it is a real per-rank-count figure rather than the order-of-magnitude constant this model previously carried. It is the WHOLE of a rank's collective-buffer reservation in NVIDIA's composition: engine_workspace_bytes is a separate allowance that adds to it, not part of it (AISimulate sdk/backends/base_backend.py sums nccl_mem and other_mem; cost-model-memory.yaml states the full sum). The descriptor declares 0 at one rank, which is why no 1-rank entry exists, and AISimulate takes the 8-rank figure for any wider group, clamping at min(tp, 8).
   - engine_workspace_bytes:
       value: 3758096384
       units: bytes_per_rank
@@ -233,7 +233,7 @@ coefficients:
       sources:
         - {kind: model, cite: "NVIDIA AISimulate systems/a100_sxm.yaml", role: primary}
       rationale: >
-        3.8 GB of non-weight, non-KV occupancy NVIDIA's descriptor reserves, described there as covering CUDA-graph capture, workspace and the inaccuracy of the rest of the memory calculation. It is a lumped allowance rather than a decomposition, so the memory breakdown reports it as one term and does not claim to split it.
+        3.8 GB of non-weight, non-KV occupancy NVIDIA's descriptor reserves, which AISimulate's memory model labels as CUDA context, cuBLAS and the like ("cuda, cublas, etc.", sdk/backends/base_backend.py) and the descriptor annotates as a safety reserve that also covers part of the inaccuracy of the rest of its memory calculation. It does NOT include CUDA-graph capture: AISimulate annotates other_mem as excluding the graph reservation (support/config_profile.py) and takes that reservation as a separate argument (capacity.py, cuda_graph_reserved_bytes), so cudagraph_capture_bytes_<mode> in cost-model-memory.yaml adds to this rather than sitting inside it. Nor is it part of the collective reservation: NVIDIA's composition sums it with nccl_communicator_bytes_<N>rank. It is a lumped allowance rather than a decomposition, so a memory breakdown reports it as one term and does not claim to split it.
 
   # --- b200 (b200_sxm) ---
   - gemm_eps_max_bf16:
@@ -385,7 +385,7 @@ coefficients:
       sources:
         - {kind: model, cite: "NVIDIA AISimulate systems/b200_sxm.yaml", role: primary}
       rationale: >
-        Bytes a rank reserves for NCCL communicator buffers at 2 ranks, from NVIDIA's descriptor. It enters the memory breakdown's CommBuffers term, and it is a real per-rank-count figure rather than the order-of-magnitude constant this model previously carried.
+        Bytes a rank reserves for NCCL communicator buffers at 2 ranks, from NVIDIA's descriptor. It enters the memory breakdown's CommBuffers term, and it is a real per-rank-count figure rather than the order-of-magnitude constant this model previously carried. It is the WHOLE of a rank's collective-buffer reservation in NVIDIA's composition: engine_workspace_bytes is a separate allowance that adds to it, not part of it (AISimulate sdk/backends/base_backend.py sums nccl_mem and other_mem; cost-model-memory.yaml states the full sum). The descriptor declares 0 at one rank, which is why no 1-rank entry exists, and AISimulate takes the 8-rank figure for any wider group, clamping at min(tp, 8).
   - nccl_communicator_bytes_4rank:
       value: 411041792
       units: bytes_per_rank
@@ -395,7 +395,7 @@ coefficients:
       sources:
         - {kind: model, cite: "NVIDIA AISimulate systems/b200_sxm.yaml", role: primary}
       rationale: >
-        Bytes a rank reserves for NCCL communicator buffers at 4 ranks, from NVIDIA's descriptor. It enters the memory breakdown's CommBuffers term, and it is a real per-rank-count figure rather than the order-of-magnitude constant this model previously carried.
+        Bytes a rank reserves for NCCL communicator buffers at 4 ranks, from NVIDIA's descriptor. It enters the memory breakdown's CommBuffers term, and it is a real per-rank-count figure rather than the order-of-magnitude constant this model previously carried. It is the WHOLE of a rank's collective-buffer reservation in NVIDIA's composition: engine_workspace_bytes is a separate allowance that adds to it, not part of it (AISimulate sdk/backends/base_backend.py sums nccl_mem and other_mem; cost-model-memory.yaml states the full sum). The descriptor declares 0 at one rank, which is why no 1-rank entry exists, and AISimulate takes the 8-rank figure for any wider group, clamping at min(tp, 8).
   - nccl_communicator_bytes_8rank:
       value: 411041792
       units: bytes_per_rank
@@ -405,7 +405,7 @@ coefficients:
       sources:
         - {kind: model, cite: "NVIDIA AISimulate systems/b200_sxm.yaml", role: primary}
       rationale: >
-        Bytes a rank reserves for NCCL communicator buffers at 8 ranks, from NVIDIA's descriptor. It enters the memory breakdown's CommBuffers term, and it is a real per-rank-count figure rather than the order-of-magnitude constant this model previously carried.
+        Bytes a rank reserves for NCCL communicator buffers at 8 ranks, from NVIDIA's descriptor. It enters the memory breakdown's CommBuffers term, and it is a real per-rank-count figure rather than the order-of-magnitude constant this model previously carried. It is the WHOLE of a rank's collective-buffer reservation in NVIDIA's composition: engine_workspace_bytes is a separate allowance that adds to it, not part of it (AISimulate sdk/backends/base_backend.py sums nccl_mem and other_mem; cost-model-memory.yaml states the full sum). The descriptor declares 0 at one rank, which is why no 1-rank entry exists, and AISimulate takes the 8-rank figure for any wider group, clamping at min(tp, 8).
   - engine_workspace_bytes:
       value: 3758096384
       units: bytes_per_rank
@@ -415,7 +415,7 @@ coefficients:
       sources:
         - {kind: model, cite: "NVIDIA AISimulate systems/b200_sxm.yaml", role: primary}
       rationale: >
-        3.8 GB of non-weight, non-KV occupancy NVIDIA's descriptor reserves, described there as covering CUDA-graph capture, workspace and the inaccuracy of the rest of the memory calculation. It is a lumped allowance rather than a decomposition, so the memory breakdown reports it as one term and does not claim to split it.
+        3.8 GB of non-weight, non-KV occupancy NVIDIA's descriptor reserves, which AISimulate's memory model labels as CUDA context, cuBLAS and the like ("cuda, cublas, etc.", sdk/backends/base_backend.py) and the descriptor annotates as a safety reserve that also covers part of the inaccuracy of the rest of its memory calculation. It does NOT include CUDA-graph capture: AISimulate annotates other_mem as excluding the graph reservation (support/config_profile.py) and takes that reservation as a separate argument (capacity.py, cuda_graph_reserved_bytes), so cudagraph_capture_bytes_<mode> in cost-model-memory.yaml adds to this rather than sitting inside it. Nor is it part of the collective reservation: NVIDIA's composition sums it with nccl_communicator_bytes_<N>rank. It is a lumped allowance rather than a decomposition, so a memory breakdown reports it as one term and does not claim to split it.
 
   # --- b300 (b300_sxm) ---
   - gemm_eps_max_bf16:
@@ -567,7 +567,7 @@ coefficients:
       sources:
         - {kind: model, cite: "NVIDIA AISimulate systems/b300_sxm.yaml", role: primary}
       rationale: >
-        Bytes a rank reserves for NCCL communicator buffers at 2 ranks, from NVIDIA's descriptor. It enters the memory breakdown's CommBuffers term, and it is a real per-rank-count figure rather than the order-of-magnitude constant this model previously carried.
+        Bytes a rank reserves for NCCL communicator buffers at 2 ranks, from NVIDIA's descriptor. It enters the memory breakdown's CommBuffers term, and it is a real per-rank-count figure rather than the order-of-magnitude constant this model previously carried. It is the WHOLE of a rank's collective-buffer reservation in NVIDIA's composition: engine_workspace_bytes is a separate allowance that adds to it, not part of it (AISimulate sdk/backends/base_backend.py sums nccl_mem and other_mem; cost-model-memory.yaml states the full sum). The descriptor declares 0 at one rank, which is why no 1-rank entry exists, and AISimulate takes the 8-rank figure for any wider group, clamping at min(tp, 8).
   - nccl_communicator_bytes_4rank:
       value: 411041792
       units: bytes_per_rank
@@ -577,7 +577,7 @@ coefficients:
       sources:
         - {kind: model, cite: "NVIDIA AISimulate systems/b300_sxm.yaml", role: primary}
       rationale: >
-        Bytes a rank reserves for NCCL communicator buffers at 4 ranks, from NVIDIA's descriptor. It enters the memory breakdown's CommBuffers term, and it is a real per-rank-count figure rather than the order-of-magnitude constant this model previously carried.
+        Bytes a rank reserves for NCCL communicator buffers at 4 ranks, from NVIDIA's descriptor. It enters the memory breakdown's CommBuffers term, and it is a real per-rank-count figure rather than the order-of-magnitude constant this model previously carried. It is the WHOLE of a rank's collective-buffer reservation in NVIDIA's composition: engine_workspace_bytes is a separate allowance that adds to it, not part of it (AISimulate sdk/backends/base_backend.py sums nccl_mem and other_mem; cost-model-memory.yaml states the full sum). The descriptor declares 0 at one rank, which is why no 1-rank entry exists, and AISimulate takes the 8-rank figure for any wider group, clamping at min(tp, 8).
   - nccl_communicator_bytes_8rank:
       value: 411041792
       units: bytes_per_rank
@@ -587,7 +587,7 @@ coefficients:
       sources:
         - {kind: model, cite: "NVIDIA AISimulate systems/b300_sxm.yaml", role: primary}
       rationale: >
-        Bytes a rank reserves for NCCL communicator buffers at 8 ranks, from NVIDIA's descriptor. It enters the memory breakdown's CommBuffers term, and it is a real per-rank-count figure rather than the order-of-magnitude constant this model previously carried.
+        Bytes a rank reserves for NCCL communicator buffers at 8 ranks, from NVIDIA's descriptor. It enters the memory breakdown's CommBuffers term, and it is a real per-rank-count figure rather than the order-of-magnitude constant this model previously carried. It is the WHOLE of a rank's collective-buffer reservation in NVIDIA's composition: engine_workspace_bytes is a separate allowance that adds to it, not part of it (AISimulate sdk/backends/base_backend.py sums nccl_mem and other_mem; cost-model-memory.yaml states the full sum). The descriptor declares 0 at one rank, which is why no 1-rank entry exists, and AISimulate takes the 8-rank figure for any wider group, clamping at min(tp, 8).
   - engine_workspace_bytes:
       value: 3758096384
       units: bytes_per_rank
@@ -597,7 +597,7 @@ coefficients:
       sources:
         - {kind: model, cite: "NVIDIA AISimulate systems/b300_sxm.yaml", role: primary}
       rationale: >
-        3.8 GB of non-weight, non-KV occupancy NVIDIA's descriptor reserves, described there as covering CUDA-graph capture, workspace and the inaccuracy of the rest of the memory calculation. It is a lumped allowance rather than a decomposition, so the memory breakdown reports it as one term and does not claim to split it.
+        3.8 GB of non-weight, non-KV occupancy NVIDIA's descriptor reserves, which AISimulate's memory model labels as CUDA context, cuBLAS and the like ("cuda, cublas, etc.", sdk/backends/base_backend.py) and the descriptor annotates as a safety reserve that also covers part of the inaccuracy of the rest of its memory calculation. It does NOT include CUDA-graph capture: AISimulate annotates other_mem as excluding the graph reservation (support/config_profile.py) and takes that reservation as a separate argument (capacity.py, cuda_graph_reserved_bytes), so cudagraph_capture_bytes_<mode> in cost-model-memory.yaml adds to this rather than sitting inside it. Nor is it part of the collective reservation: NVIDIA's composition sums it with nccl_communicator_bytes_<N>rank. It is a lumped allowance rather than a decomposition, so a memory breakdown reports it as one term and does not claim to split it.
 
   # --- gb200-nvl72 (gb200) ---
   - gemm_eps_max_bf16:
@@ -749,7 +749,7 @@ coefficients:
       sources:
         - {kind: model, cite: "NVIDIA AISimulate systems/gb200.yaml", role: primary}
       rationale: >
-        Bytes a rank reserves for NCCL communicator buffers at 2 ranks, from NVIDIA's descriptor. It enters the memory breakdown's CommBuffers term, and it is a real per-rank-count figure rather than the order-of-magnitude constant this model previously carried.
+        Bytes a rank reserves for NCCL communicator buffers at 2 ranks, from NVIDIA's descriptor. It enters the memory breakdown's CommBuffers term, and it is a real per-rank-count figure rather than the order-of-magnitude constant this model previously carried. It is the WHOLE of a rank's collective-buffer reservation in NVIDIA's composition: engine_workspace_bytes is a separate allowance that adds to it, not part of it (AISimulate sdk/backends/base_backend.py sums nccl_mem and other_mem; cost-model-memory.yaml states the full sum). The descriptor declares 0 at one rank, which is why no 1-rank entry exists, and AISimulate takes the 8-rank figure for any wider group, clamping at min(tp, 8).
   - nccl_communicator_bytes_4rank:
       value: 411041792
       units: bytes_per_rank
@@ -759,7 +759,7 @@ coefficients:
       sources:
         - {kind: model, cite: "NVIDIA AISimulate systems/gb200.yaml", role: primary}
       rationale: >
-        Bytes a rank reserves for NCCL communicator buffers at 4 ranks, from NVIDIA's descriptor. It enters the memory breakdown's CommBuffers term, and it is a real per-rank-count figure rather than the order-of-magnitude constant this model previously carried.
+        Bytes a rank reserves for NCCL communicator buffers at 4 ranks, from NVIDIA's descriptor. It enters the memory breakdown's CommBuffers term, and it is a real per-rank-count figure rather than the order-of-magnitude constant this model previously carried. It is the WHOLE of a rank's collective-buffer reservation in NVIDIA's composition: engine_workspace_bytes is a separate allowance that adds to it, not part of it (AISimulate sdk/backends/base_backend.py sums nccl_mem and other_mem; cost-model-memory.yaml states the full sum). The descriptor declares 0 at one rank, which is why no 1-rank entry exists, and AISimulate takes the 8-rank figure for any wider group, clamping at min(tp, 8).
   - nccl_communicator_bytes_8rank:
       value: 411041792
       units: bytes_per_rank
@@ -769,7 +769,7 @@ coefficients:
       sources:
         - {kind: model, cite: "NVIDIA AISimulate systems/gb200.yaml", role: primary}
       rationale: >
-        Bytes a rank reserves for NCCL communicator buffers at 8 ranks, from NVIDIA's descriptor. It enters the memory breakdown's CommBuffers term, and it is a real per-rank-count figure rather than the order-of-magnitude constant this model previously carried.
+        Bytes a rank reserves for NCCL communicator buffers at 8 ranks, from NVIDIA's descriptor. It enters the memory breakdown's CommBuffers term, and it is a real per-rank-count figure rather than the order-of-magnitude constant this model previously carried. It is the WHOLE of a rank's collective-buffer reservation in NVIDIA's composition: engine_workspace_bytes is a separate allowance that adds to it, not part of it (AISimulate sdk/backends/base_backend.py sums nccl_mem and other_mem; cost-model-memory.yaml states the full sum). The descriptor declares 0 at one rank, which is why no 1-rank entry exists, and AISimulate takes the 8-rank figure for any wider group, clamping at min(tp, 8).
   - engine_workspace_bytes:
       value: 3758096384
       units: bytes_per_rank
@@ -779,7 +779,7 @@ coefficients:
       sources:
         - {kind: model, cite: "NVIDIA AISimulate systems/gb200.yaml", role: primary}
       rationale: >
-        3.8 GB of non-weight, non-KV occupancy NVIDIA's descriptor reserves, described there as covering CUDA-graph capture, workspace and the inaccuracy of the rest of the memory calculation. It is a lumped allowance rather than a decomposition, so the memory breakdown reports it as one term and does not claim to split it.
+        3.8 GB of non-weight, non-KV occupancy NVIDIA's descriptor reserves, which AISimulate's memory model labels as CUDA context, cuBLAS and the like ("cuda, cublas, etc.", sdk/backends/base_backend.py) and the descriptor annotates as a safety reserve that also covers part of the inaccuracy of the rest of its memory calculation. It does NOT include CUDA-graph capture: AISimulate annotates other_mem as excluding the graph reservation (support/config_profile.py) and takes that reservation as a separate argument (capacity.py, cuda_graph_reserved_bytes), so cudagraph_capture_bytes_<mode> in cost-model-memory.yaml adds to this rather than sitting inside it. Nor is it part of the collective reservation: NVIDIA's composition sums it with nccl_communicator_bytes_<N>rank. It is a lumped allowance rather than a decomposition, so a memory breakdown reports it as one term and does not claim to split it.
 
   # --- h100 (h100_sxm) ---
   - gemm_eps_max_bf16:
@@ -911,7 +911,7 @@ coefficients:
       sources:
         - {kind: model, cite: "NVIDIA AISimulate systems/h100_sxm.yaml", role: primary}
       rationale: >
-        Bytes a rank reserves for NCCL communicator buffers at 2 ranks, from NVIDIA's descriptor. It enters the memory breakdown's CommBuffers term, and it is a real per-rank-count figure rather than the order-of-magnitude constant this model previously carried.
+        Bytes a rank reserves for NCCL communicator buffers at 2 ranks, from NVIDIA's descriptor. It enters the memory breakdown's CommBuffers term, and it is a real per-rank-count figure rather than the order-of-magnitude constant this model previously carried. It is the WHOLE of a rank's collective-buffer reservation in NVIDIA's composition: engine_workspace_bytes is a separate allowance that adds to it, not part of it (AISimulate sdk/backends/base_backend.py sums nccl_mem and other_mem; cost-model-memory.yaml states the full sum). The descriptor declares 0 at one rank, which is why no 1-rank entry exists, and AISimulate takes the 8-rank figure for any wider group, clamping at min(tp, 8).
   - nccl_communicator_bytes_4rank:
       value: 411041792
       units: bytes_per_rank
@@ -921,7 +921,7 @@ coefficients:
       sources:
         - {kind: model, cite: "NVIDIA AISimulate systems/h100_sxm.yaml", role: primary}
       rationale: >
-        Bytes a rank reserves for NCCL communicator buffers at 4 ranks, from NVIDIA's descriptor. It enters the memory breakdown's CommBuffers term, and it is a real per-rank-count figure rather than the order-of-magnitude constant this model previously carried.
+        Bytes a rank reserves for NCCL communicator buffers at 4 ranks, from NVIDIA's descriptor. It enters the memory breakdown's CommBuffers term, and it is a real per-rank-count figure rather than the order-of-magnitude constant this model previously carried. It is the WHOLE of a rank's collective-buffer reservation in NVIDIA's composition: engine_workspace_bytes is a separate allowance that adds to it, not part of it (AISimulate sdk/backends/base_backend.py sums nccl_mem and other_mem; cost-model-memory.yaml states the full sum). The descriptor declares 0 at one rank, which is why no 1-rank entry exists, and AISimulate takes the 8-rank figure for any wider group, clamping at min(tp, 8).
   - nccl_communicator_bytes_8rank:
       value: 411041792
       units: bytes_per_rank
@@ -931,7 +931,7 @@ coefficients:
       sources:
         - {kind: model, cite: "NVIDIA AISimulate systems/h100_sxm.yaml", role: primary}
       rationale: >
-        Bytes a rank reserves for NCCL communicator buffers at 8 ranks, from NVIDIA's descriptor. It enters the memory breakdown's CommBuffers term, and it is a real per-rank-count figure rather than the order-of-magnitude constant this model previously carried.
+        Bytes a rank reserves for NCCL communicator buffers at 8 ranks, from NVIDIA's descriptor. It enters the memory breakdown's CommBuffers term, and it is a real per-rank-count figure rather than the order-of-magnitude constant this model previously carried. It is the WHOLE of a rank's collective-buffer reservation in NVIDIA's composition: engine_workspace_bytes is a separate allowance that adds to it, not part of it (AISimulate sdk/backends/base_backend.py sums nccl_mem and other_mem; cost-model-memory.yaml states the full sum). The descriptor declares 0 at one rank, which is why no 1-rank entry exists, and AISimulate takes the 8-rank figure for any wider group, clamping at min(tp, 8).
   - engine_workspace_bytes:
       value: 3758096384
       units: bytes_per_rank
@@ -941,7 +941,7 @@ coefficients:
       sources:
         - {kind: model, cite: "NVIDIA AISimulate systems/h100_sxm.yaml", role: primary}
       rationale: >
-        3.8 GB of non-weight, non-KV occupancy NVIDIA's descriptor reserves, described there as covering CUDA-graph capture, workspace and the inaccuracy of the rest of the memory calculation. It is a lumped allowance rather than a decomposition, so the memory breakdown reports it as one term and does not claim to split it.
+        3.8 GB of non-weight, non-KV occupancy NVIDIA's descriptor reserves, which AISimulate's memory model labels as CUDA context, cuBLAS and the like ("cuda, cublas, etc.", sdk/backends/base_backend.py) and the descriptor annotates as a safety reserve that also covers part of the inaccuracy of the rest of its memory calculation. It does NOT include CUDA-graph capture: AISimulate annotates other_mem as excluding the graph reservation (support/config_profile.py) and takes that reservation as a separate argument (capacity.py, cuda_graph_reserved_bytes), so cudagraph_capture_bytes_<mode> in cost-model-memory.yaml adds to this rather than sitting inside it. Nor is it part of the collective reservation: NVIDIA's composition sums it with nccl_communicator_bytes_<N>rank. It is a lumped allowance rather than a decomposition, so a memory breakdown reports it as one term and does not claim to split it.
 
   # --- h200 (h200_sxm) ---
   - gemm_eps_max_bf16:
@@ -1073,7 +1073,7 @@ coefficients:
       sources:
         - {kind: model, cite: "NVIDIA AISimulate systems/h200_sxm.yaml", role: primary}
       rationale: >
-        Bytes a rank reserves for NCCL communicator buffers at 2 ranks, from NVIDIA's descriptor. It enters the memory breakdown's CommBuffers term, and it is a real per-rank-count figure rather than the order-of-magnitude constant this model previously carried.
+        Bytes a rank reserves for NCCL communicator buffers at 2 ranks, from NVIDIA's descriptor. It enters the memory breakdown's CommBuffers term, and it is a real per-rank-count figure rather than the order-of-magnitude constant this model previously carried. It is the WHOLE of a rank's collective-buffer reservation in NVIDIA's composition: engine_workspace_bytes is a separate allowance that adds to it, not part of it (AISimulate sdk/backends/base_backend.py sums nccl_mem and other_mem; cost-model-memory.yaml states the full sum). The descriptor declares 0 at one rank, which is why no 1-rank entry exists, and AISimulate takes the 8-rank figure for any wider group, clamping at min(tp, 8).
   - nccl_communicator_bytes_4rank:
       value: 411041792
       units: bytes_per_rank
@@ -1083,7 +1083,7 @@ coefficients:
       sources:
         - {kind: model, cite: "NVIDIA AISimulate systems/h200_sxm.yaml", role: primary}
       rationale: >
-        Bytes a rank reserves for NCCL communicator buffers at 4 ranks, from NVIDIA's descriptor. It enters the memory breakdown's CommBuffers term, and it is a real per-rank-count figure rather than the order-of-magnitude constant this model previously carried.
+        Bytes a rank reserves for NCCL communicator buffers at 4 ranks, from NVIDIA's descriptor. It enters the memory breakdown's CommBuffers term, and it is a real per-rank-count figure rather than the order-of-magnitude constant this model previously carried. It is the WHOLE of a rank's collective-buffer reservation in NVIDIA's composition: engine_workspace_bytes is a separate allowance that adds to it, not part of it (AISimulate sdk/backends/base_backend.py sums nccl_mem and other_mem; cost-model-memory.yaml states the full sum). The descriptor declares 0 at one rank, which is why no 1-rank entry exists, and AISimulate takes the 8-rank figure for any wider group, clamping at min(tp, 8).
   - nccl_communicator_bytes_8rank:
       value: 411041792
       units: bytes_per_rank
@@ -1093,7 +1093,7 @@ coefficients:
       sources:
         - {kind: model, cite: "NVIDIA AISimulate systems/h200_sxm.yaml", role: primary}
       rationale: >
-        Bytes a rank reserves for NCCL communicator buffers at 8 ranks, from NVIDIA's descriptor. It enters the memory breakdown's CommBuffers term, and it is a real per-rank-count figure rather than the order-of-magnitude constant this model previously carried.
+        Bytes a rank reserves for NCCL communicator buffers at 8 ranks, from NVIDIA's descriptor. It enters the memory breakdown's CommBuffers term, and it is a real per-rank-count figure rather than the order-of-magnitude constant this model previously carried. It is the WHOLE of a rank's collective-buffer reservation in NVIDIA's composition: engine_workspace_bytes is a separate allowance that adds to it, not part of it (AISimulate sdk/backends/base_backend.py sums nccl_mem and other_mem; cost-model-memory.yaml states the full sum). The descriptor declares 0 at one rank, which is why no 1-rank entry exists, and AISimulate takes the 8-rank figure for any wider group, clamping at min(tp, 8).
   - engine_workspace_bytes:
       value: 3758096384
       units: bytes_per_rank
@@ -1103,7 +1103,7 @@ coefficients:
       sources:
         - {kind: model, cite: "NVIDIA AISimulate systems/h200_sxm.yaml", role: primary}
       rationale: >
-        3.8 GB of non-weight, non-KV occupancy NVIDIA's descriptor reserves, described there as covering CUDA-graph capture, workspace and the inaccuracy of the rest of the memory calculation. It is a lumped allowance rather than a decomposition, so the memory breakdown reports it as one term and does not claim to split it.
+        3.8 GB of non-weight, non-KV occupancy NVIDIA's descriptor reserves, which AISimulate's memory model labels as CUDA context, cuBLAS and the like ("cuda, cublas, etc.", sdk/backends/base_backend.py) and the descriptor annotates as a safety reserve that also covers part of the inaccuracy of the rest of its memory calculation. It does NOT include CUDA-graph capture: AISimulate annotates other_mem as excluding the graph reservation (support/config_profile.py) and takes that reservation as a separate argument (capacity.py, cuda_graph_reserved_bytes), so cudagraph_capture_bytes_<mode> in cost-model-memory.yaml adds to this rather than sitting inside it. Nor is it part of the collective reservation: NVIDIA's composition sums it with nccl_communicator_bytes_<N>rank. It is a lumped allowance rather than a decomposition, so a memory breakdown reports it as one term and does not claim to split it.
 
   # --- l40s (l40s) ---
   - gemm_eps_max_bf16:
@@ -1255,7 +1255,7 @@ coefficients:
       sources:
         - {kind: model, cite: "NVIDIA AISimulate systems/l40s.yaml", role: primary}
       rationale: >
-        Bytes a rank reserves for NCCL communicator buffers at 2 ranks, from NVIDIA's descriptor. It enters the memory breakdown's CommBuffers term, and it is a real per-rank-count figure rather than the order-of-magnitude constant this model previously carried.
+        Bytes a rank reserves for NCCL communicator buffers at 2 ranks, from NVIDIA's descriptor. It enters the memory breakdown's CommBuffers term, and it is a real per-rank-count figure rather than the order-of-magnitude constant this model previously carried. It is the WHOLE of a rank's collective-buffer reservation in NVIDIA's composition: engine_workspace_bytes is a separate allowance that adds to it, not part of it (AISimulate sdk/backends/base_backend.py sums nccl_mem and other_mem; cost-model-memory.yaml states the full sum). The descriptor declares 0 at one rank, which is why no 1-rank entry exists, and AISimulate takes the 8-rank figure for any wider group, clamping at min(tp, 8).
   - nccl_communicator_bytes_4rank:
       value: 411041792
       units: bytes_per_rank
@@ -1265,7 +1265,7 @@ coefficients:
       sources:
         - {kind: model, cite: "NVIDIA AISimulate systems/l40s.yaml", role: primary}
       rationale: >
-        Bytes a rank reserves for NCCL communicator buffers at 4 ranks, from NVIDIA's descriptor. It enters the memory breakdown's CommBuffers term, and it is a real per-rank-count figure rather than the order-of-magnitude constant this model previously carried.
+        Bytes a rank reserves for NCCL communicator buffers at 4 ranks, from NVIDIA's descriptor. It enters the memory breakdown's CommBuffers term, and it is a real per-rank-count figure rather than the order-of-magnitude constant this model previously carried. It is the WHOLE of a rank's collective-buffer reservation in NVIDIA's composition: engine_workspace_bytes is a separate allowance that adds to it, not part of it (AISimulate sdk/backends/base_backend.py sums nccl_mem and other_mem; cost-model-memory.yaml states the full sum). The descriptor declares 0 at one rank, which is why no 1-rank entry exists, and AISimulate takes the 8-rank figure for any wider group, clamping at min(tp, 8).
   - nccl_communicator_bytes_8rank:
       value: 411041792
       units: bytes_per_rank
@@ -1275,7 +1275,7 @@ coefficients:
       sources:
         - {kind: model, cite: "NVIDIA AISimulate systems/l40s.yaml", role: primary}
       rationale: >
-        Bytes a rank reserves for NCCL communicator buffers at 8 ranks, from NVIDIA's descriptor. It enters the memory breakdown's CommBuffers term, and it is a real per-rank-count figure rather than the order-of-magnitude constant this model previously carried.
+        Bytes a rank reserves for NCCL communicator buffers at 8 ranks, from NVIDIA's descriptor. It enters the memory breakdown's CommBuffers term, and it is a real per-rank-count figure rather than the order-of-magnitude constant this model previously carried. It is the WHOLE of a rank's collective-buffer reservation in NVIDIA's composition: engine_workspace_bytes is a separate allowance that adds to it, not part of it (AISimulate sdk/backends/base_backend.py sums nccl_mem and other_mem; cost-model-memory.yaml states the full sum). The descriptor declares 0 at one rank, which is why no 1-rank entry exists, and AISimulate takes the 8-rank figure for any wider group, clamping at min(tp, 8).
   - engine_workspace_bytes:
       value: 3758096384
       units: bytes_per_rank
@@ -1285,7 +1285,7 @@ coefficients:
       sources:
         - {kind: model, cite: "NVIDIA AISimulate systems/l40s.yaml", role: primary}
       rationale: >
-        3.8 GB of non-weight, non-KV occupancy NVIDIA's descriptor reserves, described there as covering CUDA-graph capture, workspace and the inaccuracy of the rest of the memory calculation. It is a lumped allowance rather than a decomposition, so the memory breakdown reports it as one term and does not claim to split it.
+        3.8 GB of non-weight, non-KV occupancy NVIDIA's descriptor reserves, which AISimulate's memory model labels as CUDA context, cuBLAS and the like ("cuda, cublas, etc.", sdk/backends/base_backend.py) and the descriptor annotates as a safety reserve that also covers part of the inaccuracy of the rest of its memory calculation. It does NOT include CUDA-graph capture: AISimulate annotates other_mem as excluding the graph reservation (support/config_profile.py) and takes that reservation as a separate argument (capacity.py, cuda_graph_reserved_bytes), so cudagraph_capture_bytes_<mode> in cost-model-memory.yaml adds to this rather than sitting inside it. Nor is it part of the collective reservation: NVIDIA's composition sums it with nccl_communicator_bytes_<N>rank. It is a lumped allowance rather than a decomposition, so a memory breakdown reports it as one term and does not claim to split it.
 
   # --- gb300 (gb300) ---
   - gemm_eps_max_bf16:
@@ -1422,7 +1422,7 @@ coefficients:
       sources:
         - {kind: model, cite: "NVIDIA AISimulate systems/gb300.yaml", role: primary}
       rationale: >
-        Bytes a rank reserves for NCCL communicator buffers at 2 ranks, from NVIDIA's descriptor. It enters the memory breakdown's CommBuffers term, and it is a real per-rank-count figure rather than the order-of-magnitude constant this model previously carried.
+        Bytes a rank reserves for NCCL communicator buffers at 2 ranks, from NVIDIA's descriptor. It enters the memory breakdown's CommBuffers term, and it is a real per-rank-count figure rather than the order-of-magnitude constant this model previously carried. It is the WHOLE of a rank's collective-buffer reservation in NVIDIA's composition: engine_workspace_bytes is a separate allowance that adds to it, not part of it (AISimulate sdk/backends/base_backend.py sums nccl_mem and other_mem; cost-model-memory.yaml states the full sum). The descriptor declares 0 at one rank, which is why no 1-rank entry exists, and AISimulate takes the 8-rank figure for any wider group, clamping at min(tp, 8).
 
   - nccl_communicator_bytes_4rank:
       value: 411041792
@@ -1433,7 +1433,7 @@ coefficients:
       sources:
         - {kind: model, cite: "NVIDIA AISimulate systems/gb300.yaml", role: primary}
       rationale: >
-        Bytes a rank reserves for NCCL communicator buffers at 4 ranks, from NVIDIA's descriptor. It enters the memory breakdown's CommBuffers term, and it is a real per-rank-count figure rather than the order-of-magnitude constant this model previously carried.
+        Bytes a rank reserves for NCCL communicator buffers at 4 ranks, from NVIDIA's descriptor. It enters the memory breakdown's CommBuffers term, and it is a real per-rank-count figure rather than the order-of-magnitude constant this model previously carried. It is the WHOLE of a rank's collective-buffer reservation in NVIDIA's composition: engine_workspace_bytes is a separate allowance that adds to it, not part of it (AISimulate sdk/backends/base_backend.py sums nccl_mem and other_mem; cost-model-memory.yaml states the full sum). The descriptor declares 0 at one rank, which is why no 1-rank entry exists, and AISimulate takes the 8-rank figure for any wider group, clamping at min(tp, 8).
 
   - nccl_communicator_bytes_8rank:
       value: 411041792
@@ -1444,7 +1444,7 @@ coefficients:
       sources:
         - {kind: model, cite: "NVIDIA AISimulate systems/gb300.yaml", role: primary}
       rationale: >
-        Bytes a rank reserves for NCCL communicator buffers at 8 ranks, from NVIDIA's descriptor. It enters the memory breakdown's CommBuffers term, and it is a real per-rank-count figure rather than the order-of-magnitude constant this model previously carried.
+        Bytes a rank reserves for NCCL communicator buffers at 8 ranks, from NVIDIA's descriptor. It enters the memory breakdown's CommBuffers term, and it is a real per-rank-count figure rather than the order-of-magnitude constant this model previously carried. It is the WHOLE of a rank's collective-buffer reservation in NVIDIA's composition: engine_workspace_bytes is a separate allowance that adds to it, not part of it (AISimulate sdk/backends/base_backend.py sums nccl_mem and other_mem; cost-model-memory.yaml states the full sum). The descriptor declares 0 at one rank, which is why no 1-rank entry exists, and AISimulate takes the 8-rank figure for any wider group, clamping at min(tp, 8).
 
   - engine_workspace_bytes:
       value: 3758096384
@@ -1455,5 +1455,5 @@ coefficients:
       sources:
         - {kind: model, cite: "NVIDIA AISimulate systems/gb300.yaml", role: primary}
       rationale: >
-        3.8 GB of non-weight, non-KV occupancy NVIDIA's descriptor reserves, described there as covering CUDA-graph capture, workspace and the inaccuracy of the rest of the memory calculation. It is a lumped allowance rather than a decomposition, so the memory breakdown reports it as one term and does not claim to split it.
+        3.8 GB of non-weight, non-KV occupancy NVIDIA's descriptor reserves, which AISimulate's memory model labels as CUDA context, cuBLAS and the like ("cuda, cublas, etc.", sdk/backends/base_backend.py) and the descriptor annotates as a safety reserve that also covers part of the inaccuracy of the rest of its memory calculation. It does NOT include CUDA-graph capture: AISimulate annotates other_mem as excluding the graph reservation (support/config_profile.py) and takes that reservation as a separate argument (capacity.py, cuda_graph_reserved_bytes), so cudagraph_capture_bytes_<mode> in cost-model-memory.yaml adds to this rather than sitting inside it. Nor is it part of the collective reservation: NVIDIA's composition sums it with nccl_communicator_bytes_<N>rank. It is a lumped allowance rather than a decomposition, so a memory breakdown reports it as one term and does not claim to split it.
 # 138 entries generated.

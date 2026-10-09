@@ -2,6 +2,7 @@ package latencykernel
 
 import (
 	"fmt"
+	"math"
 	"sort"
 	"strconv"
 	"strings"
@@ -122,6 +123,11 @@ func New(in Inputs) (*Kernel, error) {
 	k.blockSize = pool.Engine.BlockSize
 	if k.blockSize <= 0 {
 		k.blockSize = 16
+		k.assume("block_size", "16",
+			"CacheConfig.DEFAULT_BLOCK_SIZE (vllm/config/cache.py:71 at v0.31.0); the "+
+				"platform substitutes a size every attention backend supports where the "+
+				"default is not one (vllm/platforms/interface.py:683-697), which the "+
+				"kernel cannot see")
 	}
 	if err := k.resolveContextParallel(in); err != nil {
 		return nil, err
@@ -137,7 +143,7 @@ func New(in Inputs) (*Kernel, error) {
 		}
 	}
 	k.buildProvenance(coeffs)
-	k.fixed = k.computeFixedBytes(in.Model, cacheBytes)
+	k.fixed = k.computeFixedBytes(in.Model)
 	return k, nil
 }
 
@@ -431,37 +437,55 @@ func (k *Kernel) lift(c *resolve.Coefficients, g *model.Graph, cacheBytes float6
 	k.replayPerStep = time.Duration(
 		c.ValueOr("host_replay_graph_per_step", 0) * float64(time.Microsecond))
 	// How much of a step a captured graph covers, which sets the launch count rather
-	// than only whether capture happens. vLLM's default is PIECEWISE, which splits at
-	// every attention op, so the common case is one replay per layer and not one per
-	// step. An empty setting means the engine's default.
-	switch strings.ToUpper(k.pool.Engine.CUDAGraphMode) {
-	case "", "PIECEWISE":
-		k.graphMode = graphModePiecewise
-	case "FULL", "FULL_DECODE_ONLY", "FULL_AND_PIECEWISE":
-		// FULL_AND_PIECEWISE captures a full graph for uniform decode and falls back to
-		// piecewise otherwise. Priced as full here, which is the decode case a step-time
-		// model is usually asked about; a caller pricing its prefill steps should say
-		// PIECEWISE.
-		k.graphMode = graphModeFull
+	// than only whether capture happens. The mode decides it PER BATCH: vLLM v0.31.0
+	// documents each (vllm/config/compilation.py:604-640) and dispatches each step by
+	// whether it is a uniform decode batch (vllm/v1/cudagraph_dispatcher.py:233-310):
+	//
+	//	PIECEWISE           piecewise for every step
+	//	FULL                one full graph for every step
+	//	FULL_AND_PIECEWISE  full for a uniform decode batch, piecewise otherwise
+	//	FULL_DECODE_ONLY    full for a uniform decode batch, NO graph otherwise
+	//	NONE                no graph
+	//
+	// FULL_AND_PIECEWISE is v0.31.0's default ("(v1 default)", compilation.py:614), so
+	// that is what an unstated mode resolves to, and the kernel says so in Provenance:
+	// the engine downgrades it where an attention backend cannot capture a full graph,
+	// which the kernel cannot see.
+	mode := strings.ToUpper(k.pool.Engine.CUDAGraphMode)
+	if mode == "" {
+		mode = "FULL_AND_PIECEWISE"
+		k.assume("cudagraph_mode", mode,
+			"vLLM v0.31.0's default (vllm/config/compilation.py:614); the engine "+
+				"downgrades it where an attention backend does not support full graphs, "+
+				"which the kernel cannot see")
+	}
+	switch mode {
+	case "PIECEWISE":
+		k.graphDecode, k.graphOther = graphModePiecewise, graphModePiecewise
+	case "FULL":
+		k.graphDecode, k.graphOther = graphModeFull, graphModeFull
+	case "FULL_AND_PIECEWISE":
+		k.graphDecode, k.graphOther = graphModeFull, graphModePiecewise
+	case "FULL_DECODE_ONLY":
+		k.graphDecode, k.graphOther = graphModeFull, graphModeEager
 	case "NONE":
-		k.graphMode = graphModeEager
+		k.graphDecode, k.graphOther = graphModeEager, graphModeEager
 	default:
 		return fmt.Errorf(
 			"cudagraph_mode %q is not one this kernel prices; add it with its launch "+
 				"count rather than letting it fall through",
 			k.pool.Engine.CUDAGraphMode)
 	}
-	k.graphCaptured = k.graphMode != graphModeEager
-
-	// Communicator reservation and engine workspace, both stated per part by
-	// NVIDIA's own descriptor. These replace order-of-magnitude constants an earlier
-	// version of this kernel carried; the communicator figure is per rank count.
-	// This family is keyed on rank count but comes from NVIDIA's descriptor rather
-	// than a sweep, so it has its own widths and its own probe: the collective
-	// triple's widths say nothing about which communicator sizes were declared.
-	k.commBytes = int64(c.ValueOr(fmt.Sprintf("nccl_communicator_bytes_%drank",
-		communicatorWidth(c, k.layout.TP)), 0))
-	k.workspaceBytes = int64(c.ValueOr("engine_workspace_bytes", 0))
+	// The capture's memory is keyed by vLLM's own mode name, lowercased: the modes hold
+	// different graph sets, so FULL_AND_PIECEWISE and FULL do not share a figure even
+	// where they share a decode launch count.
+	k.graphModeName = strings.ToLower(mode)
+	k.uniformDecodeWidth = 1
+	if s := k.pool.Engine.Speculative; s != nil && s.NumSpecTokens > 0 {
+		// A uniform decode batch verifies 1 + num_spec_tokens tokens per request
+		// (uniform_decode_query_len, vllm/v1/worker/gpu_model_runner.py:883).
+		k.uniformDecodeWidth = 1 + s.NumSpecTokens
+	}
 
 	// Expert geometry, derived once.
 	experts := 0
@@ -530,7 +554,143 @@ func (k *Kernel) lift(c *resolve.Coefficients, g *model.Graph, cacheBytes float6
 			break
 		}
 	}
+	return k.liftMemory(c, g)
+}
+
+// liftMemory resolves the per-rank occupancy outside the KV budget, every magnitude from
+// the registry. computeFixedBytes composes them.
+//
+// THE COMPOSITION IS NVIDIA'S, as blis-registry's cost-model-memory set states it
+// (blis-registry v0.1.1, methodology section 11): per rank,
+//
+//	weights + activation + nccl_communicator_bytes_<N>rank + engine_workspace_bytes
+//	        + cudagraph_capture_bytes_<mode>
+//
+// where every term ADDS -- the communicator figure is the whole collective-buffer
+// reservation, the workspace is a separate allowance beside it, and neither contains the
+// graph capture -- and
+//
+//	activation = max(activation_buffer_count_<dense|moe>_<N>rank
+//	                     * max_num_batched_tokens * h * 2,
+//	                 activation_scratch_floor_bytes)
+//
+// with N the tensor-parallel width clamped to 8 and snapped to a declared width. Each
+// magnitude is REQUIRED: the registry carries all of them for every catalog part, so an
+// absent one means the scenario did not list cost-model-memory, and charging zero for it
+// would overstate how many sequences fit by up to several gigabytes per rank.
+//
+// They replace three constants this kernel carried -- 512 MiB of capture, 392 MiB of
+// communicator, four buffers of activation -- which no Provenance entry could see, and the
+// engine workspace, which was loaded and never read.
+func (k *Kernel) liftMemory(c *resolve.Coefficients, g *model.Graph) error {
+	need := func(name string) (float64, error) {
+		v, err := c.Value(name)
+		if err != nil {
+			return 0, fmt.Errorf("memory occupancy needs %s; list cost-model-memory and "+
+				"cost-model-primitives in the scenario's coefficients: %w", name, err)
+		}
+		return v, nil
+	}
+	// A communicator exists wherever some collective group is wider than one rank. The
+	// figure is keyed on the tensor-parallel width, as NVIDIA's descriptor keys it, and
+	// snapped to a declared width; a layout with tp=1 but another group (expert, prefill-
+	// or decode-context) still holds a communicator, and is charged the narrowest declared
+	// one rather than none.
+	if k.layout.TP > 1 || k.layout.ExpertWidth > 1 || k.layout.PCP > 1 || k.layout.DCP > 1 {
+		comm, err := need(fmt.Sprintf("nccl_communicator_bytes_%drank",
+			snapDeclared(c, "nccl_communicator_bytes_%drank", k.layout.TP)))
+		if err != nil {
+			return err
+		}
+		k.commBytes = int64(comm)
+	}
+	workspace, err := need("engine_workspace_bytes")
+	if err != nil {
+		return err
+	}
+	k.workspaceBytes = int64(workspace)
+
+	capture, err := need("cudagraph_capture_bytes_" + k.graphModeName)
+	if err != nil {
+		return err
+	}
+	k.captureBytes = int64(capture)
+
+	// The activation multiple is keyed by whether the model routes tokens to experts,
+	// which is the only family distinction the kernel can draw without a model name.
+	family := "dense"
+	if k.totalExperts > 0 {
+		family = "moe"
+	}
+	format := "activation_buffer_count_" + family + "_%drank"
+	if k.activationBuffers, err = need(fmt.Sprintf(format,
+		snapDeclared(c, format, min(k.layout.TP, 8)))); err != nil {
+		return err
+	}
+	if k.activationFloor, err = need("activation_scratch_floor_bytes"); err != nil {
+		return err
+	}
+	k.activationWidth = activationWidth(k.plan, g)
+
+	k.batchedTokens = k.pool.Engine.MaxNumBatchedTokens
+	if k.batchedTokens <= 0 {
+		k.batchedTokens = defaultMaxNumBatchedTokens(k.chip)
+		k.assume("max_num_batched_tokens", strconv.Itoa(k.batchedTokens),
+			"vLLM v0.31.0's OpenAI-API-server default for this part's memory "+
+				"(EngineArgs.get_batch_defaults, vllm/engine/arg_utils.py:2858-2887); "+
+				"the offline LLM class defaults higher on 70 GiB and larger parts")
+	}
 	return nil
+}
+
+// activationWidth is h in the activation form: num_attention_heads x head_dim.
+//
+// That is NVIDIA's definition (AISimulate sdk/backends/base_backend.py: h =
+// model._num_heads * model._head_size), where head_size is the config's head_dim, or
+// hidden_size / heads when the config states none (sdk/utils.py). It equals hidden_size
+// unless a config declares a head_dim that differs, and several do: qwen3-30b-a3b is
+// 32 x 128 = 4,096 over a 2,048 hidden size.
+//
+// The graph carries it for a full or windowed attention layer, whose d_h is the config's
+// head_dim. A LATENT layer's d_h is not a head_dim but the cache width (kv_lora_rank +
+// qk_rope_head_dim), so for one the width is hidden_size. That is exact for every
+// DeepSeek-V3-derived config, which states no head_dim, and it is the one place this can
+// differ from NVIDIA's figure: a latent config that DOES state a head_dim (glm-5's is 64,
+// deepseek-v4's 512) has an h the graph does not record.
+//
+// Taken as the widest over the stack, so a model whose attention kinds disagree is
+// charged its widest scratch.
+func activationWidth(p *price.Plan, g *model.Graph) float64 {
+	var h int
+	for _, l := range p.Layers {
+		if l.AttnQHeads <= 0 {
+			continue
+		}
+		w := l.AttnQHeads * l.AttnHeadDim
+		if latentAttention(l.AttnKind) {
+			w = g.Global.HiddenSize
+		}
+		h = max(h, w)
+	}
+	if h == 0 {
+		h = g.Global.HiddenSize
+	}
+	return float64(h)
+}
+
+// defaultMaxNumBatchedTokens is vLLM v0.31.0's default token budget for a part, in the
+// OpenAI-API-server usage context an llm-d deployment serves through
+// (EngineArgs.get_batch_defaults, vllm/engine/arg_utils.py:2858-2887): 16,384 on a part
+// with at least 160 GiB, 8,192 on one with at least 70 GiB that is not an A100, 2,048
+// otherwise.
+func defaultMaxNumBatchedTokens(chip hardware.Chip) int {
+	switch {
+	case chip.MemoryGiB >= 160:
+		return 16384
+	case chip.MemoryGiB >= 70 && !strings.Contains(strings.ToLower(chip.Name), "a100"):
+		return 8192
+	}
+	return 2048
 }
 
 // liftCollectiveFloors resolves one floor and one rate per collective operation.
@@ -631,18 +791,20 @@ func (k *Kernel) liftCollectiveFloors(c *resolve.Coefficients) error {
 	return nil
 }
 
-// communicatorWidth snaps a tensor-parallel width to a declared communicator size.
+// snapDeclared snaps a width to one the registry declares for a family of per-width
+// entries, named by format with a %d for the width: the widest declared width at or below
+// it, or the narrowest declared where it is below them all.
 //
-// Separate from groupWidth because the quantity is different: these bytes come from
-// NVIDIA's own `systems/<sku>.yaml` descriptor, which declares a buffer size per rank
-// count, not from a measured sweep. The caller treats an absent figure as zero
-// (ValueOr), so this clamps to the widest declared size rather than erroring — a
-// communicator reservation that is slightly small is a memory-accounting detail, not
-// a mispriced latency term.
-func communicatorWidth(c *resolve.Coefficients, width int) int {
-	declared := make([]int, 0, len(candidateRankWidths))
-	for _, w := range candidateRankWidths {
-		if c.Has(fmt.Sprintf("nccl_communicator_bytes_%drank", w)) {
+// Separate from groupWidth because these families are vendor descriptor figures --
+// NVIDIA's communicator sizes and activation multiples -- not measured collective sweeps,
+// and a slightly mis-sized memory allowance is not a mispriced latency term, so snapping is
+// right here where groupWidth refuses. NVIDIA's own model indexes its tables at
+// min(tp, 8) (AISimulate base_backend.py), which this reproduces for every width those
+// tables declare.
+func snapDeclared(c *resolve.Coefficients, format string, width int) int {
+	var declared []int
+	for _, w := range []int{1, 2, 4, 8, 16} {
+		if c.Has(fmt.Sprintf(format, w)) {
 			declared = append(declared, w)
 		}
 	}
@@ -953,7 +1115,7 @@ func kvGeometry(g *model.Graph) (nkv, headDim, layers int) {
 }
 
 // computeFixedBytes sums occupancy independent of the request set.
-func (k *Kernel) computeFixedBytes(g *model.Graph, cacheBytes float64) kernel.MemoryBreakdown {
+func (k *Kernel) computeFixedBytes(g *model.Graph) kernel.MemoryBreakdown {
 	var weights float64
 	for _, l := range k.plan.Layers {
 		c := float64(l.Count)
@@ -982,12 +1144,19 @@ func (k *Kernel) computeFixedBytes(g *model.Graph, cacheBytes float64) kernel.Me
 		float64(g.Global.VocabSize)*float64(g.Global.HiddenSize)*
 			g.Global.WeightDType.Bytes()) / float64(max(k.layout.TP, 1))
 
-	batched := k.pool.Engine.MaxNumBatchedTokens
-	if batched <= 0 {
-		batched = 8192
-	}
-	// Activation scratch at the batched-token bound, across a few live buffers.
-	act := float64(batched) * float64(g.Global.HiddenSize) * 2 * 4
+	// Activation scratch at the batched-token bound: NVIDIA's live-buffer multiple of one
+	// bf16 activation row per token, floored (see liftMemory).
+	//
+	// The 2 is the ACTIVATION width, which is the model's compute dtype and does not follow
+	// the served weight format: vLLM's fp8 and fp4 linears quantize their input transiently
+	// and return out_dtype=x.dtype (vllm/model_executor/kernels/linear/scaled_mm/
+	// cutlass.py at v0.31.0), so an fp8 deployment's residual stream and inter-layer
+	// buffers stay bf16. Sizing it at the served width would halve this term on an fp8
+	// deployment and understate its occupancy.
+	const activationBytes = 2
+	act := math.Max(
+		k.activationBuffers*float64(k.batchedTokens)*k.activationWidth*activationBytes,
+		k.activationFloor)
 
 	var eplb float64
 	if k.pool.Engine.EPLB != nil && k.pool.Engine.EPLB.Enabled &&
@@ -1004,31 +1173,15 @@ func (k *Kernel) computeFixedBytes(g *model.Graph, cacheBytes float64) kernel.Me
 	return kernel.MemoryBreakdown{
 		Weights:        int64(weights),
 		ActivationPeak: int64(act),
-		CUDAGraph:      k.graphCaptureBytes(),
+		CUDAGraph:      k.captureBytes,
 		EPLBRedundant:  int64(eplb),
-		CommBuffers:    k.commBufferBytes(),
+		// The collective-buffer reservation AND the engine workspace. blis-schemas v0.2.2's
+		// MemoryBreakdown has no field for the workspace -- NVIDIA's misc.other_mem: CUDA
+		// context, cuBLAS workspace and allocator slack -- so it is reported here rather
+		// than left out of Total, which is what a capacity verdict reads. Provenance names
+		// both coefficients, so the split is recoverable.
+		CommBuffers: k.commBytes + k.workspaceBytes,
 	}
-}
-
-// graphCaptureBytes returns the memory a CUDA-graph capture holds. Zero when capture is
-// off, which is what makes the graph mode a memory term as well as a host-time one.
-func (k *Kernel) graphCaptureBytes() int64 {
-	if !k.graphCaptured {
-		return 0
-	}
-	// A capture holds one buffer set per captured shape. No public measurement of the
-	// count exists, so this is an order-of-magnitude figure and is reported as such in
-	// provenance rather than presented as sourced.
-	return 512 << 20
-}
-
-// commBufferBytes returns the collective buffers a rank reserves.
-func (k *Kernel) commBufferBytes() int64 {
-	if k.layout.TP <= 1 && k.layout.ExpertWidth <= 1 {
-		return 0
-	}
-	// Also an order-of-magnitude figure; see graphCaptureBytes.
-	return 392 << 20
 }
 
 // buildProvenance records every coefficient used, so a prediction can state its evidence.
