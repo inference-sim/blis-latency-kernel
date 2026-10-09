@@ -293,6 +293,43 @@ func (k *Kernel) resolveContextParallel(in Inputs) error {
 // layouts that state their own size.
 var dsMLAStateBytes = map[string]float64{"fp8_ds_mla": 656, "nvfp4_ds_mla": 352}
 
+// sparseMLACacheLayout is the cache layout vLLM v0.31.0 actually allocates for a stated
+// cache dtype, which differs from the stated one in one case the catalog reaches: a plain
+// "fp8" sparse-MLA cache with a 576-wide head on a part that is not data-center Blackwell.
+//
+// The attention backend is chosen first, with the stated dtype
+// (MLAAttention.__init__, vllm/model_executor/layers/attention/mla_attention.py:504-532),
+// and a FlashMLA-sparse backend then serves any quantized dtype other than nvfp4_ds_mla as
+// fp8_ds_mla (_canonicalize_sparse_mla_kv_cache_dtype, :358-375). Which backend wins is the
+// platform's priority list filtered by each backend's supported cache dtypes
+// (vllm/platforms/cuda.py:95-152):
+//
+//   - Data-center Blackwell (SM100) puts FlashInfer's sparse MLA first for a quantized
+//     cache, and it serves fp8 as stated: the plain per-element layout.
+//   - Hopper (SM90) leads with FlashAttention's sparse MLA, which serves only a 16-bit cache
+//     (flashattn_mla_sparse.py:36-40), then FlashMLA-sparse, which lists "fp8" as an alias
+//     for fp8_ds_mla (flashmla_sparse.py:133-139). So a 576-wide head with a "fp8" cache is
+//     repacked to 656 bytes. A 512-wide head instead puts FlashInfer's SM90 sparse MLA first,
+//     which serves fp8 unpacked; so does "fp8_e4m3", which FlashMLA-sparse does not list.
+//
+// The catalog records no compute capability. Data-center Blackwell is recognised, as
+// elsewhere in this kernel, by native NVFP4 support (exactly the SM100 family among its
+// parts); every other part is treated as Hopper. The catalog's pre-Hopper parts (A100,
+// L40S) have no sparse-MLA backend in v0.31.0 at all -- each one requires SM90 or newer --
+// so a sparse-MLA deployment on them is one the engine refuses, and its pricing here is
+// not a claim about a servable configuration.
+//
+// COVERAGE LIMIT: the SM120 parts' FlashInfer sparse MLA repacks "auto" as well
+// (:369-374); the catalog holds no SM120 part.
+func sparseMLACacheLayout(cache string, kind model.AttentionKind, headDim int,
+	chip hardware.Chip) string {
+	if kind == model.AttentionSparseMLA && cache == "fp8" && headDim == 576 &&
+		chip.NVFP4Peak <= 0 {
+		return "fp8_ds_mla"
+	}
+	return cache
+}
+
 // latentAttention reports whether an attention kind keeps a latent (MLA) cache, which is
 // what the engine's MLA attention implementations serve.
 func latentAttention(kind model.AttentionKind) bool {
@@ -692,12 +729,9 @@ func (k *Kernel) lift(c *resolve.Coefficients, g *model.Graph, cacheBytes float6
 	// The packed DeepSeek sparse-MLA layouts state their own page cell: fp8_ds_mla packs the
 	// latent with its scales into 656 bytes a token and nvfp4_ds_mla into 352, against 576
 	// elements by the per-element formula (state_content_bytes,
-	// vllm/model_executor/layers/attention/mla_attention.py:1361-1363 at v0.31.0). Taken
-	// where a deployment states one. A plain "fp8" becomes fp8_ds_mla only on the
-	// FlashMLA-sparse backend (_canonicalize_sparse_mla_kv_cache_dtype, :358-375), which
-	// v0.31.0 ranks behind FlashInfer on Blackwell and FlashAttention on Hopper for an fp8
-	// cache (vllm/platforms/cuda.py:95-152), so a stated "fp8" keeps the plain layout.
-	if b, ok := dsMLAStateBytes[k.pool.Engine.CacheDType]; ok && latentAttention(kind) {
+	// vllm/model_executor/layers/attention/mla_attention.py:1361-1363 at v0.31.0).
+	if b, ok := dsMLAStateBytes[sparseMLACacheLayout(k.pool.Engine.CacheDType, kind, headDim,
+		k.chip)]; ok && latentAttention(kind) {
 		k.kvBytesPerToken = b * float64(layers)
 	}
 	// The layer count kvBytesPerToken is spread over. kvGeometry counts only layers that

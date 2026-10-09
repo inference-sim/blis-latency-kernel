@@ -744,14 +744,23 @@ func TestASparseMLALayersIndexerIsAPiecewiseSplitPoint(t *testing.T) {
 
 // A PACKED SPARSE-MLA CACHE IS ITS OWN SIZE. fp8_ds_mla stores 656 bytes a token per layer
 // and nvfp4_ds_mla 352 (vllm/model_executor/layers/attention/mla_attention.py:1361-1363 at
-// v0.31.0), where the per-element formula gives 576 at one byte. Stated on glm5, a 16-token
-// page must hold exactly that times its layers; a plain "fp8" keeps the per-element size,
-// because the backends v0.31.0 prefers for an fp8 sparse cache do not repack it.
+// v0.31.0), where the per-element formula gives 576 at one byte. Stated on glm5 (a 576-wide
+// head), a 16-token page must hold exactly that times its layers.
+//
+// A plain "fp8" is whatever the chosen backend makes of it (sparseMLACacheLayout): on h200,
+// FlashMLA-sparse serves it as fp8_ds_mla, 656; on the same chip marked data-center
+// Blackwell, FlashInfer serves it as stated, 576. "fp8_e4m3" stays 576 on h200, because
+// FlashMLA-sparse does not list it and FlashInfer's SM90 sparse MLA does.
 func TestAPackedSparseMLACacheIsItsOwnSize(t *testing.T) {
-	page := func(cache string) int64 {
+	page := func(cache string, blackwell bool) int64 {
 		t.Helper()
 		in := fixtureInputs(t, dcpSparseFixture)
 		in.Deployment.Pools[0].Engine.CacheDType = cache
+		if blackwell {
+			chip := *in.Chip
+			chip.NVFP4Peak = 1
+			in.Chip = &chip
+		}
 		k, err := New(in)
 		if err != nil {
 			t.Fatal(err)
@@ -760,12 +769,19 @@ func TestAPackedSparseMLACacheIsItsOwnSize(t *testing.T) {
 	}
 	layers := int64(fixture(t, dcpSparseFixture).kvLayers)
 	for _, c := range []struct {
-		cache string
-		cell  int64
-	}{{"fp8_ds_mla", 656}, {"nvfp4_ds_mla", 352}, {"fp8", 576}} {
-		if got, want := page(c.cache), 16*c.cell*layers; got != want {
-			t.Errorf("%s: a 16-token page holds %d bytes, want %d (%d a token per layer)",
-				c.cache, got, want, c.cell)
+		cache     string
+		blackwell bool
+		cell      int64
+	}{
+		{"fp8_ds_mla", false, 656},
+		{"nvfp4_ds_mla", true, 352},
+		{"fp8", false, 656},
+		{"fp8", true, 576},
+		{"fp8_e4m3", false, 576},
+	} {
+		if got, want := page(c.cache, c.blackwell), 16*c.cell*layers; got != want {
+			t.Errorf("%s (blackwell %v): a 16-token page holds %d bytes, want %d (%d a "+
+				"token per layer)", c.cache, c.blackwell, got, want, c.cell)
 		}
 	}
 }
