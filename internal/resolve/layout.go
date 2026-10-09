@@ -119,13 +119,7 @@ func ResolveLayout(s *scenario.Scenario, pool deployment.Pool, fab Fabric,
 	if !pl.EnableExpertParallel && pl.DP > 1 {
 		l.MoEGroupWidth = pl.TP * max(pl.PCP, 1) * pl.DP
 	}
-	widest := l.TP
-	if l.MoEGroupWidth > widest {
-		widest = l.MoEGroupWidth
-	}
-	if block := l.TP * max(l.PCP, 1); block > widest {
-		widest = block
-	}
+	widest := max(l.TP, l.MoEGroupWidth, l.TP*max(l.PCP, 1))
 	if l.GPUsPerNode > 0 {
 		l.NodesSpanned = (widest + l.GPUsPerNode - 1) / l.GPUsPerNode
 	} else {

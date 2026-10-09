@@ -179,14 +179,15 @@ func New(in Inputs) (*Kernel, error) {
 	}
 
 	k.blockSize = pool.Engine.BlockSize
-	k.blockSizeFinal = !hybrid && (k.blockSize > 0 || isDSA(in.Model))
+	dsa := isDSA(in.Model)
+	k.blockSizeFinal = !hybrid && (k.blockSize > 0 || dsa)
 	switch {
-	case isDSA(in.Model) && k.blockSize > 0 && k.blockSize%dsaBlockSize != 0:
+	case dsa && k.blockSize > 0 && k.blockSize%dsaBlockSize != 0:
 		return nil, fmt.Errorf("block_size %d on a DSA sparse-MLA model: its indexer runs "+
 			"on %d-token kernel blocks, so a stated size must be a multiple of %d, and the "+
 			"engine refuses this layout at startup (see dsaBlockSize)",
 			k.blockSize, dsaBlockSize, dsaBlockSize)
-	case isDSA(in.Model) && k.blockSize <= 0:
+	case dsa && k.blockSize <= 0:
 		k.blockSize = dsaBlockSize
 		k.assume("block_size", strconv.Itoa(dsaBlockSize),
 			"what vLLM v0.31.0 picks for a DSA sparse-MLA model, whose indexer accepts "+

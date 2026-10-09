@@ -411,6 +411,7 @@ func (k *Kernel) stepTime(b kernel.Batch,
 		if ctx <= 0 {
 			continue
 		}
+		anyContext = anyContext || r.Computed > 0
 		if r.Scheduled > b.DecodeThreshold {
 			prefillRequests++
 			// Attention pairs for a chunk of `Scheduled` tokens resuming on a prefix of
@@ -482,12 +483,10 @@ func (k *Kernel) stepTime(b kernel.Batch,
 			// Every prefill is recorded, a fresh one too: it ends a run of
 			// context-reading prefills, which is what decides how they pack into chunks.
 			prefills = append(prefills, prefillShape{r.Scheduled, r.Computed})
-			anyContext = anyContext || r.Computed > 0
 			continue
 		}
 		decodeRequests++
 		decodeTokens += r.Scheduled
-		anyContext = anyContext || r.Computed > 0
 		decodeKVTokens += float64(ctx)
 		decodeContexts = append(decodeContexts, ctx)
 		// A decode row is REPLICATED across prefill-context-parallel ranks, not split:
