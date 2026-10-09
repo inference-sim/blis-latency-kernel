@@ -3,8 +3,11 @@
 # pins, so the upstream catalog and registry are read from their own repositories rather
 # than redistributed in this one.
 #
-# Idempotent: a destination whose .upstream-commit stamp already names the locked commit is
-# left alone; anything else is replaced. Every failure is fatal -- a partial copy would
+# Idempotent: a destination whose .upstream-commit stamp names the locked commit, and whose
+# every file still matches the SHA-256 recorded in its .upstream-manifest, is left alone;
+# anything else is replaced. The manifest is what makes that safe: a stamp alone survives
+# its files being deleted -- as git does when a pull crosses the commit that stopped
+# tracking them -- and would then vouch for an incomplete copy. Every failure is fatal -- a partial copy would
 # let tests run against the wrong inputs -- and the fetched HEAD is checked against the
 # lock before anything is copied.
 #
@@ -19,7 +22,9 @@ trap 'rm -rf "$work"' EXIT
 while read -r dest repo tag commit paths; do
 	case "$dest" in '' | '#'*) continue ;; esac
 	out="$root/testdata/$dest"
-	if [[ -f "$out/.upstream-commit" && "$(cat "$out/.upstream-commit")" == "$commit" ]]; then
+	if [[ -f "$out/.upstream-commit" && "$(cat "$out/.upstream-commit")" == "$commit" &&
+		-f "$out/.upstream-manifest" ]] &&
+		(cd "$out" && shasum -a 256 -c --quiet .upstream-manifest >/dev/null 2>&1); then
 		echo "testdata/$dest: already at $tag ($commit)"
 		continue
 	fi
@@ -53,6 +58,8 @@ while read -r dest repo tag commit paths; do
 		fi
 		echo "testdata/$dest: copied $n files"
 	)
+	(cd "$out.tmp" && find . -type f ! -name '.upstream-*' | LC_ALL=C sort |
+		sed 's|^\./||' | xargs shasum -a 256 >.upstream-manifest)
 	echo "$commit" >"$out.tmp/.upstream-commit"
 	rm -rf "$out"
 	mv "$out.tmp" "$out"

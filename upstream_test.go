@@ -1,6 +1,8 @@
 package latencykernel
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"os"
 	"path/filepath"
 	"strings"
@@ -9,10 +11,12 @@ import (
 
 // THE FETCHED UPSTREAMS ARE THE LOCKED COMMITS. testdata/catalog and testdata/registry are
 // not committed: scripts/fetch-testdata.sh fetches them at the commits testdata/upstream.lock
-// pins and stamps each with .upstream-commit. A stale copy -- the lock bumped, the script not
-// re-run -- would price every fixture against inputs nobody pinned and pass, so the stamp must
-// match the lock. A root redirected by BLIS_CATALOG or BLIS_REGISTRY is the caller's choice
-// and is not checked.
+// pins and stamps each with .upstream-commit and a SHA-256 .upstream-manifest of the files it
+// copied. A stale copy -- the lock bumped, the script not re-run -- would price every fixture
+// against inputs nobody pinned and pass, so the stamp must match the lock; and a damaged one
+// -- files deleted, as git does when a pull crosses the commit that stopped tracking them --
+// must not pass on its stamp alone, so every file must match its manifest entry. A root
+// redirected by BLIS_CATALOG or BLIS_REGISTRY is the caller's choice and is not checked.
 func TestTheFetchedUpstreamsAreTheLockedCommits(t *testing.T) {
 	raw, err := os.ReadFile(filepath.Join("testdata", "upstream.lock"))
 	if err != nil {
@@ -39,6 +43,29 @@ func TestTheFetchedUpstreamsAreTheLockedCommits(t *testing.T) {
 		if got := strings.TrimSpace(string(stamp)); got != commit {
 			t.Errorf("testdata/%s holds %s, but the lock pins %s (%s): re-run "+
 				"scripts/fetch-testdata.sh", dest, got, tag, commit)
+			continue
+		}
+		manifest, err := os.ReadFile(filepath.Join("testdata", dest, ".upstream-manifest"))
+		if err != nil {
+			t.Errorf("testdata/%s has no .upstream-manifest: re-run scripts/fetch-testdata.sh",
+				dest)
+			continue
+		}
+		for _, entry := range strings.Split(strings.TrimSpace(string(manifest)), "\n") {
+			sum, path, ok := strings.Cut(entry, "  ")
+			if !ok {
+				t.Errorf("testdata/%s/.upstream-manifest: malformed line %q", dest, entry)
+				continue
+			}
+			body, err := os.ReadFile(filepath.Join("testdata", dest, path))
+			if err != nil {
+				t.Errorf("testdata/%s/%s is missing: re-run scripts/fetch-testdata.sh", dest, path)
+				continue
+			}
+			if got := sha256.Sum256(body); hex.EncodeToString(got[:]) != sum {
+				t.Errorf("testdata/%s/%s differs from what was fetched: re-run "+
+					"scripts/fetch-testdata.sh", dest, path)
+			}
 		}
 	}
 	if seen != 2 {
