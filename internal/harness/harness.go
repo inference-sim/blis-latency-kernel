@@ -88,18 +88,28 @@ func TimePerOutputToken(k *latencykernel.Kernel, b kernel.Batch) float64 {
 	return (k.StepTime(b).NoOverlap + k.OutputTokenOverhead()).Seconds()
 }
 
-// Replicas returns how many data-parallel engine instances a deployment runs.
+// Replicas returns how many schedulers a deployment's first pool runs: every data-parallel
+// rank of every engine in it.
 //
-// A published metric summed across replicas divides by this to give a per-step figure. It is a
-// property of the deployment rather than of the kernel — the kernel prices one rank of one
-// instance and has no reason to know how many instances a deployment runs — so it is read here
-// rather than added to the interface.
+// A published metric summed across them -- the engine's `running` count, say -- divides by
+// this to give a per-step figure. Each data-parallel rank of a vLLM engine schedules its own
+// requests, and a pool may hold several engines (blis-schemas v0.2.2: a pool "may hold more
+// than one engine, each running that layout"), so the count is the pool's GPUs over the GPUs
+// one data-parallel rank occupies: pp x tp x pcp. That counts three independent tp=8 engines
+// on 24 GPUs and one tp=8, dp=3 engine on the same GPUs alike, as three -- which is right for
+// this division and says nothing about how those schedulers share an MoE.
+//
+// It is a property of the deployment rather than of the kernel -- the kernel prices one rank
+// of one instance -- so it is read here rather than added to the interface.
 func Replicas(scenario string, r Repos) (int, error) {
-	_, dep, err := LoadBundle(filepath.Join(r.Scenarios, scenario))
+	sc, dep, err := LoadBundle(filepath.Join(r.Scenarios, scenario))
 	if err != nil {
 		return 0, err
 	}
-	if n := dep.Pools[0].Parallel.DP; n > 0 {
+	pool := dep.Pools[0]
+	pl := pool.Parallel
+	perRank := max(pl.PP, 1) * max(pl.TP, 1) * max(pl.PCP, 1)
+	if n := pool.Nodes * sc.Cluster.GPUsPerNode / perRank; n > 0 {
 		return n, nil
 	}
 	return 1, nil

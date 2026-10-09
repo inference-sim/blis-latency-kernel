@@ -3,6 +3,7 @@ package harness
 import (
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -172,5 +173,56 @@ func TestDefaultRootsHonourTheEnvironment(t *testing.T) {
 	}
 	if got := DefaultRegistry(); got != "/tmp/some-registry" {
 		t.Errorf("DefaultRegistry() = %q; BLIS_REGISTRY must win", got)
+	}
+}
+
+// Replicas counts schedulers: every data-parallel rank of every engine in the pool, which is
+// the pool's GPUs over the pp x tp x pcp GPUs one data-parallel rank occupies. Three
+// independent tp=8 engines on 24 GPUs and one tp=8, dp=3 engine on the same 24 GPUs both run
+// three schedulers, so a summed `running` count divides by three either way.
+func TestReplicasCountsEveryDataParallelRankOfEveryEngine(t *testing.T) {
+	bundle := func(nodes, tp, dp, pcp int) string {
+		return strings.NewReplacer("NODES", strconv.Itoa(nodes), "TP", strconv.Itoa(tp),
+			"DP", strconv.Itoa(dp), "PCP", strconv.Itoa(pcp)).Replace(`kind: Scenario
+name: x
+engine_version: "0.29.0"
+model: m
+coefficients: [c]
+cluster:
+  hardware: h200
+  nodes: NODES
+  gpus_per_node: 8
+---
+kind: Deployment
+name: x
+pools:
+  - role: colocated
+    nodes: NODES
+    parallel:
+      tp: TP
+      pp: 1
+      dp: DP
+      pcp: PCP
+`)
+	}
+	for _, c := range []struct {
+		name               string
+		nodes, tp, dp, pcp int
+		want               int
+	}{
+		{"three independent tp=8 engines", 3, 8, 1, 1, 3},
+		{"one tp=8 engine at dp=3", 3, 8, 3, 1, 3},
+		{"one engine filling one node", 1, 8, 1, 1, 1},
+		{"two tp=4 engines on one node", 1, 4, 1, 1, 2},
+		{"one tp=8, pcp=2 engine on two nodes", 2, 8, 1, 2, 1},
+	} {
+		p := write(t, bundle(c.nodes, c.tp, c.dp, c.pcp))
+		got, err := Replicas(filepath.Base(p), Repos{Scenarios: filepath.Dir(p)})
+		if err != nil {
+			t.Fatalf("%s: %v", c.name, err)
+		}
+		if got != c.want {
+			t.Errorf("%s: %d schedulers, want %d", c.name, got, c.want)
+		}
 	}
 }

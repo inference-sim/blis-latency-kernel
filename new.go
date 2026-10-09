@@ -596,15 +596,23 @@ func (k *Kernel) lift(c *resolve.Coefficients, g *model.Graph, cacheBytes float6
 	// (FusedMoEParallelConfig.make, vllm/model_executor/layers/fused_moe/config.py:1186-1214
 	// at v0.31.0). So exactly one of the two axes divides an expert, never both.
 	//
-	// KNOWN DIVERGENCE: with expert parallelism off, vLLM's slice is over dp x pcp x tp
-	// ranks (flatten_tp_across_dp_and_pcp, config.py:1090-1098), and this divides by tp
-	// alone, so with dp or pcp above one a rank's expert weights are overstated by dp x pcp.
-	// See moeDPFunnel for the token-side half and why it is tracked separately.
+	// The slice is over every rank the MoE spans, not the tensor-parallel group alone: with
+	// expert parallelism off vLLM flattens tp across dp and pcp, "so we shard across all
+	// devices" (flatten_tp_across_dp_and_pcp, config.py:1090-1098). An earlier form divided
+	// by tp, which priced a dp > 1 deployment's experts as dp independent replicas, each rank
+	// holding dp times its true share.
+	//
+	// COVERAGE LIMIT: the flattening runs over pcp as well, and that half is not taken. A
+	// tensor-parallel MoE across the prefill-context ranks also widens the reduction after
+	// it and must gather those ranks' tokens, neither of which this kernel models; charging
+	// the narrower shard alone would make a PCP step's experts cheaper than the engine runs
+	// them.
 	k.localExpertShare = 1
 	k.expertTensorShards = 1
 	if k.layout.ExpertWidth <= 1 {
-		// No expert parallelism: every rank holds every expert, tensor-sharded.
-		k.expertTensorShards = k.tp
+		// No expert parallelism: every rank holds every expert, tensor-sharded across
+		// the dp x tp ranks.
+		k.expertTensorShards = k.tp * float64(max(k.layout.DP, 1))
 	}
 	if experts > 0 {
 		redundant := 0
@@ -690,7 +698,7 @@ func (k *Kernel) liftMemory(c *resolve.Coefficients, g *model.Graph) error {
 	// snapped to a declared width; a layout with tp=1 but another group (expert, prefill-
 	// or decode-context) still holds a communicator, and is charged the narrowest declared
 	// one rather than none.
-	if k.layout.TP > 1 || k.layout.ExpertWidth > 1 || k.layout.PCP > 1 || k.layout.DCP > 1 {
+	if k.layout.TP > 1 || k.layout.MoEGroup() > 1 || k.layout.PCP > 1 || k.layout.DCP > 1 {
 		comm, err := need(fmt.Sprintf("nccl_communicator_bytes_%drank",
 			snapDeclared(c, "nccl_communicator_bytes_%drank", k.layout.TP)))
 		if err != nil {
@@ -1228,8 +1236,7 @@ func (k *Kernel) computeFixedBytes(g *model.Graph) kernel.MemoryBreakdown {
 			// Exactly one axis divides an expert's weights: expert parallelism gives a
 			// rank whole experts (expertTensorShards 1, expertsPerRank a fraction of the
 			// total), and without it every rank holds every expert as a tensor slice
-			// (expertTensorShards tp, expertsPerRank the full count; see the KNOWN
-			// DIVERGENCE in lift for dp or pcp above one). Dividing by
+			// (expertTensorShards tp x dp, expertsPerRank the full count). Dividing by
 			// expertTensorShards is what makes this a PER-RANK figure in the second case;
 			// omitting it reported the whole model's expert weights on every rank, which
 			// on GLM-5 at tp=8 was 675 GiB against a 141 GiB part.

@@ -624,7 +624,18 @@ func (k *Kernel) stepTime(b kernel.Batch,
 			// -14.9% at dp=1 tep2, -34.0% at dp=2 and -46.7% at dp=4, ordering by dp.
 			routedTokens := tokensF * k.moeDPFunnel()
 			routedPerRank := routedTokens * float64(l.TopK) * k.localExpertShare
-			routedFLOPs += routedPerRank * l.ExpertFLOPsPerTokenPerExpert * k.moeImbalance
+			// With expert parallelism off and dp above one, the funnel's dp-fold tokens
+			// each reach a 1/dp slice of every expert beyond the tensor-parallel one (the
+			// MoE is flattened over dp x tp, see expertTensorShards), so the work per rank
+			// divides by dp again. Only the dp part is divided: the tensor-parallel part is
+			// the KNOWN over-charge above, kept as recorded, and dividing it here would
+			// change every pure tensor-parallel deployment in the corpus.
+			dpSlice := 1.0
+			if k.layout.ExpertWidth <= 1 {
+				dpSlice = k.expertTensorShards / k.tp
+			}
+			routedFLOPs += routedPerRank * l.ExpertFLOPsPerTokenPerExpert * k.moeImbalance /
+				dpSlice
 			// Expert weights read: the DISTINCT local experts this step touches, times
 			// each one's per-rank bytes. Two things are separate and vLLM keeps them
 			// separate too (`fused_moe/config.py`): WHICH experts a rank holds, and how
@@ -1149,7 +1160,7 @@ func (k *Kernel) groupSize(group price.GroupAxis) (int, bool) {
 	case price.GroupTP:
 		return max(k.layout.TP, 1), true
 	case price.GroupExpert:
-		return k.layout.ExpertWidth, true
+		return max(k.layout.MoEGroup(), 1), true
 	case price.GroupDCP:
 		return max(k.layout.DCP, 1), true
 	case price.GroupPCP:
@@ -1190,6 +1201,12 @@ func (k *Kernel) spanFor(key collKey) float64 {
 // both the volume and the cross-node scaling, and it is a property of the backend rather
 // than of the primitive's name.
 func (k *Kernel) routedAll2All() bool {
+	if !k.pool.Parallel.EnableExpertParallel {
+		// With expert parallelism off, a data-parallel MoE always falls back to the
+		// all-gather/reduce-scatter dispatch, whatever backend is named
+		// (vllm/model_executor/layers/fused_moe/all2all_utils.py:202-214 at v0.31.0).
+		return false
+	}
 	switch k.pool.Engine.All2AllBackend {
 	case "", "naive", "allgather_reducescatter":
 		return false
@@ -1857,22 +1874,22 @@ func (k *Kernel) pcpPrefillGathers(l *price.PlannedLayer, localTokens int) (onNo
 // pool: each rank routes its own tokens and then every rank's tokens are gathered before
 // the grouped GEMM, so the experts see dp times one rank's token count.
 //
-// KNOWN DIVERGENCE: this returns one without expert parallelism, and vLLM v0.31.0 shares
-// the MoE then too -- it shards the experts tensor-parallel over dp x pcp x tp ranks
-// (flatten_tp_across_dp_and_pcp, vllm/model_executor/layers/fused_moe/config.py:1090-1098,
-// 1186-1200; "MoE layers will be sharded according to the product of the tensor,
-// prefill-context, and data parallel sizes", vllm/config/parallel.py:134-136) and gathers
-// every rank's tokens before them (all2all_utils.py, the AllGather+ReduceScatter fallback).
-// The kernel prices such a layout as dp independent tensor-parallel replicas: the tokens
-// reaching an expert are understated by dp here, and the expert's per-rank weights
-// overstated by dp in expertTensorShards. Several scored fixtures are this layout
-// (nemotron3-ultra-h100-agg at dp 3, kimi-k3-h100-nospec at dp 4), so correcting it is a
-// re-scoring change, tracked separately rather than made here.
+// Expert parallelism need not be on: vLLM v0.31.0 shares the MoE across data-parallel
+// ranks either way -- with it off it shards every expert tensor-parallel over the dp x pcp
+// x tp ranks (flatten_tp_across_dp_and_pcp, vllm/model_executor/layers/fused_moe/
+// config.py:1090-1098, 1186-1200; "MoE layers will be sharded according to the product of
+// the tensor, prefill-context, and data parallel sizes", vllm/config/parallel.py:134-136)
+// and gathers every rank's tokens to it (all2all_utils.py:202-214). So the funnel is dp
+// whenever there is an MoE group to gather into.
+//
+// COVERAGE LIMIT: prefill-context ranks are not counted here. A PCP rank's prefill tokens
+// are its own share while its decode rows are replicated across the group, and how the MoE
+// gathers that mixture is not modelled.
 //
 // Returns 1 rather than 0 when DP is unset, so a scenario that omits it prices as it did
 // before this term existed.
 func (k *Kernel) moeDPFunnel() float64 {
-	if k.layout.ExpertWidth <= 1 || k.layout.DP <= 1 {
+	if k.layout.MoEGroup() <= 1 || k.layout.DP <= 1 {
 		return 1
 	}
 	return float64(k.layout.DP)

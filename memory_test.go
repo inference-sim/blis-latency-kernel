@@ -605,3 +605,79 @@ func TestServingFP8LeavesTheCollectivesWhereTheyWere(t *testing.T) {
 		}
 	}
 }
+
+// A DATA-PARALLEL MoE WITH EXPERT PARALLELISM OFF IS ONE SHARED MoE, NOT dp REPLICAS.
+// vLLM v0.31.0 shards every expert over the dp x tp ranks (flatten_tp_across_dp_and_pcp,
+// vllm/model_executor/layers/fused_moe/config.py:1090-1098) and gathers every rank's tokens
+// to it with an all-gather/reduce-scatter dispatch, whatever all2all backend is named
+// ("Detected DP deployment with no --enable-expert-parallel. Falling back to
+// AllGather+ReduceScatter", all2all_utils.py:202-214). Four consequences, each asserted on
+// minimax-m2.5 at tp=8 with dp 1, 2 and 4:
+//
+//   - a rank's expert weights divide by dp: the expert part of Weights halves per doubling;
+//   - per-rank routed compute does not move: dp times the tokens, each on a 1/dp slice;
+//   - a dispatch now runs over the MoE group, so inflating the all-to-all floors moves a
+//     step at dp > 1 and not at dp = 1, where no dispatch exists;
+//   - a routed backend named with expert parallelism off prices as the fallback it is.
+func TestADataParallelMoEWithoutExpertParallelismIsShared(t *testing.T) {
+	build := func(dp int, edit func(*Inputs)) *Kernel {
+		t.Helper()
+		in := fixtureInputs(t, "minimax-m25-h200-tp8.yaml")
+		pool := &in.Deployment.Pools[0]
+		pool.Parallel.EnableExpertParallel = false
+		pool.Parallel.DP = dp
+		pool.Nodes, in.Scenario.Cluster.Nodes = dp, dp
+		if dp > 1 {
+			in.Scenario.Cluster.Fabric = "ib-400g"
+			f, err := schemas.LoadFabric(filepath.Join(catalogRoot, "networks", "ib-400g.yaml"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			in.Fabric = f
+		}
+		if edit != nil {
+			edit(&in)
+		}
+		k, err := New(in)
+		if err != nil {
+			t.Fatalf("dp=%d: %v", dp, err)
+		}
+		return k
+	}
+	w1, w2, w4 := build(1, nil).FixedBytes().Weights, build(2, nil).FixedBytes().Weights,
+		build(4, nil).FixedBytes().Weights
+	if d12, d24 := float64(w1-w2), float64(w2-w4); d12 <= 0 || math.Abs(d12/d24-2) > 1e-6 {
+		t.Errorf("expert weights per rank did not halve per doubling of dp: Weights %d, %d, "+
+			"%d at dp 1, 2, 4", w1, w2, w4)
+	}
+
+	// Per-rank routed compute: the SM term of a large decode is the same at dp 1 and 2,
+	// since the dense work per rank is unchanged and the routed work is dp tokens on 1/dp.
+	big := decodeBatch(256, 1, 4096)
+	if a, b := build(1, nil).StepTime(big).PerResource[kernel.ResourceSM],
+		build(2, nil).StepTime(big).PerResource[kernel.ResourceSM]; a != b {
+		t.Errorf("per-rank compute moved from %v at dp=1 to %v at dp=2; the gathered tokens "+
+			"each reach a half-size slice", a, b)
+	}
+
+	inflate := func(in *Inputs) { in.Coefficients = scaleFloors(in.Coefficients, "alltoall", 10) }
+	decode := decodeBatch(32, 1, 4096)
+	if a, b := build(1, nil).StepTime(decode).NoOverlap,
+		build(1, inflate).StepTime(decode).NoOverlap; a != b {
+		t.Errorf("at dp=1 inflating the all-to-all floors moved the step from %v to %v; a "+
+			"tensor-parallel MoE dispatches nothing", a, b)
+	}
+	if a, b := build(2, nil).StepTime(decode).NoOverlap,
+		build(2, inflate).StepTime(decode).NoOverlap; b <= a {
+		t.Errorf("at dp=2 inflating the all-to-all floors left the step at %v; the MoE's "+
+			"dispatch runs over the data-parallel ranks", b)
+	}
+
+	named := build(2, func(in *Inputs) {
+		in.Deployment.Pools[0].Engine.All2AllBackend = "deepep_low_latency"
+	})
+	if a, b := build(2, nil).StepTime(decode).NoOverlap, named.StepTime(decode).NoOverlap; a != b {
+		t.Errorf("naming deepep_low_latency with expert parallelism off priced %v against %v "+
+			"for the default; the engine falls back to all-gather/reduce-scatter", b, a)
+	}
+}
