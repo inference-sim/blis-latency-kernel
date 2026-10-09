@@ -87,7 +87,7 @@ pin is a commit, not a moving name:
 | engine behaviour | vLLM `v0.31.0` | `db9527a46873454610df6dbedf79a36d6bf1a7f6` |
 | interface and document schemas | blis-schemas `v0.2.2` | `a0ba5d42ff753713f4dabc74a4ca38b374a91ef4` (`go.mod`) |
 | coefficients | blis-registry `v0.1.1` | `f7519b12b3393851a3ad416e26c819dd951d4c0d` (`testdata/VENDORED.md`) |
-| catalog | blis-catalog | `747a2213e13030ae675f9872c3e2a76b6b770d50` (`testdata/VENDORED.md`) |
+| catalog | blis-catalog `0.2.1` | `28e82d4c249893ee25b1412a63d2347c5165b004` (`testdata/VENDORED.md`) |
 
 A comment citing `vllm/<path>:<lines>` means those lines at `v0.31.0`; read them with
 `git show v0.31.0:<path>` in a vLLM checkout. Engine behaviour this repository encodes itself

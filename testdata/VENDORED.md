@@ -11,7 +11,7 @@ default the test suite resolves against.
 
 | tree | upstream | commit |
 |---|---|---|
-| `testdata/catalog` | blis-catalog | `747a2213e13030ae675f9872c3e2a76b6b770d50` (2026-10-07) |
+| `testdata/catalog` | blis-catalog | `28e82d4c249893ee25b1412a63d2347c5165b004` (tag `0.2.1`, 2026-10-09) |
 | `testdata/registry` | blis-registry | `f7519b12b3393851a3ad416e26c819dd951d4c0d` (tag `v0.1.1`, 2026-10-09) |
 
 Copied verbatim — no edits. Only what a kernel actually opens is here, which is why the
@@ -22,7 +22,7 @@ copy is ~800K rather than the 21M the two repositories occupy:
 | `catalog/hardware/*.yaml` | chip descriptors |
 | `catalog/networks/*.yaml` | inter-node fabrics |
 | `catalog/devices/storage.yaml` | storage-device facts |
-| `catalog/models/<name>/graph.yaml` | derived model graphs (32) |
+| `catalog/models/<name>/graph.yaml` | derived model graphs (33) |
 | `registry/coefficients/*.yaml` | coefficient sets, including `cost-model-memory` (memory occupancy, new in v0.1.1) |
 
 Deliberately absent: each model's `config.json` and `model.yaml`. They are vendor
