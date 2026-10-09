@@ -102,9 +102,13 @@ Where the kernel cannot know what the engine would choose -- a model's own DCP d
 backend-preferred block size, a downgraded graph mode -- it does not guess silently. It either
 refuses the deployment, or prices the engine's stock default and records that default in
 `Provenance()` as an entry from set `blis-latency-kernel` with method `assumed`, which
-`Evidence()` counts. A deployment that states every setting carries no such entry, with
-one exception: a stated DCP backend that could not be checked against the release, because
-the rules value carries no list of accepted names, is recorded too.
+`Evidence()` counts. Where v0.31.0's choice follows from the deployment, it is made as the
+engine makes it and recorded the same way: a DSA sparse-MLA model's block size, which is 64
+whatever the default (`sparse_mla.go`). A deployment that states every setting carries no
+such entry, with two exceptions: a stated DCP backend that could not be checked against the
+release, because the rules value carries no list of accepted names; and a DSA model on
+Hopper whose cache selects FlashInfer's SM90 sparse MLA, which needs a FlashInfer release
+the kernel cannot see installed.
 
 Where the kernel knowingly prices something differently from v0.31.0 -- because correcting it
 would move scored results fitted under the current structure, and is therefore a refit rather

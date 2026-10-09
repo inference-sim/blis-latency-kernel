@@ -745,9 +745,10 @@ func TestASparseMLALayersIndexerIsAPiecewiseSplitPoint(t *testing.T) {
 // A PACKED SPARSE-MLA CACHE IS ITS OWN SIZE. fp8_ds_mla stores 656 bytes a token per layer
 // and nvfp4_ds_mla 352 (vllm/model_executor/layers/attention/mla_attention.py:1361-1363 at
 // v0.31.0), where the per-element formula gives 576 at one byte. Stated on glm5 (a 576-wide
-// head), a 16-token page must hold exactly that times its layers.
+// head), a 64-token page -- the block a DSA model runs -- must hold exactly that times its
+// layers.
 //
-// A plain "fp8" is whatever the chosen backend makes of it (sparseMLACacheLayout): on h200,
+// A plain "fp8" is whatever the chosen backend makes of it (sparseMLABackend): on h200,
 // FlashMLA-sparse serves it as fp8_ds_mla, 656; on the same chip marked data-center
 // Blackwell, FlashInfer serves it as stated, 576. "fp8_e4m3" stays 576 on h200, because
 // FlashMLA-sparse does not list it and FlashInfer's SM90 sparse MLA does.
@@ -765,7 +766,7 @@ func TestAPackedSparseMLACacheIsItsOwnSize(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		return k.SequenceVariableBytes(16)
+		return k.SequenceVariableBytes(dsaBlockSize)
 	}
 	layers := int64(fixture(t, dcpSparseFixture).kvLayers)
 	for _, c := range []struct {
@@ -779,8 +780,8 @@ func TestAPackedSparseMLACacheIsItsOwnSize(t *testing.T) {
 		{"fp8", true, 576},
 		{"fp8_e4m3", false, 576},
 	} {
-		if got, want := page(c.cache, c.blackwell), 16*c.cell*layers; got != want {
-			t.Errorf("%s (blackwell %v): a 16-token page holds %d bytes, want %d (%d a "+
+		if got, want := page(c.cache, c.blackwell), dsaBlockSize*c.cell*layers; got != want {
+			t.Errorf("%s (blackwell %v): a 64-token page holds %d bytes, want %d (%d a "+
 				"token per layer)", c.cache, c.blackwell, got, want, c.cell)
 		}
 	}

@@ -18,6 +18,10 @@
 # deployment, which is what a setting held constant affects least. max_model_len is
 # derived from the workload instead, since a window shorter than isl+osl would describe a
 # deployment that cannot serve its own points.
+#
+# block_size is 64 here, not 16: this is a DSA sparse-MLA model, whose indexer
+# runs on 64-token blocks, and vLLM v0.31.0 refuses a block size 64 does not divide
+# (vllm/v1/attention/backends/mla/indexer.py:203-204, vllm/v1/worker/utils.py:330-391).
 kind: Scenario
 name: glm-5-b300-fp8-sglang-tp8
 engine_version: "0.29.0"
@@ -44,7 +48,7 @@ pools:
     engine:
       quantization: fp8
       cache_dtype: fp8
-      block_size: 16
+      block_size: 64
       max_num_batched_tokens: 8192
       max_num_seqs: 256
       max_model_len: 32768
