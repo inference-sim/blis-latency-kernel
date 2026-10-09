@@ -1,0 +1,1996 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="The BLIS cost model: from a model graph, a chip, fitted coefficients and a deployment, the time one forward pass over a batch takes and the memory the deployment holds.">
+      
+      
+      
+        <link rel="canonical" href="https://inference-sim.github.io/blis-latency-kernel/latest/concepts/step/">
+      
+      
+        <link rel="prev" href="../repositories/">
+      
+      
+        <link rel="next" href="../memory/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.3">
+    
+    
+      
+        <title>Pricing a step - blis-latency-kernel</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=IBM+Plex+Sans:300,300i,400,400i,700,700i%7CIBM+Plex+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"IBM Plex Sans";--md-code-font:"IBM Plex Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../../stylesheets/extra.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="white" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#pricing-a-step" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+<header class="md-header" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="blis-latency-kernel" class="md-header__button md-logo" aria-label="blis-latency-kernel" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            blis-latency-kernel
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Pricing a step
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="white" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="black" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/inference-sim/blis-latency-kernel" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    inference-sim/blis-latency-kernel
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+            
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../.." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    
+    
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="../" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Concepts
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../guides/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Guides
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../reference/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Reference
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../research/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Research
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../contributing/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Contributing
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ul>
+  </div>
+</nav>
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="blis-latency-kernel" class="md-nav__button md-logo" aria-label="blis-latency-kernel" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    blis-latency-kernel
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/inference-sim/blis-latency-kernel" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    inference-sim/blis-latency-kernel
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" checked>
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Concepts
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_2" id="__nav_2_label" tabindex="">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Concepts
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../repositories/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The kernel in BLIS
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pricing a step
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pricing a step
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#what-a-batch-is" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What a batch is
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-resources" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The resources
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#one-layer" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        One layer
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#composing-the-step" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Composing the step
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#which-estimate-to-use" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Which estimate to use
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#host-time" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Host time
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#in-the-source" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        In the source
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../memory/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Memory
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../parallelism/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Parallelism
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../resolution/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Refuse, assume, override
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../guides/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Guides
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_3" id="__nav_3_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Guides
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/go/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Price a batch from Go
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/simulator/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Use the kernel from a simulator
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/inputs/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Scenarios and their inputs
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../reference/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_4" id="__nav_4_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/provenance/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Provenance, Evidence, Resolved
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/refusals/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    What New refuses
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/divergences/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Known divergences
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/commands/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Commands
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/sources/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Sources of truth
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../research/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Research
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_5" id="__nav_5_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Research
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../research/accuracy/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Accuracy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../research/testing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    How the laws are tested
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../contributing/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contributing
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_6" id="__nav_6_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Contributing
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../contributing/documentation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Documentation and releases
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#what-a-batch-is" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What a batch is
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-resources" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The resources
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#one-layer" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        One layer
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#composing-the-step" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Composing the step
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#which-estimate-to-use" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Which estimate to use
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#host-time" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Host time
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#in-the-source" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        In the source
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+    <a href="https://github.com/inference-sim/blis-latency-kernel/edit/main/docs/concepts/step.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
+    </a>
+  
+  
+
+
+<h1 id="pricing-a-step">Pricing a step<a class="headerlink" href="#pricing-a-step" title="Permanent link">&para;</a></h1>
+<p class="lede">A step is one forward pass of the model over a batch of requests. The kernel
+prices it one layer at a time: for each layer it works out how long each resource of the GPU
+is busy, takes the largest of those times as the layer's time, and adds the layers up. It
+reports the result as two estimates, which differ in how much they let the resources
+overlap.</p>
+
+<h2 id="what-a-batch-is">What a batch is<a class="headerlink" href="#what-a-batch-is" title="Permanent link">&para;</a></h2>
+<p>A batch is a list of requests, and for each request three token counts: how many tokens it
+schedules this step, how many it has already computed, and how long its prompt is. Each
+request keeps the attention keys and values of every token it has processed, so that later
+tokens need not recompute them; this store is the <em><abbr title="The attention keys and values a request keeps for every token it has processed">KV</abbr> cache</em>.</p>
+<p>The engine classes each request by a <em>decode threshold</em>, a small number of tokens: 1 by
+default in vLLM, larger under speculative decoding and on some attention backends. A request
+scheduling more tokens than the threshold is a <em>prefill</em>: it is still reading its prompt, and
+its attention covers the new tokens and everything before them. A request scheduling at most
+the threshold is a <em>decode</em>: it is generating, usually one token per step, and its attention
+reads the whole of its cached context.</p>
+<p>The two cost differently. A prefill does a great deal of arithmetic per token. A decode does
+little, but reads its context from memory every step. Most of what follows is about counting
+those two things.</p>
+<h2 id="the-resources">The resources<a class="headerlink" href="#the-resources" title="Permanent link">&para;</a></h2>
+<p>The kernel charges every piece of work to one of five resources, and keeps a running total
+for each.</p>
+<table>
+<thead>
+<tr>
+<th>Resource</th>
+<th>What is charged to it</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><abbr title="Streaming multiprocessor: the GPU's arithmetic units">SM</abbr></td>
+<td>Arithmetic on the GPU's streaming multiprocessors: matrix multiplies, prefill attention, recurrent mixers</td>
+</tr>
+<tr>
+<td><abbr title="High-bandwidth memory: the GPU's own memory">HBM</abbr></td>
+<td>Reading the GPU's memory: weights, the <abbr title="The attention keys and values a request keeps for every token it has processed">KV</abbr> cache during decode, normalizations</td>
+</tr>
+<tr>
+<td>NVLink</td>
+<td>Collectives among GPUs on the same node</td>
+</tr>
+<tr>
+<td><abbr title="Network interface: the link between nodes">NIC</abbr></td>
+<td>Collectives that cross nodes, over the network fabric</td>
+</tr>
+<tr>
+<td>host</td>
+<td>CPU time: dispatching GPU kernels, and launching or replaying CUDA graphs</td>
+</tr>
+</tbody>
+</table>
+<p>A <em>collective</em> is an operation in which a group of GPUs exchange data, such as an all-reduce
+that sums each GPU's partial result. A <em>recurrent mixer</em> is the state-space or linear-attention
+layer of a hybrid model, which carries a fixed-size state from token to token instead of a <abbr title="The attention keys and values a request keeps for every token it has processed">KV</abbr>
+cache. A <em>CUDA graph</em> is a recorded sequence of GPU kernels that the CPU can replay with one
+call instead of launching each.</p>
+<h2 id="one-layer">One layer<a class="headerlink" href="#one-layer" title="Permanent link">&para;</a></h2>
+<p>A model graph lists each kind of layer once, with how many times it repeats. For one layer
+the kernel computes:</p>
+<p><strong>Arithmetic.</strong> The floating-point operations of each matrix multiply, divided by the chip's
+peak rate times an efficiency. The efficiency is the fraction of peak a matrix multiply
+reaches, and it rises with the number of tokens <span class="arithmatex">\(m\)</span> in the step:</p>
+<div class="arithmatex">\[
+\varepsilon(m) = \varepsilon_{\max}\,\frac{m}{m + m_{1/2}}
+\]</div>
+<p>At <span class="arithmatex">\(m = m_{1/2}\)</span> it is exactly half of <span class="arithmatex">\(\varepsilon_{\max}\)</span>. Both are coefficients
+measured per chip and data type. Using the peak rate instead would price the matrix multiplies
+of a 512-token step between 1.2 and 2.8 times too fast, depending on the chip and data type.
+Where the registry also measures how efficiency depends on a matrix multiply's width and
+depth, the kernel multiplies in a factor of the same form for each, so that every matrix
+multiply in a layer runs at its own efficiency.</p>
+<p><strong>Memory.</strong> The bytes the layer reads from <abbr title="High-bandwidth memory: the GPU's own memory">HBM</abbr>, divided by the chip's memory bandwidth times a
+measured fraction (the <em>derate</em>), because no GPU kernel reaches the datasheet bandwidth. The weights are read once per step whatever the batch size,
+so one read is shared by every request in the batch.</p>
+<p><strong>Attention.</strong> Decode attention is priced as a read of the cached context; prefill attention
+as arithmetic, which grows with the number of query-key pairs: with the square of the prompt,
+for a prompt read in one step. Each has a measured fixed cost per layer, and decode a measured
+rate for each kind of attention: full, sliding-window, latent (<abbr title="Multi-head latent attention, which caches one compressed vector per token">MLA</abbr>) or sparse latent.</p>
+<p><strong>Experts.</strong> In a mixture-of-experts layer each token is routed to a few experts. The kernel
+estimates how many distinct experts a batch touches, reads their weights, and prices their
+arithmetic. Unlike every other term, the arithmetic and the reads of the experts are <em>added</em>
+rather than overlapped, because the sum fits measured expert timings better than the larger
+of the two.<sup id="fnref:experts"><a class="footnote-ref" href="#fn:experts">1</a></sup></p>
+<p><strong>Collectives.</strong> Each collective the layer runs, an all-reduce after a tensor-parallel matrix
+multiply for instance, is priced from three coefficients measured for that operation, that
+number of GPUs and that chip: a fixed cost <span class="arithmatex">\(t_0\)</span>, a rate <span class="arithmatex">\(r_t\)</span> over the range a step's
+messages fall in, and the highest rate reached on large messages, <span class="arithmatex">\(r_\text{peak}\)</span>:</p>
+<div class="arithmatex">\[
+t(b) = \max\!\left(t_0 + \frac{b}{r_t},\; \frac{b}{r_\text{peak}}\right)
+\]</div>
+<p>for a message of <span class="arithmatex">\(b\)</span> bytes. Every launch pays its own fixed cost. A collective whose group
+spans nodes is charged to <abbr title="Network interface: the link between nodes">NIC</abbr>; one within a node, to NVLink. On a rack-scale NVLink system
+such as GB200 NVL72, a group within one rack stays on NVLink.</p>
+<h2 id="composing-the-step">Composing the step<a class="headerlink" href="#composing-the-step" title="Permanent link">&para;</a></h2>
+<p>Write <span class="arithmatex">\(T^\ell_r\)</span> for the time layer <span class="arithmatex">\(\ell\)</span> needs on resource <span class="arithmatex">\(r\)</span>, not counting its
+experts, and <span class="arithmatex">\(E^\ell\)</span> for its expert time, arithmetic plus reads. The first estimate
+assumes the resources of a layer work at the same time, so the layer takes as long as its
+busiest one. The next layer needs this one's output, so layers do not overlap one another:</p>
+<div class="arithmatex">\[
+\text{Overlap} = \sum_{\ell} \Big(\max\big(T^\ell_\text{SM}, T^\ell_\text{HBM},
+T^\ell_\text{NVLink}, T^\ell_\text{NIC}\big) + E^\ell\Big) + H + T_\text{host}
+\]</div>
+<p>where <span class="arithmatex">\(H\)</span> is the output head, which runs once per step and takes the larger of its
+arithmetic and its reads, and host time is added last: a GPU kernel cannot start before the
+CPU has dispatched it.</p>
+<p>The second estimate assumes the resources take turns. It is the sum of the five resources'
+totals over the whole step, where each total includes the experts' and the head's share:</p>
+<div class="arithmatex">\[
+\text{NoOverlap} = T_\text{SM} + T_\text{HBM} + T_\text{NVLink} + T_\text{NIC} +
+T_\text{host}
+\]</div>
+<p>Overlap can never exceed NoOverlap. The two differ most when the resources are evenly
+loaded, and least when one dominates.</p>
+<p>The <em>bottleneck</em> is the resource with the largest total: the one to relieve first. It
+changes with the batch size within one deployment, as the figure shows.</p>
+<!-- Generated by `go run ./internal/docgen`; do not edit by hand. -->
+<figure class="diagram chart" markdown="0">
+<svg viewBox="0 0 760 350" role="img" aria-labelledby="fig-step-title fig-step-desc">
+<title id="fig-step-title">Where a decode step's time goes, by batch size</title>
+<desc id="fig-step-desc">Two panels against the number of requests in a decode batch, from 1 to 256 on a log scale, each request decoding one token against a 4096-token context. The model deepseek-v3, served in fp8 on 8 H200 GPUs at tensor-parallel width 8. Left: the time each resource needs over the step. Right, on the same scale: the Overlap and NoOverlap estimates, which run from 8.8 and 9.7 ms at one request to 49.2 and 55.0 ms at 256. The bottleneck is host from 1 to 2 requests and HBM from 4 to 256 requests.</desc>
+<text class="panel-title" x="52.0" y="28.0">Time on each resource</text>
+<line class="grid" x1="52.0" y1="292.0" x2="302.0" y2="292.0"/>
+<text class="tick" x="46.0" y="296.0" text-anchor="end">0</text>
+<line class="grid" x1="52.0" y1="255.3" x2="302.0" y2="255.3"/>
+<text class="tick" x="46.0" y="259.3" text-anchor="end">10</text>
+<line class="grid" x1="52.0" y1="218.7" x2="302.0" y2="218.7"/>
+<text class="tick" x="46.0" y="222.7" text-anchor="end">20</text>
+<line class="grid" x1="52.0" y1="182.0" x2="302.0" y2="182.0"/>
+<text class="tick" x="46.0" y="186.0" text-anchor="end">30</text>
+<line class="grid" x1="52.0" y1="145.3" x2="302.0" y2="145.3"/>
+<text class="tick" x="46.0" y="149.3" text-anchor="end">40</text>
+<line class="grid" x1="52.0" y1="108.7" x2="302.0" y2="108.7"/>
+<text class="tick" x="46.0" y="112.7" text-anchor="end">50</text>
+<line class="grid" x1="52.0" y1="72.0" x2="302.0" y2="72.0"/>
+<text class="tick" x="46.0" y="76.0" text-anchor="end">60 ms</text>
+<line class="tick-mark" x1="52.0" y1="292.0" x2="52.0" y2="296.0"/>
+<text class="tick" x="52.0" y="309.0" text-anchor="middle">1</text>
+<line class="tick-mark" x1="83.2" y1="292.0" x2="83.2" y2="296.0"/>
+<text class="tick" x="83.2" y="309.0" text-anchor="middle">2</text>
+<line class="tick-mark" x1="114.5" y1="292.0" x2="114.5" y2="296.0"/>
+<text class="tick" x="114.5" y="309.0" text-anchor="middle">4</text>
+<line class="tick-mark" x1="145.8" y1="292.0" x2="145.8" y2="296.0"/>
+<text class="tick" x="145.8" y="309.0" text-anchor="middle">8</text>
+<line class="tick-mark" x1="177.0" y1="292.0" x2="177.0" y2="296.0"/>
+<text class="tick" x="177.0" y="309.0" text-anchor="middle">16</text>
+<line class="tick-mark" x1="208.2" y1="292.0" x2="208.2" y2="296.0"/>
+<text class="tick" x="208.2" y="309.0" text-anchor="middle">32</text>
+<line class="tick-mark" x1="239.5" y1="292.0" x2="239.5" y2="296.0"/>
+<text class="tick" x="239.5" y="309.0" text-anchor="middle">64</text>
+<line class="tick-mark" x1="270.8" y1="292.0" x2="270.8" y2="296.0"/>
+<text class="tick" x="270.8" y="309.0" text-anchor="middle">128</text>
+<line class="tick-mark" x1="302.0" y1="292.0" x2="302.0" y2="296.0"/>
+<text class="tick" x="302.0" y="309.0" text-anchor="middle">256</text>
+<text class="axis-title" x="177.0" y="330.0" text-anchor="middle">requests in the batch (log scale)</text>
+<line class="rule" x1="98.9" y1="44.0" x2="98.9" y2="292.0"/>
+<text class="note" x="93.9" y="54.0" text-anchor="end">host-bound</text>
+<text class="note" x="103.9" y="54.0">HBM-bound</text>
+<path class="series s-hbm" d="M52.0,284.4 L83.2,281.9 L114.5,277.0 L145.8,268.1 L177.0,253.1 L208.2,231.5 L239.5,207.7 L270.8,187.2 L302.0,162.8"/>
+<circle class="point s-hbm" cx="52.0" cy="284.4" r="2.2"/>
+<circle class="point s-hbm" cx="83.2" cy="281.9" r="2.2"/>
+<circle class="point s-hbm" cx="114.5" cy="277.0" r="2.2"/>
+<circle class="point s-hbm" cx="145.8" cy="268.1" r="2.2"/>
+<circle class="point s-hbm" cx="177.0" cy="253.1" r="2.2"/>
+<circle class="point s-hbm" cx="208.2" cy="231.5" r="2.2"/>
+<circle class="point s-hbm" cx="239.5" cy="207.7" r="2.2"/>
+<circle class="point s-hbm" cx="270.8" cy="187.2" r="2.2"/>
+<circle class="point s-hbm" cx="302.0" cy="162.8" r="2.2"/>
+<path class="series s-sm" d="M52.0,279.1 L83.2,279.0 L114.5,278.8 L145.8,278.3 L177.0,277.4 L208.2,275.6 L239.5,272.0 L270.8,264.8 L302.0,250.3"/>
+<circle class="point s-sm" cx="52.0" cy="279.1" r="2.2"/>
+<circle class="point s-sm" cx="83.2" cy="279.0" r="2.2"/>
+<circle class="point s-sm" cx="114.5" cy="278.8" r="2.2"/>
+<circle class="point s-sm" cx="145.8" cy="278.3" r="2.2"/>
+<circle class="point s-sm" cx="177.0" cy="277.4" r="2.2"/>
+<circle class="point s-sm" cx="208.2" cy="275.6" r="2.2"/>
+<circle class="point s-sm" cx="239.5" cy="272.0" r="2.2"/>
+<circle class="point s-sm" cx="270.8" cy="264.8" r="2.2"/>
+<circle class="point s-sm" cx="302.0" cy="250.3" r="2.2"/>
+<path class="series s-nvlink" d="M52.0,289.8 L83.2,289.8 L114.5,289.6 L145.8,289.4 L177.0,288.9 L208.2,287.9 L239.5,286.0 L270.8,282.0 L302.0,274.1"/>
+<circle class="point s-nvlink" cx="52.0" cy="289.8" r="2.2"/>
+<circle class="point s-nvlink" cx="83.2" cy="289.8" r="2.2"/>
+<circle class="point s-nvlink" cx="114.5" cy="289.6" r="2.2"/>
+<circle class="point s-nvlink" cx="145.8" cy="289.4" r="2.2"/>
+<circle class="point s-nvlink" cx="177.0" cy="288.9" r="2.2"/>
+<circle class="point s-nvlink" cx="208.2" cy="287.9" r="2.2"/>
+<circle class="point s-nvlink" cx="239.5" cy="286.0" r="2.2"/>
+<circle class="point s-nvlink" cx="270.8" cy="282.0" r="2.2"/>
+<circle class="point s-nvlink" cx="302.0" cy="274.1" r="2.2"/>
+<path class="series s-host" d="M52.0,279.0 L83.2,279.0 L114.5,279.0 L145.8,279.0 L177.0,279.0 L208.2,279.0 L239.5,279.0 L270.8,279.0 L302.0,279.0"/>
+<circle class="point s-host" cx="52.0" cy="279.0" r="2.2"/>
+<circle class="point s-host" cx="83.2" cy="279.0" r="2.2"/>
+<circle class="point s-host" cx="114.5" cy="279.0" r="2.2"/>
+<circle class="point s-host" cx="145.8" cy="279.0" r="2.2"/>
+<circle class="point s-host" cx="177.0" cy="279.0" r="2.2"/>
+<circle class="point s-host" cx="208.2" cy="279.0" r="2.2"/>
+<circle class="point s-host" cx="239.5" cy="279.0" r="2.2"/>
+<circle class="point s-host" cx="270.8" cy="279.0" r="2.2"/>
+<circle class="point s-host" cx="302.0" cy="279.0" r="2.2"/>
+<text class="label s-hbm" x="310.0" y="166.8">HBM</text>
+<text class="label s-sm" x="310.0" y="254.3">SM</text>
+<text class="label s-nvlink" x="310.0" y="273.1">NVLink</text>
+<text class="label s-host" x="310.0" y="288.1">host</text>
+<text class="panel-title" x="452.0" y="28.0">The step's two estimates</text>
+<line class="grid" x1="452.0" y1="292.0" x2="672.0" y2="292.0"/>
+<text class="tick" x="446.0" y="296.0" text-anchor="end">0</text>
+<line class="grid" x1="452.0" y1="255.3" x2="672.0" y2="255.3"/>
+<text class="tick" x="446.0" y="259.3" text-anchor="end">10</text>
+<line class="grid" x1="452.0" y1="218.7" x2="672.0" y2="218.7"/>
+<text class="tick" x="446.0" y="222.7" text-anchor="end">20</text>
+<line class="grid" x1="452.0" y1="182.0" x2="672.0" y2="182.0"/>
+<text class="tick" x="446.0" y="186.0" text-anchor="end">30</text>
+<line class="grid" x1="452.0" y1="145.3" x2="672.0" y2="145.3"/>
+<text class="tick" x="446.0" y="149.3" text-anchor="end">40</text>
+<line class="grid" x1="452.0" y1="108.7" x2="672.0" y2="108.7"/>
+<text class="tick" x="446.0" y="112.7" text-anchor="end">50</text>
+<line class="grid" x1="452.0" y1="72.0" x2="672.0" y2="72.0"/>
+<text class="tick" x="446.0" y="76.0" text-anchor="end">60 ms</text>
+<line class="tick-mark" x1="452.0" y1="292.0" x2="452.0" y2="296.0"/>
+<text class="tick" x="452.0" y="309.0" text-anchor="middle">1</text>
+<line class="tick-mark" x1="479.5" y1="292.0" x2="479.5" y2="296.0"/>
+<text class="tick" x="479.5" y="309.0" text-anchor="middle">2</text>
+<line class="tick-mark" x1="507.0" y1="292.0" x2="507.0" y2="296.0"/>
+<text class="tick" x="507.0" y="309.0" text-anchor="middle">4</text>
+<line class="tick-mark" x1="534.5" y1="292.0" x2="534.5" y2="296.0"/>
+<text class="tick" x="534.5" y="309.0" text-anchor="middle">8</text>
+<line class="tick-mark" x1="562.0" y1="292.0" x2="562.0" y2="296.0"/>
+<text class="tick" x="562.0" y="309.0" text-anchor="middle">16</text>
+<line class="tick-mark" x1="589.5" y1="292.0" x2="589.5" y2="296.0"/>
+<text class="tick" x="589.5" y="309.0" text-anchor="middle">32</text>
+<line class="tick-mark" x1="617.0" y1="292.0" x2="617.0" y2="296.0"/>
+<text class="tick" x="617.0" y="309.0" text-anchor="middle">64</text>
+<line class="tick-mark" x1="644.5" y1="292.0" x2="644.5" y2="296.0"/>
+<text class="tick" x="644.5" y="309.0" text-anchor="middle">128</text>
+<line class="tick-mark" x1="672.0" y1="292.0" x2="672.0" y2="296.0"/>
+<text class="tick" x="672.0" y="309.0" text-anchor="middle">256</text>
+<text class="axis-title" x="562.0" y="330.0" text-anchor="middle">requests in the batch (log scale)</text>
+<polygon class="band" points="452.0,256.4 479.5,253.7 507.0,248.5 534.5,238.9 562.0,222.4 589.5,198.0 617.0,168.7 644.5,137.0 672.0,90.3 672.0,111.7 644.5,149.4 617.0,176.5 589.5,203.6 562.0,226.8 534.5,242.7 507.0,252.0 479.5,257.1 452.0,259.7"/>
+<path class="series s-nooverlap" d="M452.0,256.4 L479.5,253.7 L507.0,248.5 L534.5,238.9 L562.0,222.4 L589.5,198.0 L617.0,168.7 L644.5,137.0 L672.0,90.3"/>
+<circle class="point s-nooverlap" cx="452.0" cy="256.4" r="2.2"/>
+<circle class="point s-nooverlap" cx="479.5" cy="253.7" r="2.2"/>
+<circle class="point s-nooverlap" cx="507.0" cy="248.5" r="2.2"/>
+<circle class="point s-nooverlap" cx="534.5" cy="238.9" r="2.2"/>
+<circle class="point s-nooverlap" cx="562.0" cy="222.4" r="2.2"/>
+<circle class="point s-nooverlap" cx="589.5" cy="198.0" r="2.2"/>
+<circle class="point s-nooverlap" cx="617.0" cy="168.7" r="2.2"/>
+<circle class="point s-nooverlap" cx="644.5" cy="137.0" r="2.2"/>
+<circle class="point s-nooverlap" cx="672.0" cy="90.3" r="2.2"/>
+<path class="series s-overlap" d="M452.0,259.7 L479.5,257.1 L507.0,252.0 L534.5,242.7 L562.0,226.8 L589.5,203.6 L617.0,176.5 L644.5,149.4 L672.0,111.7"/>
+<circle class="point s-overlap" cx="452.0" cy="259.7" r="2.2"/>
+<circle class="point s-overlap" cx="479.5" cy="257.1" r="2.2"/>
+<circle class="point s-overlap" cx="507.0" cy="252.0" r="2.2"/>
+<circle class="point s-overlap" cx="534.5" cy="242.7" r="2.2"/>
+<circle class="point s-overlap" cx="562.0" cy="226.8" r="2.2"/>
+<circle class="point s-overlap" cx="589.5" cy="203.6" r="2.2"/>
+<circle class="point s-overlap" cx="617.0" cy="176.5" r="2.2"/>
+<circle class="point s-overlap" cx="644.5" cy="149.4" r="2.2"/>
+<circle class="point s-overlap" cx="672.0" cy="111.7" r="2.2"/>
+<text class="label s-nooverlap" x="680.0" y="94.3">NoOverlap</text>
+<text class="label s-overlap" x="680.0" y="115.7">Overlap</text>
+</svg>
+<figcaption>The model <code>deepseek-v3</code>, served in fp8 on 8 H200 GPUs at tensor-parallel width 8 (<code>testdata/aisimulate/deepseek-v3-h200-fp8-sglang-tp8.yaml</code>), every request decoding one token against a 4,096-token context. <b>Left:</b> the time each resource needs over one step. The bottleneck, the resource with the most time, is host from 1 to 2 requests and HBM from 4 to 256 requests. At one request host and SM are within 1% of each other (3.54 and 3.51 ms), so their lines coincide there. No collective leaves the node, so NIC carries nothing and is not drawn. <b>Right:</b> the step's two estimates, on the same scale: NoOverlap is the sum of the lines on the left, and Overlap lets each layer's resources work at once. Going from one request to 256 multiplies the step by about 6, and divides the time per request by about 45. Computed by this kernel at batch sizes that are powers of two, joined by straight lines.</figcaption>
+</figure>
+
+<h2 id="which-estimate-to-use">Which estimate to use<a class="headerlink" href="#which-estimate-to-use" title="Permanent link">&para;</a></h2>
+<p>Neither estimate is a bound on the measured step. They are two models of how the work
+overlaps, and on measured data both come out too fast, NoOverlap by much less. When a caller
+wants one number, it should take <strong>NoOverlap</strong>. <a href="../../research/accuracy/#whole-step-time">Accuracy</a>
+gives the measurements. The likely reason the resources overlap so little is how vLLM
+captures CUDA graphs: in piecewise mode, attention runs outside the captured graph, between
+its pieces.</p>
+<p>inference-sim takes NoOverlap as its step time.</p>
+<h2 id="host-time">Host time<a class="headerlink" href="#host-time" title="Permanent link">&para;</a></h2>
+<p>The CPU's work per step depends on how much of the step was captured as a CUDA graph, and
+the engine decides that per batch. The kernel follows vLLM v0.31.0's choice:</p>
+<ul>
+<li>With the whole step captured, the host pays one graph replay.</li>
+<li>With <em>piecewise</em> capture, the graph is split at each attention or recurrent mixer (and, on a
+  sparse-attention layer, at its indexer too), and the host pays one replay per piece.</li>
+<li>With no capture, or for a batch larger than the largest captured size, the host launches
+  every layer eagerly.</li>
+</ul>
+<p>On top of that, every kernel the step runs costs a fixed dispatch time. For a single request
+the host can be the largest resource, as the figure above shows.</p>
+<p>A step costs microseconds to price, because everything that does not depend on the batch is
+computed once, when the kernel is built; <a href="../../guides/go/#calling-it-often">Price a batch from Go</a>
+says more.</p>
+<h2 id="in-the-source">In the source<a class="headerlink" href="#in-the-source" title="Permanent link">&para;</a></h2>
+<p>The step is composed in <code>stepTime</code> in <a href="https://github.com/inference-sim/blis-latency-kernel/blob/main/kernel.go"><code>kernel.go</code></a>,
+and the laws it uses are pure functions in
+<a href="https://github.com/inference-sim/blis-latency-kernel/tree/main/internal/price"><code>internal/price</code></a>.
+Each term's comment records the measurement that justified its form.</p>
+<div class="footnote">
+<hr />
+<ol>
+<li id="fn:experts">
+<p>Against NVIDIA's expert-<abbr title="General matrix multiply">GEMM</abbr> measurements on four chips, the sum fits better on
+every one. The comparison is recorded beside the composition in <code>kernel.go</code>.&#160;<a class="footnote-backref" href="#fnref:experts" title="Jump back to footnote 1 in the text">&#8617;</a></p>
+</li>
+</ol>
+</div>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+    
+      
+      <nav class="md-footer__inner md-grid" aria-label="Footer" >
+        
+          
+          <a href="../repositories/" class="md-footer__link md-footer__link--prev" aria-label="Previous: The kernel in BLIS">
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+            </div>
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Previous
+              </span>
+              <div class="md-ellipsis">
+                The kernel in BLIS
+              </div>
+            </div>
+          </a>
+        
+        
+          
+          <a href="../memory/" class="md-footer__link md-footer__link--next" aria-label="Next: Memory">
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Next
+              </span>
+              <div class="md-ellipsis">
+                Memory
+              </div>
+            </div>
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M4 11v2h12l-5.5 5.5 1.42 1.42L19.84 12l-7.92-7.92L10.5 5.5 16 11z"/></svg>
+            </div>
+          </a>
+        
+      </nav>
+    
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+    <div class="md-copyright__highlight">
+      Apache 2.0 · part of <a href="https://github.com/inference-sim">BLIS</a>
+    </div>
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+        
+<div class="md-social">
+  
+    
+    
+    
+    
+      
+      
+    
+    <a href="https://github.com/inference-sim/blis-latency-kernel" target="_blank" rel="noopener" title="github.com" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.tabs", "navigation.sections", "navigation.indexes", "navigation.top", "navigation.footer", "search.highlight", "search.suggest", "content.code.copy", "content.tooltips", "content.action.edit", "toc.follow"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"alias": true, "default": "latest", "provider": "mike"}}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+        <script src="../../javascripts/mathjax.js"></script>
+      
+        <script src="https://unpkg.com/mathjax@3.2.2/es5/tex-mml-chtml.js"></script>
+      
+    
+  </body>
+</html>
