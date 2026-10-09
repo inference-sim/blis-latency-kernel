@@ -1805,13 +1805,15 @@ func (k *Kernel) dcpDecodeCollectives(l *price.PlannedLayer, rows int) (onNode, 
 // ONE ALL-GATHER PER TENSOR, and a latent layer gathers two. _gather_prefill_cache_inputs
 // launches one all_gather per tensor it is given (pcp.py:31-35), and the MLA cache write
 // gives it kv_c_normed and k_pe separately (maybe_gather_mla_latent_cache_inputs,
-// pcp.py:56-74; called before the cache update, mla_attention.py:781-800). A layer with a
+// pcp.py:56-74; called before the cache update, mla_attention.py:781-800, and on a DSA layer
+// deepseek_v32/attention.py:511-529). A layer with a
 // sparse indexer gathers the indexer's key as well, in its own launch
 // (maybe_gather_indexer_k, pcp.py:77-87, from sparse_attn_indexer.py:440). Each launch pays
 // its own floor, which at a prefill chunk's payload is most of the cost.
 //
 // AT THE MODEL DTYPE, NOT THE CACHE'S. The gather runs before do_kv_cache_update quantizes
-// into the cache (mla_attention.py:781-800), so an fp8 cache does not halve it: these are
+// into the cache (mla_attention.py:781-800; deepseek_v32/attention.py:511-529), so an fp8
+// cache does not halve it: these are
 // bf16 activations.
 //
 // SIZED AT THE GATHERED OUTPUT, pcp times what this rank contributes, which is the

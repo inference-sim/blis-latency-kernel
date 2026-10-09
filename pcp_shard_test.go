@@ -900,7 +900,8 @@ func TestALatentLayersPCPGatherIsTwoLaunches(t *testing.T) {
 }
 
 // THE PCP GATHER CROSSES AT THE MODEL DTYPE. It runs before the cache write quantizes
-// (vllm/model_executor/layers/attention/mla_attention.py:781-800 at v0.31.0), so an fp8
+// (vllm/model_executor/layers/attention/mla_attention.py:781-800 at v0.31.0; on a DSA
+// layer, vllm/models/deepseek_v32/attention.py:511-529), so an fp8
 // cache must not change what a prefill step's gather costs.
 func TestThePCPGatherIgnoresTheCacheDType(t *testing.T) {
 	prefill := decodeBatch(1, 4096, 4096)

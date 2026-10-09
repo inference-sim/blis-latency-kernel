@@ -42,8 +42,9 @@ func Open(scenario string, r Repos) (*latencykernel.Kernel, error) {
 // and FlashAttention-MLA backends (vllm/v1/attention/backends/utils.py, backend.py, and
 // mla/flashmla.py:113, mla/flashattn_mla.py:110 at v0.31.0). cmd/shape and cmd/score price
 // single-token decode batches, which every one of those thresholds classifies as decode;
-// a prefill chunk of at most 512 tokens, which cmd/bandprobe and cmd/worked-table can pass,
-// is one the FlashMLA-family backends would run on their decode path instead.
+// a prefill chunk of at most 128 tokens (FlashMLA) or 512 (FlashAttention-MLA), which
+// cmd/bandprobe and cmd/worked-table can pass, is one those backends would run on their
+// decode path instead.
 const DecodeThreshold = 8
 
 // DecodeBatch builds a steady-state decode batch: every resident request contributes one token

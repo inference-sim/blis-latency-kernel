@@ -436,8 +436,9 @@ func (k *Kernel) lift(c *resolve.Coefficients, g *model.Graph, cacheBytes float6
 	// MLA joins the map for the same reason SWA did: its kernel reads a different number
 	// of bytes per token and sustains a different fraction of peak, so pricing it with the
 	// full-attention rate is wrong by construction rather than by a little. The WIDTH comes
-	// from the graph -- blis-catalog declares an MLA node as `n_kv: 1, d_h: 576`, so
-	// kvGeometry's NumKVHeads*HeadDim is the latent width kv_lora_rank + qk_rope_head_dim --
+	// from the graph -- blis-catalog declares an MLA node with `n_kv: 1` and d_h the latent
+	// width (576 = kv_lora_rank + qk_rope_head_dim for the DeepSeek-V3 family and Kimi, 512
+	// for DeepSeek-V4), so kvGeometry's NumKVHeads*HeadDim is that width --
 	// and KVBytesPerToken charges it ONCE per token, since a latent cache has no value
 	// tensor. The RATE is the other half: an MLA decode sustains 0.61-0.80 of datasheet
 	// bandwidth against full attention's 0.52-0.88.
@@ -453,7 +454,7 @@ func (k *Kernel) lift(c *resolve.Coefficients, g *model.Graph, cacheBytes float6
 	// including down-projections this kernel prices separately as GEMM nodes, and charging
 	// them took kimi-k2.5's TPOT error from 6.38% to 14.57%.
 	//
-	// Ten catalog models declare an mla or sparse_mla layer, and two of them
+	// Nine models in the vendored catalog declare an mla or sparse_mla layer, and two of them
 	// (deepseek-v4-pro, kimi-k3) appear in both the FPM dataset and the InferenceX corpus,
 	// so this is on the scored path rather than hypothetical.
 	//
@@ -731,8 +732,7 @@ func (k *Kernel) liftMemory(c *resolve.Coefficients, g *model.Graph) error {
 		k.assume("max_num_batched_tokens", strconv.Itoa(k.batchedTokens),
 			"vLLM v0.31.0's OpenAI-API-server default for this part's memory "+
 				"(EngineArgs.get_batch_defaults, vllm/engine/arg_utils.py:2858-2887); "+
-				"the offline LLM class defaults higher on parts from 70 GiB to below "+
-				"160 GiB")
+				"the offline LLM class defaults higher on every part below 160 GiB")
 	}
 	return nil
 }
@@ -1167,10 +1167,11 @@ func servedDType(checkpoint model.DType, quantization string) (model.DType, erro
 // WHAT THIS CANNOT SEE. "auto" is resolved against the checkpoint before it reaches the
 // cache: a quantization config declaring a KV algorithm (a ModelOpt checkpoint with
 // kv_cache_quant_algo) turns it into that dtype (resolve_kv_cache_dtype_string,
-// vllm/utils/torch_utils.py:503-518), and DeepSeek-V3.2- and V4-style sparse-MLA models
-// turn it into fp8_ds_mla (vllm/config/cache.py:127; vllm/models/deepseek_v4/attention.py).
-// The graph carries neither, so such a deployment should state its cache dtype; "auto"
-// here is the model dtype.
+// vllm/utils/torch_utils.py:503-518), and DeepSeek-V4 turns it into fp8_ds_mla when its
+// backend uses that layout (vllm/models/deepseek_v4/attention.py:107-120). (DeepSeek-V3.2
+// keeps "auto" at the model dtype, vllm/model_executor/models/config.py:37-39, whatever the
+// cache.py:127 docstring says.) The graph carries neither, so such a deployment should
+// state its cache dtype; "auto" here is the model dtype.
 func cacheDTypeBytes(declared string, fallback model.DType) float64 {
 	switch declared {
 	case "", "auto":

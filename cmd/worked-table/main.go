@@ -39,8 +39,8 @@ type row struct {
 // table whose configuration nothing measured cannot be checked against a measurement.
 //
 // The selection spans what the corpus varies: both chip families (Hopper runs FA3,
-// vllm/v1/attention/backends/fa_utils.py:99-101; Blackwell prefers FlashInfer for non-MLA
-// attention, vllm/platforms/cuda.py:157-164), pure
+// vllm/v1/attention/backends/fa_utils.py:99-101; SM100 Blackwell prefers FlashInfer for
+// causal non-MLA attention, vllm/platforms/cuda.py:157-166), pure
 // tensor parallelism against expert parallelism, and both regimes, since prefill and
 // decode dispatch differently (a prefill step's token count exceeds the cudagraph
 // capture ceiling on 88.9% of corpus cells and so runs eager, while a decode step
