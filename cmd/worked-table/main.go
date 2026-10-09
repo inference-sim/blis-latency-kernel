@@ -1,8 +1,8 @@
-// Command worked-table prints the step-time table the latency-kernel design's §2.1
-// states, computed by the kernel itself from the committed catalog and registry.
+// Command worked-table prints a worked step-time table, computed by the kernel itself from
+// the committed catalog and registry.
 //
-// It exists so the document is checked against the implementation rather than against a
-// second implementation of the same model. A Python replica of the kernel was the
+// It exists so a document that quotes the table is checked against the implementation
+// rather than against a second implementation of the same model. A Python replica of the kernel was the
 // obvious way to verify the table and the wrong one: two implementations of one cost
 // model drift, and every difference then has to be adjudicated even when neither side is
 // wrong. There is one implementation, and this prints what it says.
@@ -24,7 +24,7 @@ import (
 	"github.com/inference-sim/blis-latency-kernel/internal/harness"
 )
 
-// row is one line of §2.1: a batch shape and the scenario that prices it.
+// row is one line of the table: a batch shape and the scenario that prices it.
 type row struct {
 	label    string
 	scenario string

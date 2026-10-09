@@ -24,8 +24,13 @@ go test ./...
 `scripts/fetch-testdata.sh` fetches each upstream at the commit `upstream.lock` pins, checks the
 fetched HEAD against it, copies only the paths the lock lists (chip, fabric and storage
 descriptors and model graphs from the catalog; coefficient sets from the registry), and stamps
-each directory with `.upstream-commit`. It is idempotent. `TestTheFetchedUpstreamsAreTheLockedCommits`
-fails if a stamp does not match the lock, so a lock bump without a re-fetch cannot pass silently.
+each directory with `.upstream-commit` and an `.upstream-manifest` of each copied file's SHA-256.
+It is idempotent: a directory whose stamp names the locked commit and whose files all match the
+manifest is left alone, and anything else is fetched again. `TestTheFetchedUpstreamsAreTheLockedCommits`
+fails if a stamp does not match the lock or a file does not match the manifest, so neither a
+lock bump without a re-fetch nor a damaged copy can pass silently. A damaged copy is not
+hypothetical: a `git pull` that crosses the commit which stopped tracking these directories
+deletes the files it used to track, and leaves the stamp behind.
 
 To read a live upstream checkout instead, set `BLIS_CATALOG` / `BLIS_REGISTRY` for the tests, or
 pass `-catalog` / `-registry` to the commands.

@@ -25,3 +25,6 @@ __pycache__/
 # Measurement corpora extracted from third-party publications by scripts/extract_*. Read by
 # cmd/score, cmd/shape and the `scoring` test suite from BLIS_MEASUREMENTS or here.
 /testdata/measurements/
+
+# The documentation site as `mkdocs build` writes it; published from CI, never committed.
+/site/

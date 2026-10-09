@@ -1,0 +1,150 @@
+site_name: blis-latency-kernel
+site_description: >-
+  The BLIS cost model: from a model graph, a chip, fitted coefficients and a deployment, the
+  time one forward pass over a batch takes and the memory the deployment holds.
+site_url: https://inference-sim.github.io/blis-latency-kernel/
+repo_url: https://github.com/inference-sim/blis-latency-kernel
+repo_name: inference-sim/blis-latency-kernel
+edit_uri: edit/main/docs/
+copyright: Apache 2.0 · part of <a href="https://github.com/inference-sim">BLIS</a>
+
+# docs/figures/ and docs/generated/ are included into pages by the snippets extension, not
+# rendered on their own.
+exclude_docs: |
+  figures/
+  generated/
+  includes/
+  requirements.txt
+
+# Fail the strict build on anything that would leave a reader at a dead end: a page missing
+# from the navigation, a link to a page that does not exist, or a link to a heading that
+# does not exist.
+validation:
+  nav:
+    omitted_files: warn
+    not_found: warn
+    absolute_links: warn
+  links:
+    not_found: warn
+    anchors: warn
+    absolute_links: warn
+    unrecognized_links: warn
+
+theme:
+  name: material
+  font:
+    text: IBM Plex Sans
+    code: IBM Plex Mono
+  icon:
+    repo: fontawesome/brands/github
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: white
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: black
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.indexes
+    - navigation.top
+    - navigation.footer
+    - search.highlight
+    - search.suggest
+    - content.code.copy
+    - content.tooltips
+    - content.action.edit
+    - toc.follow
+
+markdown_extensions:
+  - abbr
+  - admonition
+  - attr_list
+  - def_list
+  - footnotes
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.arithmatex:
+      generic: true
+  - pymdownx.details
+  - pymdownx.highlight:
+      anchor_linenums: true
+      # Puts language-<name> on each block, which the stylesheet uses to wrap program output.
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.snippets:
+      # Paths in a snippet are relative to the repository root, so a page can include a Go
+      # example whose output a test checks, or a generated figure, by its real path.
+      base_path: ["."]
+      check_paths: true
+      dedent_subsections: true
+      # Hover definitions for the abbreviations, on every page.
+      auto_append: ["docs/includes/abbreviations.md"]
+
+plugins:
+  - search
+  # Every version's pages name the latest release's copy as canonical, so search engines
+  # index one version rather than all of them.
+  - mike:
+      canonical_version: latest
+
+extra:
+  version:
+    provider: mike
+    default: latest
+    alias: true
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/inference-sim/blis-latency-kernel
+
+extra_css:
+  - stylesheets/extra.css
+
+# The few formulas are typeset by MathJax 3, as on inference-sim's site, pinned to one release.
+extra_javascript:
+  - javascripts/mathjax.js
+  - https://unpkg.com/mathjax@3.2.2/es5/tex-mml-chtml.js
+
+nav:
+  - Home: index.md
+  - Concepts:
+      - concepts/index.md
+      - The kernel in BLIS: concepts/repositories.md
+      - Pricing a step: concepts/step.md
+      - Memory: concepts/memory.md
+      - Parallelism: concepts/parallelism.md
+      - Refuse, assume, override: concepts/resolution.md
+  - Guides:
+      - guides/index.md
+      - Price a batch from Go: guides/go.md
+      - Use the kernel from a simulator: guides/simulator.md
+      - Scenarios and their inputs: guides/inputs.md
+  - Reference:
+      - reference/index.md
+      - API: reference/api.md
+      - Provenance, Evidence, Resolved: reference/provenance.md
+      - What New refuses: reference/refusals.md
+      - Known divergences: reference/divergences.md
+      - Commands: reference/commands.md
+      - Sources of truth: reference/sources.md
+  - Research:
+      - research/index.md
+      - Accuracy: research/accuracy.md
+      - How the laws are tested: research/testing.md
+  - Contributing:
+      - contributing/index.md
+      - Documentation and releases: contributing/documentation.md

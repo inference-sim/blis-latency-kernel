@@ -10,7 +10,8 @@ import (
 // StepTime is called once per simulated step, millions of times over a run, so its cost
 // and its allocation count both matter. The per-stage composition walks one entry per
 // distinct layer KIND rather than per layer — three entries for a 72-layer model — and
-// accumulates into a fixed array, so the only allocation is the published result map.
+// accumulates into a fixed array. What allocates is the published result map and a few
+// per-request scratch slices; -benchmem reports both.
 func BenchmarkStepTimeDecode(b *testing.B) {
 	k := benchKernel(b)
 	batch := decodeBatch(256, 2, 8192)
@@ -55,8 +56,8 @@ func benchKernel(b *testing.B) *Kernel {
 	return fixture(b, "minimax-m25-h200-ep8.yaml")
 }
 
-// BenchmarkStepTimeIntoDecode is the form a simulator's inner loop uses: one reused map,
-// no allocation per step.
+// BenchmarkStepTimeIntoDecode is the form a simulator's inner loop uses: one reused map, so
+// what it allocates is only the per-request scratch.
 func BenchmarkStepTimeIntoDecode(b *testing.B) {
 	k := benchKernel(b)
 	batch := decodeBatch(256, 2, 8192)

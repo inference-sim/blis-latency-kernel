@@ -14,9 +14,10 @@
 //
 // Speed is a requirement rather than a nicety: a simulator calls StepTime once per
 // simulated step, millions of times over a run. So the hot path does arithmetic over a
-// short pre-aggregated slice and allocates nothing. The plan holds one entry per distinct
-// layer kind rather than one per layer, which for the deepest model in the catalog is three
-// entries instead of 108.
+// short pre-aggregated slice and allocates little: the per-resource breakdown map, which
+// StepTimeInto lets a caller reuse, and a few scratch slices that grow with the number of
+// requests. The plan holds one entry per distinct layer kind rather than one per layer, which
+// for the deepest model in the catalog is three entries instead of 108.
 package latencykernel
 
 import (
@@ -320,7 +321,7 @@ func (k *Kernel) SequenceVariableBytes(tokens int) int64 {
 //
 // The returned StepEstimate carries a freshly allocated PerResource map. A simulator that
 // calls this per simulated step, millions of times, can use StepTimeInto instead and reuse
-// one map across calls, which makes the path allocation-free.
+// one map across calls, which removes that allocation.
 func (k *Kernel) StepTime(b kernel.Batch) kernel.StepEstimate {
 	return k.stepTime(b, nil)
 }
@@ -328,12 +329,12 @@ func (k *Kernel) StepTime(b kernel.Batch) kernel.StepEstimate {
 // StepTimeInto prices one forward pass, writing the per-resource breakdown into per
 // instead of allocating a map.
 //
-// per is cleared first, so a caller reuses one map for every step. Passing nil is allowed
-// and yields an estimate with no breakdown, for a caller that wants only the duration.
+// per is cleared first, so a caller reuses one map for every step. Passing nil is the same
+// as calling StepTime: a new map is allocated.
 //
-// The estimate's own fields are values, so nothing else escapes: this form allocates
-// nothing at all, which is what lets a long simulation avoid the garbage collector on its
-// innermost loop.
+// The map is the allocation a caller can remove. The step still allocates a few scratch
+// slices that grow with the number of requests -- the prefill chunks, the decode contexts,
+// the prefills a context gather packs -- and BenchmarkStepTimeIntoDecode reports how many.
 func (k *Kernel) StepTimeInto(b kernel.Batch,
 	per map[kernel.Resource]time.Duration) kernel.StepEstimate {
 	for r := range per {
@@ -531,7 +532,7 @@ func (k *Kernel) stepTime(b kernel.Batch,
 
 	// Composed PER LAYER, not once over the whole step.
 	//
-	// The cost model's §5.1 rule is to partition a step into stages, where a stage is a
+	// The rule is to partition a step into stages, where a stage is a
 	// maximal set of operations that run concurrently; take the max over resources within
 	// a stage, and SUM across stages. A layer is a stage: layer N+1 needs layer N's
 	// output, so the two cannot overlap however idle a resource is.
@@ -633,7 +634,6 @@ func (k *Kernel) stepTime(b kernel.Batch,
 			// from 32.7% to 62.1% -- both scored arms then under-predict by more than half --
 			// and cmd/shape's from 11.32% to 11.41%. The cancellation still holds.
 			//
-			// docs/perf-model/hypothesis-log.md records the measurements on both sides.
 			// ATTENTION-DP FUNNEL. With attention data parallelism every DP rank's
 			// tokens are concatenated before expert routing, so the grouped GEMM sees
 			// the whole replica group's tokens rather than one rank's. vLLM states it
@@ -889,7 +889,7 @@ func (k *Kernel) stepTime(b kernel.Batch,
 		// The efficiency ramp is evaluated at the STEP's token count for every term,
 		// including the grouped GEMM, and that is a finding rather than a simplification.
 		//
-		// The cost model's §2.1 argues the grouped GEMM should see a smaller argument — the
+		// One argument says the grouped GEMM should see a smaller argument — the
 		// rows routed to one expert rather than the whole batch — and the reasoning is
 		// sound for a LOW-top_k model, one routing to 8 of a few hundred experts. Scored
 		// against four published deployments the per-expert argument was worse overall: it
@@ -1086,7 +1086,7 @@ func (k *Kernel) stepTime(b kernel.Batch,
 	perResource[idxHost] = host.Seconds()
 
 	// The breakdown map is the only thing that can allocate here. A caller that supplied
-	// one gets no allocation at all; one that did not gets a map sized to the resources
+	// one gets no allocation from it; one that did not gets a map sized to the resources
 	// actually in play.
 	per := into
 	if per == nil {
@@ -1331,7 +1331,7 @@ type chunk struct {
 // count grows linearly in the prefix without bound. The over-charge this corrects is
 // therefore governed by PREFIX length, not chunk size: about 4x at an 8,192-token prefix
 // for a 1,024-token chunk with a 2,176 window, 15x at 32,768 and 60x at 131,072.
-// docs/perf-model/hypothesis-log.md records the brute-force verification.
+// TestWindowedCausalFLOPsMatchesBruteForce checks it against a count made one query at a time.
 func windowedCausalFLOPs(chunks []chunk, window int) float64 {
 	if window <= 0 {
 		return 0

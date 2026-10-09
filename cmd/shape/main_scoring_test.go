@@ -190,7 +190,7 @@ func scoreSweeps(t *testing.T) (mine, theirs []float64, c corpus) {
 	//
 	// A test runs with the package directory as its working directory, so the scenario root
 	// is two levels up. Passing it explicitly is what keeps this from skipping silently.
-	mine, theirs, err := score(c, scenarioRoot, harness.DefaultCatalog(),
+	mine, theirs, _, err := score(c, scenarioRoot, harness.DefaultCatalog(),
 		harness.DefaultRegistry(), false)
 	artifacttest.RequireArtifact(t, harness.DefaultCatalog(),
 		harness.DefaultCatalog(), "catalog", err)

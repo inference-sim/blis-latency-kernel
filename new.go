@@ -1675,6 +1675,10 @@ const KernelAssumptionSet = "blis-latency-kernel"
 // EngineBehaviourVersion is the vLLM release whose engine behaviour this kernel encodes.
 const EngineBehaviourVersion = "0.31.0"
 
+// EngineBehaviourCommit is the commit of vLLM's EngineBehaviourVersion tag. A comment citing
+// vllm/<path>:<lines> means those lines at this commit.
+const EngineBehaviourCommit = "db9527a46873454610df6dbedf79a36d6bf1a7f6"
+
 // optional reads a coefficient the kernel can price without, returning zero when the
 // scenario's sets do not carry it. Where the deployment needs it, its absence is recorded as
 // an assumption, naming what is priced without it, so a registry that drops an entry moves
