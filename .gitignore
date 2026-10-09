@@ -15,3 +15,13 @@
 # Python bytecode is build output, never source
 __pycache__/
 *.pyc
+
+# Test inputs that are not this repository's to distribute.
+#
+# The upstream catalog and registry, fetched at the commits testdata/upstream.lock pins by
+# scripts/fetch-testdata.sh.
+/testdata/catalog/
+/testdata/registry/
+# Measurement corpora extracted from third-party publications by scripts/extract_*. Read by
+# cmd/score, cmd/shape and the `scoring` test suite from BLIS_MEASUREMENTS or here.
+/testdata/measurements/

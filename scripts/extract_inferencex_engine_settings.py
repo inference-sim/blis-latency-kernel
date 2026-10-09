@@ -29,8 +29,9 @@ the command line, and later reports what the engine RESOLVED. Both are captured:
     GPU KV cache size: 6,161,456 tokens
     Maximum concurrency for 9,416 tokens per request: 693.86x
 
-A setting absent from the args line was not passed, and the engine resolved it from device
-memory (vllm/engine/arg_utils.py get_batch_defaults). That absence is recorded as null rather
+A setting absent from the args line was not passed, and the engine resolved it from its own
+defaults -- for max_num_seqs and max_num_batched_tokens, from device memory
+(vllm/engine/arg_utils.py get_batch_defaults); the others have their own config defaults. That absence is recorded as null rather
 than filled in here, so a consumer can apply the engine's own resolution and a reader can tell
 a measurement from a default.
 

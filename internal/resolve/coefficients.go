@@ -109,8 +109,9 @@ func (c *Coefficients) Value(name string) (float64, error) {
 	return r.Entry.Value, nil
 }
 
-// ValueOr returns a coefficient, or a fallback when it is absent. The fallback is
-// recorded as a substitution so Provenance can report that a value was not sourced.
+// ValueOr returns a coefficient, or a fallback when it is absent. The fallback is NOT
+// recorded anywhere: Provenance lists only resolved entries, so a caller whose fallback
+// matters to a prediction's footing must say so itself.
 func (c *Coefficients) ValueOr(name string, fallback float64) float64 {
 	if r, ok := c.byName[name]; ok {
 		return r.Entry.Value

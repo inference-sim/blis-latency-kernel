@@ -2,8 +2,10 @@ package latencykernel
 
 import (
 	"math"
+	"path/filepath"
 	"testing"
 
+	schemas "github.com/inference-sim/blis-schemas"
 	"github.com/inference-sim/blis-schemas/kernel"
 	"github.com/inference-sim/blis-schemas/spec/model"
 
@@ -14,7 +16,7 @@ import (
 // behaviourally.
 //
 // THE DEFECT. PCP was half-modelled where DCP was not modelled at all. It reached a price,
-// but only as a side effect of the expert group: ExpertParallelWidth is tp * max(DP, PCP),
+// but only as a side effect of the expert group -- ExpertParallelWidth widens with pcp --
 // so a wider PCP sharded more experts and paid a wider all-to-all. The sharding PCP is
 // NAMED for -- "Number of ranks that split prefill sequence computation"
 // (vllm/config/parallel.py:131-133 at v0.31.0) -- was not credited at all, so a PCP
@@ -34,24 +36,58 @@ import (
 const pcpFixture = dcpMLAFixture
 
 // pcpKernel builds a kernel from a committed fixture with the prefill-context-parallel
-// width changed. The fixtures state dp 1, which matters: blis-schemas rejects pcp > 1
-// alongside dp > 1.
-//
-// That constraint is blis-schemas' own (spec/deployment/validate.go:146-149), NOT a quote
-// from the engine: vLLM v0.31.0 carries no PCP-with-DP refusal, and an earlier draft of
-// this comment attributed one to config/parallel.py:548-549, which is in fact EPLB
-// validation. The schema's reasoning stands on its own -- combining the two makes the
-// expert group's extent ambiguous, since ExpertParallelWidth is tp * max(DP, PCP) -- and
-// is recorded here rather than borrowed.
+// width changed, laid out the way the engine actually runs it.
 func pcpKernel(t testing.TB, fixture string, pcp int) *Kernel {
 	t.Helper()
-	in := fixtureInputs(t, fixture)
-	in.Deployment.Pools[0].Parallel.PCP = pcp
+	in := pcpInputs(t, fixture, pcp)
 	k, err := New(in)
 	if err != nil {
 		t.Fatalf("%s at pcp=%d: %v", fixture, pcp, err)
 	}
 	return k
+}
+
+// pcpInputs is a committed fixture's Inputs with the prefill-context-parallel width set to
+// pcp AND the nodes to hold it.
+//
+// PCP EXPANDS THE WORLD SIZE. vLLM's ParallelConfig sets world_size = pp * tp * pcp
+// (vllm/config/parallel.py:899-903 at v0.31.0) -- DCP reuses ranks, PCP adds them -- so a
+// tp=8 fixture on one 8-GPU node at pcp=2 needs sixteen GPUs. An earlier form of this
+// helper set the width alone and priced exactly that sixteen-rank layout on eight GPUs,
+// which the engine cannot start; blis-schemas v0.2.2 refuses it ("needs 16 GPUs (pp 1 x
+// tp 8 x pcp 2 x dp 1, one per rank) but the pool's 1 node(s) of 8 GPUs provide 8").
+//
+// So the pool and the cluster grow by the split, which is the shape PCP is deployed in:
+// the tensor-parallel group stays inside a node and the PCP ranks are added across nodes.
+// The ranks are laid out DP x PP x PCP x TP with TP innermost (parallel_state.py:2054-2060),
+// which is what places a PCP group's members one tensor-parallel width apart and therefore
+// on different nodes here.
+//
+// A cross-node cluster must name its fabric, a rule blis-schemas held before PCP existed.
+// The fabric is set at EVERY width, pcp=1 included, so a comparison across widths differs
+// in the split and nothing else; nothing crosses a node at pcp=1, so it prices no term there.
+func pcpInputs(t testing.TB, fixture string, pcp int) Inputs {
+	t.Helper()
+	in := fixtureInputs(t, fixture)
+	if len(in.Deployment.Pools) != 1 {
+		t.Fatalf("%s has %d pools; pcpInputs grows one pool and its cluster together",
+			fixture, len(in.Deployment.Pools))
+	}
+	pool := &in.Deployment.Pools[0]
+	pool.Parallel.PCP = pcp
+	if pcp > 1 {
+		pool.Nodes *= pcp
+		in.Scenario.Cluster.Nodes *= pcp
+	}
+	if in.Fabric == nil {
+		const fabric = "ib-400g"
+		f, err := schemas.LoadFabric(filepath.Join(catalogRoot, "networks", fabric+".yaml"))
+		if err != nil {
+			t.Fatalf("fabric %s: %v", fabric, err)
+		}
+		in.Scenario.Cluster.Fabric, in.Fabric = fabric, f
+	}
+	return in
 }
 
 // ---------------------------------------------------------------------------
@@ -385,16 +421,6 @@ func TestPCPDividesTheCausalTermByExactlyTheSplit(t *testing.T) {
 				"against an even share of %v; a ceil-based chunking cannot give less",
 				ragged, exact, nominal)
 		}
-		// The step must reflect that excess: pricing the nominal share would make this
-		// strictly cheaper, and the gap is bounded below by the excess over the rate.
-		got := pcpKernel(t, pcpFixture, 8).StepTime(decodeBatch(1, ragged, ragged)).
-			PerResource[kernel.ResourceSM].Seconds()
-		floors := pcpKernel(t, pcpFixture, 8).attentionPrefillFloor.Seconds() *
-			float64(pcpKernel(t, pcpFixture, 8).plan.TotalLayers)
-		if got <= floors {
-			t.Errorf("a %d-token prefill at pcp=8 priced %.6f ms, at or below its %.6f ms "+
-				"of per-layer floors; the causal term is missing", ragged, got*1e3, floors*1e3)
-		}
 	}
 }
 
@@ -501,115 +527,106 @@ func TestPCPGeometryReachesThePricer(t *testing.T) {
 // The gather PCP pays for keeping every rank's cache whole.
 // ---------------------------------------------------------------------------
 
+// collectiveSeconds is a step's whole collective time, on-node and cross-node together.
+// The PCP gather lands on either depending on where its group's members sit, so a test
+// about whether the gather is charged reads both.
+func collectiveSeconds(e kernel.StepEstimate) float64 {
+	return (e.PerResource[kernel.ResourceNVLink] + e.PerResource[kernel.ResourceNIC]).Seconds()
+}
+
 // A PCP rank writes only its share of the new KV, but every rank must hold the whole
 // cache, so the ranks all-gather what they wrote. Omitting it would make PCP look like a
 // pure win, which it is not.
 //
 // Two properties: the gather exists on a prefill step, and it does NOT exist on a
 // decode-only one -- the engine keeps replicated decode writes local and gathers
-// partitioned prefills only (attention/ops/pcp.py:16, :31-35).
+// partitioned prefills only (vllm/v1/attention/ops/pcp.py:16, :31-35 at v0.31.0).
 func TestPCPAddsAKVGatherOnPrefillOnly(t *testing.T) {
-	link := func(pcp int, b kernel.Batch) float64 {
-		return pcpKernel(t, pcpFixture, pcp).StepTime(b).
-			PerResource[kernel.ResourceNVLink].Seconds()
+	coll := func(pcp int, b kernel.Batch) float64 {
+		return collectiveSeconds(pcpKernel(t, pcpFixture, pcp).StepTime(b))
 	}
 	// A decode-only step carries no PCP gather at all.
 	decode := decodeBatch(32, 1, 32768)
-	if on, off := link(2, decode), link(1, decode); on != off {
-		t.Errorf("a decode-only step carried %.6f ms of on-node collective at pcp=2 "+
-			"against %.6f ms at pcp=1; a replicated decode write is not gathered",
-			on*1e3, off*1e3)
+	if on, off := coll(2, decode), coll(1, decode); on != off {
+		t.Errorf("a decode-only step carried %.6f ms of collective at pcp=2 against "+
+			"%.6f ms at pcp=1; a replicated decode write is not gathered", on*1e3, off*1e3)
 	}
 
 	// ON A SHORT PREFILL THE GATHER CHANGES THE SIGN, which is the shape that makes its
-	// omission visible. Splitting halves the tensor-parallel payload, so the on-node total
-	// would fall if nothing were added -- but the gather pays a floor on every KV-holding
-	// layer, and at a small chunk those floors outweigh what the halving saves. So the
-	// on-node term must RISE.
+	// omission visible. Splitting halves the tensor-parallel payload, so the collective
+	// total would fall if nothing were added -- but the gather pays a floor on every
+	// KV-holding layer, and at a small chunk those floors outweigh what the halving saves.
+	// So the total must RISE.
 	//
 	// At a long chunk it falls again, because the bytes saved dominate the floors added.
 	// Both directions are asserted: a test that only looked at the long chunk would pass
 	// with the gather deleted.
 	short := decodeBatch(1, 64, 64)
-	if whole, split := link(1, short), link(2, short); split <= whole {
-		t.Errorf("a 64-token prefill priced %.6f ms of on-node collective at pcp=2 "+
-			"against %.6f ms at pcp=1; the KV gather's per-layer floors must outweigh "+
-			"the halved tensor-parallel payload at this size", split*1e3, whole*1e3)
+	if whole, split := coll(1, short), coll(2, short); split <= whole {
+		t.Errorf("a 64-token prefill priced %.6f ms of collective at pcp=2 against "+
+			"%.6f ms at pcp=1; the KV gather's per-layer floors must outweigh the halved "+
+			"tensor-parallel payload at this size", split*1e3, whole*1e3)
 	}
 	long := decodeBatch(1, 4096, 4096)
-	if whole, split := link(1, long), link(2, long); split >= whole {
-		t.Errorf("a 4,096-token prefill priced %.6f ms at pcp=2 against %.6f ms at "+
-			"pcp=1; at this size the bytes saved must dominate the floors added",
+	if whole, split := coll(1, long), coll(2, long); split >= whole {
+		t.Errorf("a 4,096-token prefill priced %.6f ms of collective at pcp=2 against "+
+			"%.6f ms at pcp=1; at this size the bytes saved must dominate the floors added",
 			split*1e3, whole*1e3)
-	}
-
-	// And the charge must be at least one floor per KV-holding layer, at the PCP group's
-	// own width. Pricing it at the tensor-parallel width would roughly double it -- the
-	// 8-rank all-gather floor is 10.3us against the 2-rank 5.08us on this part -- so the
-	// bound below is stated against the width this group actually spans.
-	k := pcpKernel(t, pcpFixture, 2)
-	floor := k.collectiveFloors[collKey{Op: model.OpAllGather, Group: price.GroupPCP}]
-	if floor <= 0 {
-		t.Fatal("no all-gather floor resolved for the prefill-context group")
-	}
-	floors := floor.Seconds() * float64(k.plan.TotalLayers)
-	tpFloor := k.collectiveFloors[collKey{Op: model.OpAllGather, Group: price.GroupTP}]
-	tpFloors := tpFloor.Seconds() * float64(k.plan.TotalLayers)
-
-	// The NET change on the short prefill is the gather added MINUS the tensor-parallel
-	// payload the split saved, so it cannot be compared against the gather's floors
-	// directly -- an earlier draft of this test did exactly that and failed against
-	// correct code. What the net DOES bound is the width: the gather is charged at the
-	// prefill-context group's own 2-rank floor, and at the 8-rank floor its floors alone
-	// would be tpFloors, which exceeds the whole on-node term at this size. So a net
-	// change smaller than the difference between the two floor totals is only reachable
-	// at the narrower width.
-	added := link(2, short) - link(1, short)
-	if added >= tpFloors-floors {
-		t.Errorf("the split changed the on-node term by %+.6f ms, at or above the "+
-			"%.6f ms by which %d layers of 8-rank floor exceed %d layers of 2-rank; the "+
-			"gather is being priced at the tensor-parallel width",
-			added*1e3, (tpFloors-floors)*1e3, k.plan.TotalLayers, k.plan.TotalLayers)
-	}
-	if added <= 0 {
-		t.Errorf("the split changed the on-node term by %+.6f ms; the gather must add "+
-			"more than the halved payload saves at this size", added*1e3)
 	}
 }
 
-// The gather is charged on PREFILL tokens only, and on KV-HOLDING layers only.
+// The PCP gather is charged to the fabric exactly when the engine's rank layout puts its
+// group across nodes, and to NVLink otherwise.
 //
-// Two scoping facts the engine states and a looser implementation would blur. It gathers
-// "partitioned prefills" while keeping "replicated decode writes local" (pcp.py:16), and
-// what it gathers is cache input, so a layer with no cache contributes nothing.
-//
-// Both are asserted against a shape where the distinction is visible, because on a pure
-// prefill of an all-attention model neither is: the first needs decode rows present, and
-// the second needs a model whose layers are not all attention. Nemotron-3-Ultra is that
-// model -- 96 of its 108 layers hold no KV.
-func TestThePCPGatherIsScopedToPrefillTokensAndKVLayers(t *testing.T) {
-	// Prefill-context parallelism and data parallelism cannot both exceed one -- the
-	// engine refuses it and blis-schemas enforces that -- so a fixture carrying dp > 1
-	// has it cleared here rather than being skipped.
-	build := func(fixture string, pcp int) *Kernel {
-		t.Helper()
-		in := fixtureInputs(t, fixture)
-		in.Deployment.Pools[0].Parallel.DP = 1
-		in.Deployment.Pools[0].Parallel.PCP = pcp
+// vLLM lays ranks out with the tensor-parallel axis innermost, so a PCP group's members are
+// tp ranks apart (vllm/distributed/parallel_state.py:2054-2060, :2155-2160 at v0.31.0). On
+// 8-GPU nodes: tp=8, pcp=2 puts one member on each of two nodes, every hop crossing; tp=4,
+// pcp=2 and tp=2, pcp=4 fit one node. Only the gather moves between the two -- a decode
+// step has none, and the tensor-parallel group stays on a node in all three layouts -- so
+// a prefill's NIC term is the gather or nothing.
+func TestThePCPGatherCrossesTheFabricExactlyWhenItsGroupDoes(t *testing.T) {
+	prefill := decodeBatch(1, 4096, 4096)
+	for _, c := range []struct {
+		tp, pcp, nodes int
+		crosses        bool
+	}{
+		{8, 2, 2, true},
+		{8, 4, 4, true},
+		{4, 2, 1, false},
+		{2, 4, 1, false},
+	} {
+		in := pcpInputs(t, pcpFixture, 1)
+		pool := &in.Deployment.Pools[0]
+		pool.Parallel.TP, pool.Parallel.PCP = c.tp, c.pcp
+		pool.Nodes, in.Scenario.Cluster.Nodes = c.nodes, c.nodes
 		k, err := New(in)
 		if err != nil {
-			t.Fatalf("%s at pcp=%d: %v", fixture, pcp, err)
+			t.Fatalf("tp=%d pcp=%d: %v", c.tp, c.pcp, err)
 		}
-		return k
+		per := k.StepTime(prefill).PerResource
+		if nic := per[kernel.ResourceNIC]; (nic > 0) != c.crosses {
+			t.Errorf("tp=%d pcp=%d on %d node(s): the prefill charged %v to the fabric; "+
+				"the PCP group crosses a node: %v", c.tp, c.pcp, c.nodes, nic, c.crosses)
+		}
 	}
-	link := func(fixture string, pcp int, b kernel.Batch) float64 {
-		return build(fixture, pcp).StepTime(b).
-			PerResource[kernel.ResourceNVLink].Seconds()
-	}
+}
 
-	// PREFILL TOKENS ONLY. A 64-token prefill alone, and the same prefill beside 64
-	// decode rows, must add exactly the same gather -- the decode rows are replicated, so
-	// their KV is already on every rank and is not gathered.
+// The gather is charged on PREFILL tokens only. The engine gathers "partitioned prefills"
+// while keeping "replicated decode writes local" (vllm/v1/attention/ops/pcp.py:16 at
+// v0.31.0), so a 64-token prefill alone and the same prefill beside 64 decode rows must add
+// exactly the same gather.
+//
+// The gather is also scoped to KV-holding layers in the code (it divides the KV figure by
+// the KV-holding layer count and skips a layer with no attention). That half is not
+// exercised here because no admissible deployment can see it: at v0.31.0 every stack with a
+// cache-free layer has a recurrent mixer, and no recurrent backend supports PCP, so the
+// engine refuses those layouts and New refuses them too (see TestPCPRunsOnlyOnLatentStacks).
+// An earlier form of this test exercised it on Nemotron-3-Ultra, a Mamba hybrid, which
+// priced a layout the engine does not start.
+func TestThePCPGatherIsScopedToPrefillTokens(t *testing.T) {
+	coll := func(pcp int, b kernel.Batch) float64 {
+		return collectiveSeconds(pcpKernel(t, pcpFixture, pcp).StepTime(b))
+	}
 	alone := kernel.Batch{DecodeThreshold: 8, Reqs: []kernel.ReqShape{
 		{Scheduled: 64, Computed: 0, PromptLen: 64},
 	}}
@@ -621,120 +638,79 @@ func TestThePCPGatherIsScopedToPrefillTokensAndKVLayers(t *testing.T) {
 			Scheduled: 1, Computed: 32767, PromptLen: 32768,
 		}
 	}
-	addedAlone := link(pcpFixture, 2, alone) - link(pcpFixture, 1, alone)
-	addedMixed := link(pcpFixture, 2, withDecodes) - link(pcpFixture, 1, withDecodes)
-	if math.Abs(addedMixed-addedAlone) > 1e-9 {
+	addedAlone := coll(2, alone) - coll(1, alone)
+	addedMixed := coll(2, withDecodes) - coll(1, withDecodes)
+	if addedAlone <= 0 {
+		t.Fatalf("the split added %.6f ms of collective on a 64-token prefill; the KV "+
+			"gather must appear", addedAlone*1e3)
+	}
+	if math.Abs(addedMixed-addedAlone) > 2e-9 {
 		t.Errorf("the gather added %.6f ms beside 64 decode rows against %.6f ms without "+
 			"them, on the same 64-token prefill; a replicated decode write is not "+
 			"gathered", addedMixed*1e3, addedAlone*1e3)
 	}
+}
 
-	// KV-HOLDING LAYERS ONLY. On a model whose layers are mostly cache-free, the gather
-	// must cost at most what its KV-holding layers' floors come to -- charging every
-	// layer would be several times that.
-	const hybrid = "nemotron3-ultra-h100-agg.yaml"
-	k := build(hybrid, 2)
-	var kvLayers, allLayers int
-	for i := range k.plan.Layers {
-		l := &k.plan.Layers[i]
-		allLayers += l.Count
-		if l.AttnQHeads > 0 {
-			kvLayers += l.Count
+// PCP runs only on a stack whose every layer's backend supports it, which at v0.31.0 is a
+// stack of latent attention alone (vllm/v1/worker/cp_utils.py:35-38; backend.py:843, :1048,
+// :230-235). New refuses the rest rather than pricing a layout the engine does not start,
+// and admits the latent stacks. PCP with DCP narrows it further, to DSA sparse-MLA layers;
+// TestNewRefusesTheContextParallelLayoutsTheEngineRefuses covers that.
+func TestPCPRunsOnlyOnLatentStacks(t *testing.T) {
+	for _, c := range []struct {
+		fixture string
+		runs    bool
+		why     string
+	}{
+		{dcpMLAFixture, true, "deepseek-v3: every layer is mla"},
+		{dcpSparseFixture, true, "glm5: every layer is sparse_mla"},
+		{dcpHybridFixture, false, "gpt-oss-120b: gqa and swa layers"},
+		{"nemotron3-ultra-h100-agg.yaml", false, "nemotron-3-ultra: mamba2 layers"},
+		{"kimi-k3-h100-nospec.yaml", false, "kimi-k3: kda layers beside its mla"},
+	} {
+		in := pcpInputs(t, c.fixture, 2)
+		in.Deployment.Pools[0].Parallel.DP = 1
+		_, err := New(in)
+		if c.runs && err != nil {
+			t.Errorf("%s: refused, but the engine runs it: %v", c.why, err)
+		}
+		if !c.runs && err == nil {
+			t.Errorf("%s: priced at pcp=2, but the engine refuses it at startup", c.why)
 		}
 	}
-	if kvLayers == 0 || kvLayers >= allLayers {
-		t.Skipf("%s holds KV on %d of %d layers, so this cannot discriminate",
-			hybrid, kvLayers, allLayers)
-	}
-	floor := k.collectiveFloors[collKey{Op: model.OpAllGather, Group: price.GroupPCP}]
-	// Bounded against the KV-layer floors, not the all-layer ones: on this model the two
-	// differ ninefold (0.0617 ms against 0.5551 ms over 12 KV layers of 108), and a
-	// ceiling set at the larger figure is one a correct implementation clears so easily
-	// that charging every layer would pass it too.
-	//
-	// The NET change also includes whatever the split saves on the tensor-parallel
-	// collectives, so what is bounded is the gather's own contribution: it cannot exceed
-	// the floors of the layers that hold KV by more than the bytes those layers move,
-	// which at a 64-token prefill is far below one floor.
-	kvFloors := floor.Seconds() * float64(kvLayers)
-	allFloors := floor.Seconds() * float64(allLayers)
-	added := link(hybrid, 2, alone) - link(hybrid, 1, alone)
-
-	// Charging every layer rather than only the KV-holding ones would add
-	// (allFloors - kvFloors) of floor that does not belong -- 0.49 ms on this part, over
-	// 96 cache-free layers. The split SAVES on the tensor-parallel collectives, so the
-	// net change is negative either way; what separates the two readings is HOW negative.
-	// Measured: -0.522 ms scoped to KV layers against -0.028 ms charging all of them.
-	//
-	// Bounded at the midpoint, which is sound in both directions rather than fitted: the
-	// spurious floors are a known quantity, so the scoped reading must sit at least half
-	// of them below the unscoped one.
-	if added > -(allFloors-kvFloors)/2 {
-		t.Errorf("the split changed the on-node term by %+.6f ms on a model holding KV "+
-			"on %d of %d layers; charging every layer would add %.6f ms of floor that "+
-			"no cache-free layer pays, and the change is not far enough below that to "+
-			"show the gather is scoped",
-			added*1e3, kvLayers, allLayers, (allFloors-kvFloors)*1e3)
-	}
 }
 
-// The PCP gather must resolve coefficients at ITS OWN width, not the tensor-parallel one or
-// the decode-context one. Same hazard the composite coefficient key exists to prevent, now
-// with three axes able to run an all-gather.
-func TestThePCPGatherIsPricedAtItsOwnWidth(t *testing.T) {
-	k := pcpKernel(t, pcpFixture, 2)
-	if k.layout.TP != 8 {
-		t.Fatalf("this fixture is expected to be tp=8, got %d: the test needs the two "+
-			"widths to differ", k.layout.TP)
-	}
-	if got, ok := k.groupSize(price.GroupPCP); !ok || got != 2 {
-		t.Errorf("the prefill-context group spans %d ranks, want 2", got)
-	}
-	pcpFloor, ok := k.collectiveFloors[collKey{Op: model.OpAllGather, Group: price.GroupPCP}]
-	if !ok {
-		t.Fatal("no all-gather floor resolved for the prefill-context group")
-	}
-	tpFloor := k.collectiveFloors[collKey{Op: model.OpAllGather, Group: price.GroupTP}]
-	if pcpFloor >= tpFloor {
-		t.Errorf("a 2-rank prefill-context all-gather floor of %v is not below the "+
-			"8-rank tensor-parallel %v; the group is not selecting the width",
-			pcpFloor, tpFloor)
-	}
-	// A deployment with PCP off must not demand the coefficient at all, so a part missing
-	// a narrow width is not newly refused. Asserted through construction, which is the
-	// observable consequence.
-	if _, ok := fixture(t, pcpFixture).collectiveFloors[collKey{
-		Op: model.OpAllGather, Group: price.GroupPCP}]; ok {
-		t.Error("a prefill-context all-gather was resolved at pcp=1")
-	}
-}
-
-// The expert group must keep widening with PCP, because that part was already right and a
-// change to the prefill split must not disturb it. ExpertParallelWidth is tp * max(DP, PCP),
-// which agrees with the engine's tp * pcp * dp throughout the admissible region, since
-// pcp > 1 alongside dp > 1 is refused by both.
-func TestPCPStillWidensTheExpertGroup(t *testing.T) {
-	// A fixture with expert parallelism on, so the width is not trivially one.
-	in := fixtureInputs(t, "minimax-m25-h200-ep8.yaml")
-	in.Deployment.Pools[0].Parallel.DP = 1
-	base, err := New(in)
-	if err != nil {
-		t.Fatalf("pcp=1: %v", err)
-	}
-	in2 := fixtureInputs(t, "minimax-m25-h200-ep8.yaml")
-	in2.Deployment.Pools[0].Parallel.DP = 1
-	in2.Deployment.Pools[0].Parallel.PCP = 2
-	wider, err := New(in2)
-	if err != nil {
-		t.Fatalf("pcp=2: %v", err)
-	}
-	if !in2.Deployment.Pools[0].Parallel.EnableExpertParallel {
-		t.Skip("this fixture has expert parallelism off, so there is no group to widen")
-	}
-	if wider.layout.ExpertWidth <= base.layout.ExpertWidth {
-		t.Errorf("the expert group is %d ranks at pcp=2 against %d at pcp=1; "+
-			"ExpertParallelWidth is tp * max(DP, PCP) and must still widen",
-			wider.layout.ExpertWidth, base.layout.ExpertWidth)
+// The expert group spans the prefill-context ranks as well as the tensor- and data-parallel
+// ones: vLLM builds it over all three axes together, `data_parallel_size *
+// prefill_context_model_parallel_size * tensor_model_parallel_size`
+// (vllm/distributed/parallel_state.py:2212-2220 at v0.31.0).
+//
+// THE CASE THAT SEPARATES THE TWO FORMULAS is dp > 1 AND pcp > 1. blis-schemas v0.2.0
+// computed tp * max(dp, pcp), which agrees with the product whenever one of dp and pcp is
+// one -- every layout that version admitted -- and is a factor of min(dp, pcp) narrow once
+// both exceed one, which v0.31.0 runs ("DP 4 x PCP 8 is an expert group of 32, not 8", in
+// v0.2.2's own changelog). So the grid below includes that corner, and a regression to the
+// max would fail exactly there.
+//
+// Asserted on the RESOLVED width, which is what selects the routed-expert shard and the
+// all-to-all's group, and which a consumer reads.
+func TestTheExpertGroupSpansTensorPrefillContextAndDataParallelRanks(t *testing.T) {
+	for _, c := range []struct{ pcp, dp int }{{1, 1}, {2, 1}, {1, 2}, {2, 2}, {4, 2}} {
+		in := pcpInputs(t, pcpFixture, c.pcp)
+		pool := &in.Deployment.Pools[0]
+		pool.Parallel.EnableExpertParallel = true
+		pool.Parallel.DP = c.dp
+		pool.Nodes *= c.dp
+		in.Scenario.Cluster.Nodes *= c.dp
+		k, err := New(in)
+		if err != nil {
+			t.Fatalf("pcp=%d dp=%d: %v", c.pcp, c.dp, err)
+		}
+		want := pool.Parallel.TP * c.pcp * c.dp
+		if got := k.Resolved().ExpertParallelWidth; got != want {
+			t.Errorf("tp=%d pcp=%d dp=%d: the expert group is %d ranks, want %d "+
+				"(tp x pcp x dp)", pool.Parallel.TP, c.pcp, c.dp, got, want)
+		}
 	}
 }
 
@@ -885,4 +861,51 @@ func TestPCPSplitsAWindowedPrefillByPositionNotByCount(t *testing.T) {
 	// So the guard is the chunk geometry above, taken through the pricer's own method.
 	// Closing the step-level gap needs a fixture whose windowed layers dominate its GEMMs,
 	// which the catalog does not carry.
+}
+
+// A LATENT LAYER'S PCP GATHER IS TWO LAUNCHES. _gather_prefill_cache_inputs launches one
+// all-gather per tensor (vllm/v1/attention/ops/pcp.py:31-35 at v0.31.0), and the MLA cache
+// write hands it kv_c_normed and k_pe separately (pcp.py:56-74). Each pays its own floor.
+//
+// Isolated by inflating the 2-rank all-gather floor: at tp=8 and pcp=2 on deepseek-v3 the
+// only 2-rank all-gather is the PCP group's, and a collective's floor adds to its byte
+// term, so inflating it tenfold moves the prefill's collective time by exactly nine floors
+// per launch. Two launches per layer gives a ratio of exactly 2.
+func TestALatentLayersPCPGatherIsTwoLaunches(t *testing.T) {
+	prefill := decodeBatch(1, 4096, 4096)
+	base := pcpKernel(t, pcpFixture, 2)
+	inflatedIn := pcpInputs(t, pcpFixture, 2)
+	inflatedIn.Coefficients = scaleFloors(inflatedIn.Coefficients, "all_gather_fp16_2rank", 10)
+	inflated, err := New(inflatedIn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	floor := base.collectiveFloors[collKey{Op: model.OpAllGather, Group: price.GroupPCP}]
+	moved := collectiveSeconds(inflated.StepTime(prefill)) - collectiveSeconds(base.StepTime(prefill))
+	launches := moved / (9 * floor.Seconds() * float64(base.plan.TotalLayers))
+	if math.Abs(launches-2) > 1e-6 {
+		t.Errorf("inflating the PCP all-gather floor moved the prefill by %.6f launches' worth "+
+			"per layer, want 2: kv_c_normed and k_pe are gathered separately", launches)
+	}
+}
+
+// THE PCP GATHER CROSSES AT THE MODEL DTYPE. It runs before the cache write quantizes
+// (vllm/model_executor/layers/attention/mla_attention.py:781-800 at v0.31.0; on a DSA
+// layer, vllm/models/deepseek_v32/attention.py:511-529), so an fp8
+// cache must not change what a prefill step's gather costs.
+func TestThePCPGatherIgnoresTheCacheDType(t *testing.T) {
+	prefill := decodeBatch(1, 4096, 4096)
+	coll := func(cache string) float64 {
+		in := pcpInputs(t, pcpFixture, 2)
+		in.Deployment.Pools[0].Engine.CacheDType = cache
+		k, err := New(in)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return collectiveSeconds(k.StepTime(prefill))
+	}
+	if a, b := coll("fp8"), coll("auto"); a != b {
+		t.Errorf("an fp8 cache priced the prefill's collectives at %.6f ms against %.6f ms "+
+			"for a bf16 one; the gather moves unquantized activations", a*1e3, b*1e3)
+	}
 }

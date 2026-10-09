@@ -44,6 +44,7 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"path/filepath"
 	"sort"
 
 	"github.com/inference-sim/blis-schemas/kernel"
@@ -88,7 +89,8 @@ type point struct {
 func main() {
 	catalog := flag.String("catalog", harness.DefaultCatalog(), "")
 	registry := flag.String("registry", harness.DefaultRegistry(), "")
-	data := flag.String("data", "testdata/measurements/aisimulate_e2e.json", "")
+	data := flag.String("data",
+		filepath.Join(harness.DefaultMeasurements(), "aisimulate_e2e.json"), "")
 	// The generated per-deployment scenarios, which is where
 	// scripts/gen_aisimulate_scenarios.py writes them and where main_test.go's
 	// scenarioRoot looks. The default was "testdata" and every run failed on the first
@@ -99,7 +101,9 @@ func main() {
 
 	raw, err := os.ReadFile(*data)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
+		fmt.Fprintf(os.Stderr, "%v\nThe measurement corpora are not distributed with this "+
+			"repository: regenerate them from their sources with scripts/extract_*, or point "+
+			"-data or BLIS_MEASUREMENTS at a copy you hold.\n", err)
 		os.Exit(1)
 	}
 	var c corpus

@@ -17,6 +17,16 @@ type Layout struct {
 	TP, PP, DP  int
 	PCP, DCP    int
 	ExpertWidth int
+	// MoEGroupWidth is how many ranks an MoE layer's dispatch and combine span: the
+	// expert-parallel width with expert parallelism on, and with it off, tp x pcp x dp
+	// when dp exceeds one -- vLLM v0.31.0 then still shares the MoE across the data-parallel
+	// ranks, sharding every expert over them and gathering their tokens to it
+	// ("Detected DP deployment with no --enable-expert-parallel. Falling back to
+	// AllGather+ReduceScatter dispatch/combine", vllm/model_executor/layers/fused_moe/
+	// all2all_utils.py:202-214; the group is the EP group, distributed/parallel_state.py:
+	// 2212-2220). One otherwise: a tensor-parallel MoE with no data parallelism dispatches
+	// nothing.
+	MoEGroupWidth int
 
 	GPUsPerNode int
 	GPUsPerRack int
@@ -37,6 +47,16 @@ type Layout struct {
 
 	// Overrides records each request the layout could not honour.
 	Overrides []Override
+}
+
+// MoEGroup is the width an MoE layer's dispatch spans: MoEGroupWidth, which is never
+// narrower than the expert group. Taking the larger of the two keeps a Layout built
+// field by field, as a test does, consistent with one ResolveLayout returns.
+func (l Layout) MoEGroup() int {
+	if l.MoEGroupWidth > l.ExpertWidth {
+		return l.MoEGroupWidth
+	}
+	return l.ExpertWidth
 }
 
 // Override is one declined request, with the reason.
@@ -88,10 +108,18 @@ func ResolveLayout(s *scenario.Scenario, pool deployment.Pool, fab Fabric,
 
 	// The widest group decides how many nodes a collective spans. Expert parallelism is
 	// usually the widest; tensor parallelism spans nodes only where it exceeds a node.
-	widest := l.TP
-	if l.ExpertWidth > widest {
-		widest = l.ExpertWidth
+	//
+	// A prefill-context group is narrow but SPREAD: its members are tp ranks apart, since
+	// the engine numbers ranks DP x PP x PCP x TP with TP innermost
+	// (vllm/distributed/parallel_state.py:2054-2060, :2155-2160 at v0.31.0), so it covers
+	// the whole tp x pcp block. At tp=8 and pcp=2 that is two nodes for a two-rank group,
+	// which counting its width alone would call one. The decode-context group never
+	// covers more than that block either (parallel.py:563-578), so the block bounds both.
+	l.MoEGroupWidth = l.ExpertWidth
+	if !pl.EnableExpertParallel && pl.DP > 1 {
+		l.MoEGroupWidth = pl.TP * max(pl.PCP, 1) * pl.DP
 	}
+	widest := max(l.TP, l.MoEGroupWidth, l.TP*max(l.PCP, 1))
 	if l.GPUsPerNode > 0 {
 		l.NodesSpanned = (widest + l.GPUsPerNode - 1) / l.GPUsPerNode
 	} else {
@@ -161,12 +189,17 @@ func (l Layout) Emits(c model.EmitCondition) bool {
 	case model.EmitTensorParallel:
 		return l.TP > 1
 	case model.EmitExpertParallel:
-		return l.ExpertWidth > 1
+		// The MoE dispatch and combine. blis-schemas words the condition as the
+		// expert-parallel width exceeding one; vLLM also dispatches with expert
+		// parallelism off when dp exceeds one (see MoEGroupWidth), and the engine is
+		// what this answers for.
+		return l.MoEGroup() > 1
 	case model.EmitTensorParallelUnlessSequenceParallelMoE:
 		return l.TP > 1 && !l.SequenceParallelMoE
 	}
-	// An unrecognized condition is not treated as false. Silently dropping a node would
-	// remove a cost with nothing reporting it; a caller sees the graph failed validation.
+	// An unrecognized condition answers false here, but it never reaches this line from
+	// the pricer: BuildPlan asks Recognizes first and rejects the graph, because silently
+	// dropping a node would remove a cost with nothing reporting it.
 	return false
 }
 

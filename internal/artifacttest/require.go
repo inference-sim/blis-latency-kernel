@@ -7,12 +7,14 @@ import (
 	"testing"
 )
 
-// Vendored reports whether a root is a pinned copy committed inside this repository.
+// Vendored reports whether a root is this checkout's own pinned copy: testdata/catalog or
+// testdata/registry, which scripts/fetch-testdata.sh populates from the commits
+// testdata/upstream.lock names.
 //
-// A vendored root is committed beside the test, so it is never merely absent: any failure
-// to read it is an incompatibility between this repository and the copy it carries, and
-// must fail rather than skip. An override pointing at a live upstream checkout can
-// genuinely be missing, and may skip.
+// A pinned root is never optional: if it is absent the checkout has not been fetched, and
+// if it is present and unreadable it is incompatible with this repository. Either must fail
+// rather than skip. An override pointing at a live upstream checkout can genuinely be
+// missing, and may skip.
 //
 // Decided by path rather than by asking harness, so this package stays a leaf that the
 // root package's own tests can import -- harness imports the root package, so a dependency
@@ -54,9 +56,9 @@ func Vendored(root string) bool {
 // testdata/minimax-m25-h200-ep16.yaml records a PRIOR occurrence of the same pathology, so
 // it is this repository's recurring failure mode rather than a one-off.
 //
-// In a _testing.go file rather than a _test.go one so other packages can call it; it is
-// still compiled into any binary that imports harness, which is why it takes a testing.TB
-// rather than reaching for os.Exit.
+// In an ordinary file of this leaf package rather than a _test.go one, so other packages'
+// tests can call it; it is compiled into any binary that imports artifacttest, which is
+// why it takes a testing.TB rather than reaching for os.Exit.
 //
 // Lives here, exported, rather than in each test package, because the first fix of this
 // applied the rule to one package of three and left cmd/shape and cmd/score masking the
@@ -70,9 +72,13 @@ func RequireArtifact(t testing.TB, root, path, what string, err error) {
 	if err == nil {
 		return
 	}
-	// A vendored root is committed beside the test. Nothing about it can be "not checked
-	// out", so every failure to read it is a real one.
+	// A pinned root is never optional. Absent, the checkout has not been fetched; present,
+	// the failure is a real incompatibility.
 	if Vendored(root) {
+		if _, statErr := os.Stat(root); os.IsNotExist(statErr) {
+			t.Fatalf("the pinned %s %s has not been fetched: run scripts/fetch-testdata.sh",
+				what, root)
+		}
 		t.Fatalf("the pinned %s under testdata failed to load %s, which is an "+
 			"incompatibility rather than a missing checkout: %v", what, path, err)
 	}

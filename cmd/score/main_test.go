@@ -1,11 +1,7 @@
 package main
 
 import (
-	"encoding/json"
 	"math"
-	"os"
-	"path/filepath"
-	"strings"
 	"testing"
 
 	latencykernel "github.com/inference-sim/blis-latency-kernel"
@@ -214,71 +210,6 @@ func TestBatchForBuildsOneRequestPerResidentRequest(t *testing.T) {
 			t.Errorf("a request carries context %d, expected 2048",
 				req.Computed+req.Scheduled)
 		}
-	}
-}
-
-// --- The committed corpus ------------------------------------------------------
-
-func TestTheCommittedCorpusIsWellFormed(t *testing.T) {
-	const corpusPath = "../../testdata/measurements/scoreable.json"
-	raw, err := os.ReadFile(corpusPath)
-	if err != nil {
-		// Committed beside this test, so it is never merely absent.
-		t.Fatalf("committed corpus %s: %v", corpusPath, err)
-	}
-	var points []point
-	if err := json.Unmarshal(raw, &points); err != nil {
-		t.Fatalf("corpus does not parse: %v", err)
-	}
-	// The corpus held 35 points until 27 were dropped: they named a scenario whose
-	// model is not in blis-catalog, so the scenario could not be loaded and cmd/score
-	// failed outright rather than scoring what it could. The floor is the count that
-	// remains, so a further silent shrink still fails.
-	if len(points) < 8 {
-		t.Errorf("%d points; the corpus holds 8", len(points))
-	}
-	seen := map[string]bool{}
-	for _, p := range points {
-		if p.ITLms <= 0 {
-			t.Errorf("%s/%s at c=%d has no measured ITL", p.Report, p.Series,
-				p.Concurrency)
-		}
-		if p.Concurrency <= 0 {
-			t.Errorf("%s/%s has no concurrency", p.Report, p.Series)
-		}
-		if p.Scenario == "" {
-			t.Errorf("%s/%s names no scenario", p.Report, p.Series)
-		}
-		key := p.Scenario + "|" + p.Series + "|" + string(rune(p.Concurrency))
-		if seen[key] {
-			t.Errorf("duplicate point: %s %s c=%d", p.Scenario, p.Series, p.Concurrency)
-		}
-		seen[key] = true
-	}
-	// Every scenario named must exist, or the harness would skip silently.
-	for _, p := range points {
-		if _, err := os.Stat(filepath.Join("../../testdata", p.Scenario)); err != nil {
-			t.Errorf("%s names scenario %s, which is absent", p.Report, p.Scenario)
-		}
-	}
-	// And the corpus must span more than one model, since one model is a weak test.
-	scenarios := map[string]bool{}
-	for _, p := range points {
-		scenarios[p.Scenario] = true
-	}
-	// Two scenarios, two models: Kimi-K3 and Nemotron-3-Ultra. Two is thin but it is
-	// more than one, which is the property that matters:
-	// a single model would let a model-specific error look like a general one.
-	if len(scenarios) < 2 {
-		t.Errorf("the corpus covers %d scenarios; scoring one model proves little",
-			len(scenarios))
-	}
-	models := map[string]bool{}
-	for _, p := range points {
-		models[strings.SplitN(p.Scenario, "-", 2)[0]] = true
-	}
-	if len(models) < 2 {
-		t.Errorf("the corpus covers %d model families; one is a weak test", len(models))
 	}
 }
 

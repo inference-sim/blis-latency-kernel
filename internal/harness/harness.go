@@ -13,6 +13,7 @@
 package harness
 
 import (
+	"fmt"
 	"path/filepath"
 
 	"github.com/inference-sim/blis-schemas/kernel"
@@ -36,7 +37,15 @@ func Open(scenario string, r Repos) (*latencykernel.Kernel, error) {
 }
 
 // DecodeThreshold is the scheduled-token count above which the kernel prices a request as
-// prefill. It mirrors the engine's own classifier.
+// prefill, for the batches the scoring commands build. It is this harness's cutoff, not a
+// value read from the engine: vLLM's is per backend -- 1 by default, raised to
+// 1 + num_speculative_tokens under speculative decoding, and 128 or 512 on the FlashMLA
+// and FlashAttention-MLA backends (vllm/v1/attention/backends/utils.py, backend.py, and
+// mla/flashmla.py:113, mla/flashattn_mla.py:110 at v0.31.0). cmd/shape and cmd/score price
+// single-token decode batches, which every one of those thresholds classifies as decode;
+// a prefill chunk of at most 128 tokens (FlashMLA) or 512 (FlashAttention-MLA), which
+// cmd/bandprobe and cmd/worked-table can pass, is one those backends would run on their
+// decode path instead.
 const DecodeThreshold = 8
 
 // DecodeBatch builds a steady-state decode batch: every resident request contributes one token
@@ -80,19 +89,37 @@ func TimePerOutputToken(k *latencykernel.Kernel, b kernel.Batch) float64 {
 	return (k.StepTime(b).NoOverlap + k.OutputTokenOverhead()).Seconds()
 }
 
-// Replicas returns how many data-parallel engine instances a deployment runs.
+// Replicas returns how many schedulers a deployment's first pool runs: every data-parallel
+// rank of every engine in it.
 //
-// A published metric summed across replicas divides by this to give a per-step figure. It is a
-// property of the deployment rather than of the kernel — the kernel prices one rank of one
-// instance and has no reason to know how many instances a deployment runs — so it is read here
-// rather than added to the interface.
+// A published metric summed across them -- the engine's `running` count, say -- divides by
+// this to give a per-step figure. Each data-parallel rank of a vLLM engine schedules its own
+// requests, and a pool may hold several engines (blis-schemas v0.2.2: a pool "may hold more
+// than one engine, each running that layout"), so the count is the pool's GPUs over the GPUs
+// one data-parallel rank occupies: pp x tp x pcp. That counts three independent tp=8 engines
+// on 24 GPUs and one tp=8, dp=3 engine on the same GPUs alike, as three -- which is right for
+// this division and says nothing about how those schedulers share an MoE.
+//
+// It is a property of the deployment rather than of the kernel -- the kernel prices one rank
+// of one instance -- so it is read here rather than added to the interface.
 func Replicas(scenario string, r Repos) (int, error) {
-	_, dep, err := LoadBundle(filepath.Join(r.Scenarios, scenario))
+	sc, dep, err := LoadBundle(filepath.Join(r.Scenarios, scenario))
 	if err != nil {
 		return 0, err
 	}
-	if n := dep.Pools[0].Parallel.DP; n > 0 {
-		return n, nil
+	if len(dep.Pools) == 0 {
+		return 0, fmt.Errorf("%s: the deployment has no pools", scenario)
 	}
-	return 1, nil
+	pool := dep.Pools[0]
+	pl := pool.Parallel
+	perRank := max(pl.PP, 1) * max(pl.TP, 1) * max(pl.PCP, 1)
+	gpus := pool.Nodes * sc.Cluster.GPUsPerNode
+	// A count that is missing or does not divide is an error, not a fallback: a per-step
+	// figure divided by a wrong count is wrong by that factor, with nothing reporting it.
+	if gpus <= 0 || gpus%perRank != 0 {
+		return 0, fmt.Errorf("%s: pool 0 has %d GPUs (%d nodes x %d), which is not a "+
+			"positive multiple of the %d one data-parallel rank occupies (pp x tp x pcp)",
+			scenario, gpus, pool.Nodes, sc.Cluster.GPUsPerNode, perRank)
+	}
+	return gpus / perRank, nil
 }

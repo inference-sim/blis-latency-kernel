@@ -28,17 +28,27 @@ one of them to say nothing it does not already say. harness.LoadBundle reads the
 STATED, and written here: tp_size, pp_size, attention_dp_size, moe_ep_size, moe_tp_size,
 framework, precision, serving, gpu, model.
 
-NOT stated, and therefore engine defaults: max_num_seqs, max_model_len, block_size,
-gpu_memory_utilization, cudagraph_mode. The comparison scores the RATIO of step times across
-concurrency at a fixed deployment, so a constant cancels. Where a default could NOT cancel it
-is derived from the workload instead -- max_model_len must admit the longest sequence the
+NOT stated, and therefore set here: max_num_seqs, max_model_len, block_size,
+gpu_memory_utilization, cudagraph_mode. They are NOT vLLM's defaults, and the written header
+says how each differs: block_size 16 is only the nominal default, which a backend may raise
+(vllm/platforms/interface.py), and a DSA sparse-MLA model is stated at 64, the size vLLM picks
+for it and a multiple of the only kernel block its indexer runs (see DSA_MODELS); gpu_memory_utilization's default is 0.92 (vllm/config/cache.py);
+max_num_seqs 256 is the default only below 70 GiB or on an A100
+(EngineArgs.get_batch_defaults, vllm/engine/arg_utils.py); cudagraph_mode's default is
+FULL_AND_PIECEWISE (vllm/config/compilation.py) -- all at v0.29.0 and v0.31.0. They are held fixed so committed scores stay comparable,
+and the comparison scores the RATIO of step times across concurrency at a fixed deployment,
+which is what a setting held constant affects least. Where a value could NOT be held it is
+derived from the workload instead -- max_model_len must admit the longest sequence the
 workload runs, or the scenario would describe a deployment that cannot serve its own points.
 
 # Expert parallelism
 
-vLLM's rule (fused_moe/config.py): with EP on, each rank holds whole experts and moe_tp_size
-is 1; with EP off, experts are sliced tensor-parallel and moe_tp_size equals tp_size. The
-corpus states both fields, so this asserts they agree with that rule rather than assuming it.
+The rule this asserts: with EP on, each rank holds whole experts and moe_tp_size is 1; with
+EP off, experts are sliced tensor-parallel and moe_tp_size equals tp_size. That is vLLM's
+rule only at attention_dp_size 1 -- with EP off and dp above one vLLM slices experts over
+dp x tp ranks (flatten_tp_across_dp_and_pcp, vllm/model_executor/layers/fused_moe/config.py at
+v0.31.0) -- and it is the corpus's own convention, which states both fields; this asserts
+the corpus is consistent with it rather than assuming it.
 
 Usage:
 
@@ -54,7 +64,7 @@ import sys
 
 COEFFICIENTS = (
     "[cost-model-primitives, cost-model-collectives, cost-model-host-overheads, "
-    "cost-model-attention, cost-model-recurrent]"
+    "cost-model-attention, cost-model-recurrent, cost-model-memory]"
 )
 
 # Artifact precision -> the engine's quantization name. bf16 means the checkpoint is served
@@ -65,6 +75,12 @@ COEFFICIENTS = (
 # nothing and risk disagreeing with the graph. Kimi-K2.5 is the case in hand --
 # compressed-tensors at group_size 32, which the catalog derives as weight_dtype int4.
 QUANT = {"fp4": "nvfp4", "fp8": "fp8", "bf16": None, "int4": None}
+
+# The DSA sparse-MLA models in the corpus. Their indexer runs on 64-token kernel blocks
+# (vllm/v1/attention/backends/mla/indexer.py:203-204 at v0.31.0), so vLLM picks block_size 64
+# for them when none is stated and refuses a stated size that is not a multiple of 64. They
+# are stated at 64; every other model at 16.
+DSA_MODELS = {"glm-5"}
 
 # A KV cache dtype is not stated by the corpus. fp8 KV is the default for the fp8 and fp4
 # arms in these frameworks; bf16 serving keeps an unquantised cache.
@@ -98,6 +114,7 @@ def emit(dep: dict, workloads: set[str], labels: set[str]) -> str:
     quant = QUANT[dep["precision"]]
     max_len = context_length(workloads)
     name = dep["scenario"][: -len(".yaml")]
+    block_size = 64 if dep["model"] in DSA_MODELS else 16
 
     lines = [
         f"# {dep['model']} on {dep['gpu']}, {dep['precision']} under {dep['framework']},",
@@ -110,11 +127,26 @@ def emit(dep: dict, workloads: set[str], labels: set[str]) -> str:
         f"# moe_ep_size {ep}, moe_tp_size {par['moe_tp_size']}. Workloads scored at this",
         f"# deployment: {', '.join(sorted(labels))}.",
         "#",
-        "# max_num_seqs, block_size, gpu_memory_utilization and cudagraph_mode are engine",
-        "# defaults: the comparison scores a ratio across concurrency at a fixed deployment,",
-        "# so a constant cancels. max_model_len is derived from the workload instead, since a",
-        "# window shorter than isl+osl would describe a deployment that cannot serve its",
-        "# own points.",
+        "# max_num_seqs, block_size, gpu_memory_utilization and cudagraph_mode are not in the",
+        "# corpus, so they are set here -- and not to vLLM's defaults. block_size 16 is its nominal",
+        "# default, which a backend may raise; gpu_memory_utilization's default is 0.92, not 0.9;",
+        "# max_num_seqs 256 is its default only below 70 GiB or on an A100; and its cudagraph_mode",
+        "# default is FULL_AND_PIECEWISE, not PIECEWISE (all at v0.29.0 and v0.31.0). They are held",
+        "# fixed so committed scores stay comparable; moving them to the engine's defaults is a",
+        "# re-scoring decision. The comparison scores a ratio across concurrency at a fixed",
+        "# deployment, which is what a setting held constant affects least. max_model_len is",
+        "# derived from the workload instead, since a window shorter than isl+osl would describe a",
+        "# deployment that cannot serve its own points.",
+    ]
+    if block_size != 16:
+        lines += [
+            "#",
+            f"# block_size is {block_size} here, not 16: this is a DSA sparse-MLA model, whose indexer",
+            "# runs on 64-token kernel blocks: vLLM v0.31.0 picks 64 for it when none is stated and",
+            "# refuses a stated size that is not a multiple of 64",
+            "# (vllm/v1/attention/backends/mla/indexer.py:203-204).",
+        ]
+    lines += [
         "kind: Scenario",
         f"name: {name}",
         'engine_version: "0.29.0"',
@@ -153,7 +185,7 @@ def emit(dep: dict, workloads: set[str], labels: set[str]) -> str:
         lines.append(f"      quantization: {quant}")
     lines += [
         f"      cache_dtype: {CACHE_DTYPE[dep['precision']]}",
-        "      block_size: 16",
+        f"      block_size: {block_size}",
         "      max_num_batched_tokens: 8192",
         "      max_num_seqs: 256",
         f"      max_model_len: {max_len}",

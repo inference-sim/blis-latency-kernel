@@ -185,6 +185,12 @@ func TestNodesSpannedFollowsTheWidestGroup(t *testing.T) {
 			deployment.Parallelism{TP: 1, PP: 1, DP: 72, EnableExpertParallel: true}, 72, true, 1},
 		{"a rack that is not one domain still spans nodes", 4,
 			deployment.Parallelism{TP: 1, PP: 1, DP: 72, EnableExpertParallel: true}, 72, false, 18},
+		// A two-rank prefill-context group at tp=8 has a member on each of two nodes: its
+		// ranks are tp apart. Expert parallelism is off, so no wider group hides it.
+		{"a prefill-context group spans its tp x pcp block", 8,
+			deployment.Parallelism{TP: 8, PP: 1, DP: 1, PCP: 2}, 0, false, 2},
+		{"a prefill-context group inside one node stays on it", 8,
+			deployment.Parallelism{TP: 2, PP: 1, DP: 1, PCP: 4}, 0, false, 1},
 	}
 	for _, c := range cases {
 		t.Run(c.what, func(t *testing.T) {

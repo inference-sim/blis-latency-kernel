@@ -52,7 +52,9 @@ func TestINT4StoresFourBitsOfPayload(t *testing.T) {
 // A W4A16 checkpoint stores weights at four bits and computes in bf16. Following the
 // storage width gave a half-byte KV element, which rounded to a per-block figure of
 // zero once paged, and the kernel refused twelve Kimi-K2.5 sweeps rather than divide a
-// budget by it. vLLM offers 4-bit KV, but only when named; "auto" never selects one.
+// budget by it. vLLM sizes an auto cache at the model dtype (vllm/platforms/interface.py:
+// 861-862 at v0.31.0) unless the checkpoint's quantization config declares a KV algorithm,
+// which the graph does not carry; see cacheDTypeBytes.
 func TestAnAutoCacheFollowsTheComputeWidthNotTheStorageWidth(t *testing.T) {
 	for _, tc := range []struct {
 		served model.DType
@@ -62,7 +64,7 @@ func TestAnAutoCacheFollowsTheComputeWidthNotTheStorageWidth(t *testing.T) {
 		{model.DTypeINT4, 2, "W4A16 computes in bf16"},
 		{model.DTypeNVFP4, 2, "a 4-bit float is a storage format too"},
 		{model.DTypeMXFP4, 2, "likewise"},
-		{model.DTypeFP8, 1, "fp8 is already a byte wide, so it is its own compute width"},
+		{model.DTypeFP8, 2, "fp8 linears return bf16 (out_dtype=x.dtype), so the model dtype is bf16"},
 		{model.DTypeBF16, 2, "unquantized passes through"},
 		{model.DTypeFP32, 4, "and so does fp32"},
 	} {
@@ -81,7 +83,9 @@ func TestAnAutoCacheFollowsTheComputeWidthNotTheStorageWidth(t *testing.T) {
 	if got := cacheDTypeBytes("fp8", model.DTypeINT4); got != 1 {
 		t.Errorf("an explicit fp8 cache = %.1f bytes, want 1", got)
 	}
-	if got := cacheDTypeBytes("nvfp4", model.DTypeBF16); got != 0.5 {
-		t.Errorf("an explicit nvfp4 cache = %.1f bytes, want 0.5", got)
+	// nvfp4 carries an fp8 scale per 16 elements beside its four-bit data:
+	// head_size/2 + head_size/16 bytes a head (vllm/utils/torch_utils.py:543-545).
+	if got := cacheDTypeBytes("nvfp4", model.DTypeBF16); got != 0.5625 {
+		t.Errorf("an explicit nvfp4 cache = %.4f bytes, want 0.5625", got)
 	}
 }

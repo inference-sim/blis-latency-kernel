@@ -181,27 +181,44 @@ func TestMeasuredWidthsRequiresTheCompleteTriple(t *testing.T) {
 	}
 }
 
-// The communicator-bytes family is keyed on rank count too, but it comes from NVIDIA's
-// descriptor rather than a sweep, and its caller treats an absent value as zero. It
-// must therefore clamp rather than error, and must not consult the collective widths:
-// a part can declare an 8-rank communicator buffer while being swept only at 2 and 4.
-func TestCommunicatorWidthClampsIndependentlyOfCollectiveWidths(t *testing.T) {
-	entries := []coefficient.Entry{
-		{Name: "nccl_communicator_bytes_2rank", Value: 1},
-		{Name: "nccl_communicator_bytes_4rank", Value: 2},
-		{Name: "nccl_communicator_bytes_8rank", Value: 3},
-	}
-	// Collectives swept at 2 and 4 only, as on a rack-scale tray.
-	for _, w := range []int{2, 4} {
-		entries = append(entries, tripleFor("all_reduce", "fp16", "gb300", w, 9.37)...)
-	}
-	c := coeffs(t, entries)
-
-	if got := communicatorWidth(c, 8); got != 8 {
-		t.Errorf("communicator width must follow its own declared sizes; want 8, got %d", got)
-	}
-	if got := communicatorWidth(c, 16); got != 8 {
-		t.Errorf("above the widest declared size, want clamp to 8, got %d", got)
+// The memory families keyed on rank count -- communicator bytes and activation multiples --
+// come from NVIDIA's descriptor and memory model rather than a sweep, so they SNAP to a
+// declared width instead of refusing, and must not consult the collective widths: a part
+// can declare an 8-rank communicator while its collectives were swept only at 2 and 4.
+//
+// The property, over every width a deployment can state: the snapped width is one the
+// family declares; it is the widest declared at or below the request; and below every
+// declared width it is the narrowest. That is NVIDIA's own indexing at min(tp, 8) for every
+// width its tables carry.
+func TestMemoryFamiliesSnapToTheirOwnDeclaredWidths(t *testing.T) {
+	for _, fam := range []struct {
+		format   string
+		declared []int
+	}{
+		{"nccl_communicator_bytes_%drank", []int{2, 4, 8}},
+		{"activation_buffer_count_moe_%drank", []int{1, 2, 4, 8}},
+	} {
+		var entries []coefficient.Entry
+		for _, w := range fam.declared {
+			entries = append(entries, coefficient.Entry{Name: fmt.Sprintf(fam.format, w), Value: 1})
+		}
+		// Collectives swept at 2 and 4 only, as on a rack-scale tray.
+		for _, w := range []int{2, 4} {
+			entries = append(entries, tripleFor("all_reduce", "fp16", "gb300", w, 9.37)...)
+		}
+		c := coeffs(t, entries)
+		for width := 1; width <= 20; width++ {
+			got := snapDeclared(c, fam.format, width)
+			want := fam.declared[0]
+			for _, w := range fam.declared {
+				if w <= width {
+					want = w
+				}
+			}
+			if got != want {
+				t.Errorf("%s at width %d: snapped to %d, want %d", fam.format, width, got, want)
+			}
+		}
 	}
 }
 

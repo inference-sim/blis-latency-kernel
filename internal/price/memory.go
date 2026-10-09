@@ -10,24 +10,40 @@ import "math"
 
 // KVBytesPerToken returns per-rank KV bytes for one token.
 //
-//	2 * max(1, nKV/tp) * headDim * bytes(dtype) * layers
+//	tensors * max(1, nKV/tp) * headDim * bytes(dtype) * layers
 //
-// Three details decide the answer, and getting any of them wrong changes a capacity
-// verdict by a large factor:
+// where tensors is 2 -- a key and a value -- for full and windowed attention, and 1 for
+// latent attention. Four details decide the answer, and getting any of them wrong changes a
+// capacity verdict by a large factor:
 //
 // The head count floors at one. An engine divides KV heads by the tensor-parallel width
 // and replicates rather than splitting a head, so a model with eight KV heads stops
 // dividing at tp 8: at tp 16 each rank still holds one head, and per-rank bytes are the
 // same as at tp 8 rather than half.
 //
-// Latent attention holds one vector per token with no separate value tensor, so its head
-// count is one whatever the config says and no tensor-parallel width reduces it. Callers
-// pass nKV = 1 for those kinds, which the model graph already records.
+// Latent attention holds ONE vector per token, with no separate value: "MLA stores a single
+// latent vector per state; there is no separate V", head_size_v = 0
+// (vllm/v1/kv_cache_interface.py:674-676 at v0.31.0), and a page is
+// (head_size + head_size_v) * dtype per head unless a spec states its own state size
+// (:521-525). So a latent layer is charged one tensor, not two. Its head count is one
+// whatever the config says and no tensor-parallel width reduces it; the model graph records
+// nKV = 1 for those kinds. An earlier form charged a latent layer two tensors -- every MLA
+// and sparse-MLA model's cache at double its size -- against a decode rate blis-registry
+// fitted on the single vector (scripts/fit_attention_mla.py: "kv_bytes = batch * step *
+// 576 * dtype_width").
+//
+// The layouts that state their own size are applied by the kernel where a deployment names
+// them, or where its backend repacks the cache (the packed ds_mla caches; see Kernel.lift and
+// sparseMLABackend in the root package). COVERAGE LIMIT: per-token-head quantization adds two
+// fp32 scales a token (vllm/model_executor/layers/attention/mla_attention.py:1580-1593), so
+// the kernel refuses those cache dtypes rather than size them here; padded pages are sized by
+// their own specs (vllm/v1/kv_cache_interface.py:527-536), and a compressed cache (a
+// compress_ratio layer) holds fewer states than tokens, and neither is modelled.
 //
 // The cache dtype is independent of the weight dtype. A bf16 model with an fp8 cache
 // halves this, which is the difference between a deployment holding one long sequence and
 // two.
-func KVBytesPerToken(nKV, tp, headDim, layers int, dtypeBytes float64) float64 {
+func KVBytesPerToken(nKV, tp, headDim, layers int, dtypeBytes float64, latent bool) float64 {
 	if nKV <= 0 || headDim <= 0 || layers <= 0 || dtypeBytes <= 0 {
 		return 0
 	}
@@ -39,7 +55,11 @@ func KVBytesPerToken(nKV, tp, headDim, layers int, dtypeBytes float64) float64 {
 			perRankHeads = 1
 		}
 	}
-	return 2 * float64(perRankHeads) * float64(headDim) * dtypeBytes * float64(layers)
+	tensors := 2.0
+	if latent {
+		tensors = 1
+	}
+	return tensors * float64(perRankHeads) * float64(headDim) * dtypeBytes * float64(layers)
 }
 
 // PagedBytes rounds a token count up to whole pages before charging for it.

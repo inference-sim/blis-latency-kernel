@@ -2,8 +2,10 @@ package latencykernel
 
 import (
 	"math"
+	"path/filepath"
 	"testing"
 
+	schemas "github.com/inference-sim/blis-schemas"
 	"github.com/inference-sim/blis-schemas/kernel"
 	"github.com/inference-sim/blis-schemas/spec/coefficient"
 	"github.com/inference-sim/blis-schemas/spec/hardware"
@@ -115,10 +117,9 @@ func TestDCPLocalTokensMatchesTheSlowestRankNotTheMean(t *testing.T) {
 	}
 }
 
-// At the engine's default interleave of 1 -- the only value blis-schemas can express --
-// the form must reduce to ceil(context/dcp). Stated separately because it is the case
-// every real deployment takes, and because a reader checking this file against vLLM will
-// look for it.
+// At the engine's default interleave of 1 -- what an unstated size runs at unless NIXL pins
+// it -- the form must reduce to ceil(context/dcp). Stated separately because it is the
+// common case, and because a reader checking this file against vLLM will look for it.
 func TestDCPLocalTokensReducesToCeilingAtTheDefaultInterleave(t *testing.T) {
 	for _, seqLen := range []int{1, 7, 100, 999, 8192, 131072} {
 		for _, dcp := range []int{2, 3, 8} {
@@ -130,10 +131,15 @@ func TestDCPLocalTokensReducesToCeilingAtTheDefaultInterleave(t *testing.T) {
 	}
 	// The documented worked example: striping contributes a bounded additive term, not a
 	// multiplicative one. 1000 tokens over 8 ranks in runs of 32 gives the slowest rank
-	// 128 against a nominal 125 -- under 3%, which is why the default is the only value
-	// worth expressing until the schema carries the field.
+	// 128 against a nominal 125 -- under 3%. Bounded is not the same as small, though: the
+	// term is at most one run per request, so on a context short against the run it
+	// dominates, and 100 tokens over 8 ranks in runs of 64 put 64 on the slowest rank
+	// against a nominal 13.
 	if got := dcpLocalTokens([]int{1000}, 8, 32); got != 128 {
 		t.Errorf("interleave 32 at 1000 tokens over 8 ranks: got %v, want 128", got)
+	}
+	if got := dcpLocalTokens([]int{100}, 8, 64); got != 64 {
+		t.Errorf("interleave 64 at 100 tokens over 8 ranks: got %v, want 64", got)
 	}
 }
 
@@ -167,6 +173,71 @@ func TestDCPLocalTokensShardsSumToTheWholeContextWithNoReplication(t *testing.T)
 	}
 }
 
+// New refuses exactly the context-parallel layouts the engine refuses, and admits their
+// neighbours.
+//
+// vLLM v0.31.0 checks two things at startup (vllm/config/parallel.py:563-578):
+//
+//	pcp == 1:  tp % dcp == 0                  "DCP reuses the TP ranks"
+//	pcp  > 1:  dcp in {1, pcp, tp*pcp}         "disabled, span the PCP axis, or span the
+//	                                            full TP x PCP axis"
+//
+// and its world size is pp * tp * pcp (:899-903), so PCP adds ranks where DCP adds none.
+// blis-schemas v0.2.2 enforces all three, and New runs its field validation, so a kernel is
+// never built for a layout that does not start. Asserted here because it is the contract a
+// caller sweeping layouts relies on: a refused layout is an error, never a price.
+//
+// glm5, a DSA sparse-MLA stack, because PCP with DCP runs only on DSA layers; the plain-MLA
+// refusal is the last row.
+func TestNewRefusesTheContextParallelLayoutsTheEngineRefuses(t *testing.T) {
+	build := func(fixture string, tp, pcp, dcp, nodes int) error {
+		t.Helper()
+		in := fixtureInputs(t, fixture)
+		pool := &in.Deployment.Pools[0]
+		pool.Parallel.TP, pool.Parallel.PCP, pool.Parallel.DCP = tp, pcp, dcp
+		pool.Nodes, in.Scenario.Cluster.Nodes = nodes, nodes
+		if nodes > 1 {
+			in.Scenario.Cluster.Fabric = "ib-400g"
+			f, err := schemas.LoadFabric(filepath.Join(catalogRoot, "networks", "ib-400g.yaml"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			in.Fabric = f
+		}
+		_, err := New(in)
+		return err
+	}
+	for _, c := range []struct {
+		name                string
+		fixture             string
+		tp, pcp, dcp, nodes int
+		admitted            bool
+	}{
+		{"dcp divides tp", dcpSparseFixture, 8, 1, 4, 1, true},
+		{"dcp does not divide tp", dcpSparseFixture, 8, 1, 3, 1, false},
+		{"dcp wider than tp", dcpSparseFixture, 4, 1, 8, 1, false},
+		{"dcp spans the pcp axis", dcpSparseFixture, 8, 2, 2, 2, true},
+		{"dcp spans tp x pcp", dcpSparseFixture, 4, 2, 8, 1, true},
+		{"dcp is neither", dcpSparseFixture, 8, 2, 4, 2, false},
+		{"pcp fits the GPUs", dcpSparseFixture, 4, 2, 1, 1, true},
+		{"pcp needs more GPUs than the pool has", dcpSparseFixture, 8, 2, 1, 1, false},
+		// MLAAttention.supports_pcp_dcp is False (mla_attention.py:440-442, raised at
+		// :684-687); only DeepseekV32Attention opts in.
+		{"plain mla runs pcp alone", dcpMLAFixture, 4, 2, 1, 1, true},
+		{"plain mla refuses pcp with dcp", dcpMLAFixture, 4, 2, 8, 1, false},
+	} {
+		err := build(c.fixture, c.tp, c.pcp, c.dcp, c.nodes)
+		if c.admitted && err != nil {
+			t.Errorf("%s (tp=%d pcp=%d dcp=%d on %d node(s)): refused, but the engine "+
+				"starts it: %v", c.name, c.tp, c.pcp, c.dcp, c.nodes, err)
+		}
+		if !c.admitted && err == nil {
+			t.Errorf("%s (tp=%d pcp=%d dcp=%d on %d node(s)): priced, but the engine "+
+				"refuses it at startup", c.name, c.tp, c.pcp, c.dcp, c.nodes)
+		}
+	}
+}
+
 // A context shorter than the group still occupies a token somewhere. Zero here would make
 // a decode read free, which is the silent-and-cheap direction this repository refuses.
 func TestDCPLocalTokensFloorsAtOneTokenPerRank(t *testing.T) {
@@ -177,7 +248,7 @@ func TestDCPLocalTokensFloorsAtOneTokenPerRank(t *testing.T) {
 	}
 	// Defensive arithmetic, since a library cannot assume its caller validated: a
 	// non-positive width is absent, not a division by zero. blis-schemas owns the
-	// admissibility rules (tp %% dcp == 0, and dcp in {1, pcp, tp*pcp} when pcp is on);
+	// admissibility rules (tp % dcp == 0, and dcp in {1, pcp, tp*pcp} when pcp is on);
 	// this only refuses to divide by zero, following the max(TP, 1) pattern elsewhere.
 	for _, dcp := range []int{0, -4} {
 		if got := dcpLocalTokens([]int{4096}, dcp, 1); got != -1 {
@@ -233,23 +304,37 @@ func TestDCPShardsOnlyTheKindsTheEngineShards(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 // THE ACCEPTANCE CRITERION. Two deployments differing only in dcp must no longer price
-// identically, and widening the shard must keep lowering the decode step.
+// identically, and widening the shard must keep lowering what a rank READS.
+//
+// The read, not the whole step. DCP trades decode time for capacity: each width shards
+// the read further and adds a combine whose payload and floors grow with the group, so the
+// step need not fall monotonically, and at 32 requests on a 32k context it does not -- on
+// deepseek-v3 the step rises from dcp=4 to dcp=8 once the log-sum-exp all-gather, the
+// third collective vLLM launches per layer (vllm/v1/attention/ops/dcp.py:458 at v0.31.0),
+// is priced. An earlier form of this test required the step to fall at every width, which
+// held only because that collective was left out.
 //
 // Four widths rather than two, deliberately: a mutation replacing the divisor with any
 // constant passes a two-point check. The pooled-scan commit found the same thing.
-func TestDCPLowersADecodeStepAndWideningItLowersFurther(t *testing.T) {
+func TestDCPLowersTheDecodeReadAndWideningItLowersFurther(t *testing.T) {
 	for _, fixture := range []string{dcpMLAFixture, dcpSparseFixture} {
 		t.Run(fixture, func(t *testing.T) {
 			batch := decodeBatch(32, 1, 32768)
-			var prev float64
+			var prevRead, prevStep float64
 			for i, dcp := range []int{1, 2, 4, 8} {
-				got := dcpKernel(t, fixture, dcp).StepTime(batch).NoOverlap.Seconds()
-				if i > 0 && got >= prev {
-					t.Errorf("dcp=%d priced %.6f ms, not below the %.6f ms of the "+
+				est := dcpKernel(t, fixture, dcp).StepTime(batch)
+				read := est.PerResource[kernel.ResourceHBM].Seconds()
+				step := est.NoOverlap.Seconds()
+				if i > 0 && read >= prevRead {
+					t.Errorf("dcp=%d read %.6f ms of HBM, not below the %.6f ms of the "+
 						"previous width: a wider shard must read less",
-						dcp, got*1e3, prev*1e3)
+						dcp, read*1e3, prevRead*1e3)
 				}
-				prev = got
+				if i > 0 && step == prevStep {
+					t.Errorf("dcp=%d priced the step identically to the previous width",
+						dcp)
+				}
+				prevRead, prevStep = read, step
 			}
 		})
 	}
@@ -382,18 +467,17 @@ func TestDCPShardsEachRequestSeparatelyAtTheCallSite(t *testing.T) {
 	}
 }
 
-// The pricer must shard at the engine's DEFAULT interleave of one token.
+// With the interleave unstated and no NIXL connector, the pricer must shard at the engine's
+// DEFAULT of one token.
 //
 // cp_kv_cache_interleave_size defaults to 1 (vllm/config/parallel.py:393 at v0.31.0):
 // "Interleave_size=1: token-level alignment, where token `i` is stored on dcp_rank
 // `i % dcp_world_size`." At that value the slowest rank holds exactly ceil(context/dcp).
 //
-// blis-schemas carries no field for the interleave, so the default is the only value a
-// deployment can express -- which makes it the value a reviewer checking this kernel
-// against vLLM will compute. Pinned as an exact integer per request, because a larger run
-// shifts the figure by up to one run per request and nothing in the suite would otherwise
-// notice: at dcp=4 a 1,001-token context reads 251 positions at the default and 256 at a
-// block-aligned 16, and both look equally plausible in a step time.
+// Pinned as an exact integer per request, because a larger run shifts the figure by up to
+// one run per request and a step time would not show it: at dcp=4 a 1,001-token context
+// reads 251 positions at the default and 256 at a block-aligned 16, and both look equally
+// plausible. The stated and NIXL-pinned cases are in dcp_knobs_test.go.
 func TestDCPShardsAtTheEngineDefaultTokenInterleave(t *testing.T) {
 	k := dcpKernel(t, dcpMLAFixture, 4)
 	var full *price.PlannedLayer
@@ -643,21 +727,21 @@ func TestDCPGeometryReachesThePricer(t *testing.T) {
 // attention output and the group must combine them. That combine is what DCP trades for
 // the capacity it buys, and omitting it would make DCP look free in both directions.
 //
-// THE PAYLOAD IS PER DECODE REQUEST, one query row per decoding sequence. A prefill token
-// takes no part in a decode combine, so the charge must be independent of how many prefill
-// tokens share the step.
+// THE PAYLOAD IS PER DECODE TOKEN, one query row per token the decode regime runs (the MQA
+// rows, num_mqa_tokens). A prefill token takes no part in a decode combine, so the charge
+// must be independent of how many prefill tokens share the step; and a speculative decode
+// verifying two tokens moves two rows.
 //
-// A pure decode batch cannot show that, because there the request count and the token
-// count are the same number -- which is why the discriminating case is a MIXED batch: two
-// decode rows beside one 2,048-token prefill, so the step carries 2,050 tokens and 2
-// decode requests. The combine charged on either basis differs by three orders of
-// magnitude, and the two batches below are built to carry the same request count and
-// wildly different token counts.
-func TestDCPAddsACombineCollectiveSizedByDecodeRequests(t *testing.T) {
+// A pure decode batch of one-token requests cannot show either, because there the request
+// count, the decode-token count and the step's token count are one number -- which is why
+// the discriminating cases are a MIXED batch (two decode rows beside a 2,048-token prefill)
+// and a SPECULATIVE one (two requests of two tokens against four requests of one).
+func TestDCPAddsACombineCollectiveSizedByDecodeTokens(t *testing.T) {
 	link := func(dcp int, b kernel.Batch) float64 {
 		return dcpKernel(t, dcpMLAFixture, dcp).StepTime(b).
 			PerResource[kernel.ResourceNVLink].Seconds()
 	}
+	added := func(b kernel.Batch) float64 { return link(2, b) - link(1, b) }
 	// Two decode rows, and the same two beside a prefill chunk.
 	pure := decodeBatch(2, 1, 32768)
 	mixed := kernel.Batch{DecodeThreshold: 8, Reqs: []kernel.ReqShape{
@@ -678,36 +762,50 @@ func TestDCPAddsACombineCollectiveSizedByDecodeRequests(t *testing.T) {
 
 	// And it must be the SAME charge in both batches, since both hold two decode rows.
 	// Charging the step's token count would make the mixed figure 1,025 times larger.
-	addedPure := link(2, pure) - link(1, pure)
-	addedMixed := link(2, mixed) - link(1, mixed)
-	if math.Abs(addedMixed-addedPure) > 1e-9 {
+	// Compared to 2ns: each resource total is reported as a time.Duration, so a difference
+	// of two totals carries up to a nanosecond of truncation from each.
+	addedPure, addedMixed := added(pure), added(mixed)
+	if math.Abs(addedMixed-addedPure) > 2e-9 {
 		t.Errorf("the combine cost %.6f ms beside a prefill chunk against %.6f ms "+
-			"without one, on the same two decode requests; a prefill token does not "+
-			"join a decode combine", addedMixed*1e3, addedPure*1e3)
+			"without one, on the same two decode rows; a prefill token does not join a "+
+			"decode combine", addedMixed*1e3, addedPure*1e3)
+	}
+
+	// Rows are TOKENS. Two speculative requests verifying two tokens each run four query
+	// rows, exactly as four one-token decodes do, and the step's token count is four in
+	// both, so every other collective is the same too.
+	spec := decodeBatch(2, 2, 32768)
+	four := decodeBatch(4, 1, 32768)
+	if a, b := added(spec), added(four); math.Abs(a-b) > 2e-9 {
+		t.Errorf("two requests of two decode tokens added %.6f ms of combine against "+
+			"%.6f ms for four requests of one; a combine moves one row per decode token",
+			a*1e3, b*1e3)
 	}
 
 	// Doubling the decode rows must double the BYTES, which is a weaker statement than
-	// doubling the charge: a collective is floor + bytes/rate, and each of the two
-	// launches pays its floor however small the payload. At two decode requests the
-	// floors are 10.24us of the 11.75us per layer, so the total grows by about 13% while
-	// the byte term grows by 100%. Subtracting the floors isolates the half that scales.
+	// doubling the charge: a collective is floor + bytes/rate, and each of the three
+	// launches pays its floor however small the payload. Subtracting the floors isolates
+	// the half that scales. ag_rs launches a query all-gather, a log-sum-exp all-gather and
+	// an output reduce-scatter, so the floors are two all-gathers and one reduce-scatter.
 	//
 	// Asserting the total would have been wrong, and was: an earlier draft of this test
 	// required the total to double and failed against correct code.
 	at2 := dcpKernel(t, dcpMLAFixture, 2)
 	floors := float64(at2.plan.TotalLayers) *
-		(at2.collectiveFloors[collKey{Op: model.OpAllGather, Group: price.GroupDCP}].Seconds() +
+		(2*at2.collectiveFloors[collKey{Op: model.OpAllGather, Group: price.GroupDCP}].Seconds() +
 			at2.collectiveFloors[collKey{Op: model.OpReduceScatter, Group: price.GroupDCP}].Seconds())
-	four := decodeBatch(4, 1, 32768)
 	bytesAtTwo := addedPure - floors
-	bytesAtFour := (link(2, four) - link(1, four)) - floors
+	bytesAtFour := added(four) - floors
 	if bytesAtTwo <= 0 {
 		t.Fatalf("the combine's byte term is %.6f ms, not positive above its floors",
 			bytesAtTwo*1e3)
 	}
-	if ratio := bytesAtFour / bytesAtTwo; math.Abs(ratio-2) > 1e-6 {
-		t.Errorf("doubling the decode requests scaled the combine's byte term by %.6f, "+
-			"want exactly 2: one query row crosses per decoding sequence", ratio)
+	// Exactly 2 up to the reporting resolution: each step's resource totals are whole
+	// nanoseconds, and each byte term is a difference of two of them less a floor sum, so
+	// it carries a few nanoseconds of truncation.
+	if diff := bytesAtFour - 2*bytesAtTwo; math.Abs(diff) > 6e-9 {
+		t.Errorf("doubling the decode rows scaled the combine's byte term by %.6f, want "+
+			"exactly 2: one query row crosses per decode token", bytesAtFour/bytesAtTwo)
 	}
 
 	// A prefill-only step must carry no DCP combine at all.
@@ -761,9 +859,9 @@ func TestTheDCPCollectivesArePricedAtTheirOwnWidthNotTheTensorParallelOne(t *tes
 	// precise failure the composite key exists to prevent.
 	//
 	// So price the combine and compare it against the floors it should have been built
-	// from. Two collectives per layer, each paying its own floor, which is the dominant
-	// term at this payload: 11.75us per layer measured against the 2-rank pair (5.08 +
-	// 5.16 = 10.24us of floor) and 22.36us against the 8-rank pair -- a 1.9x gap, the
+	// from. Three collectives per layer under ag_rs -- two all-gathers and a
+	// reduce-scatter -- each paying its own floor, which is the dominant term at this
+	// payload. The 2-rank and 8-rank floor triples differ by about 2x on this part, the
 	// same ratio that makes borrowing a width wrong in the first place.
 	batch := decodeBatch(2, 1, 32768)
 	link := func(width int) float64 {
@@ -771,20 +869,20 @@ func TestTheDCPCollectivesArePricedAtTheirOwnWidthNotTheTensorParallelOne(t *tes
 			PerResource[kernel.ResourceNVLink].Seconds()
 	}
 	perLayer := (link(2) - link(1)) / float64(k.plan.TotalLayers)
-	floorPair := dcp.Seconds() + k.collectiveFloors[collKey{
+	floorTriple := 2*dcp.Seconds() + k.collectiveFloors[collKey{
 		Op: model.OpReduceScatter, Group: price.GroupDCP}].Seconds()
-	tpPair := tp.Seconds() + k.collectiveFloors[collKey{
+	tpTriple := 2*tp.Seconds() + k.collectiveFloors[collKey{
 		Op: model.OpReduceScatter, Group: price.GroupTP}].Seconds()
-	if perLayer < floorPair {
-		t.Errorf("the combine costs %.4fus per layer, below the %.4fus of floor its two "+
-			"collectives must each pay", perLayer*1e6, floorPair*1e6)
+	if perLayer < floorTriple {
+		t.Errorf("the combine costs %.4fus per layer, below the %.4fus of floor its three "+
+			"collectives must each pay", perLayer*1e6, floorTriple*1e6)
 	}
-	// The decisive bound: it must sit nearer the narrow pair than the wide one.
-	if math.Abs(perLayer-floorPair) >= math.Abs(perLayer-tpPair) {
-		t.Errorf("the combine costs %.4fus per layer, nearer the 8-rank floor pair "+
+	// The decisive bound: it must sit nearer the narrow triple than the wide one.
+	if math.Abs(perLayer-floorTriple) >= math.Abs(perLayer-tpTriple) {
+		t.Errorf("the combine costs %.4fus per layer, nearer the 8-rank floor triple "+
 			"%.4fus than the 2-rank %.4fus; the decode-context collectives are being "+
 			"priced at the tensor-parallel width",
-			perLayer*1e6, tpPair*1e6, floorPair*1e6)
+			perLayer*1e6, tpTriple*1e6, floorTriple*1e6)
 	}
 }
 
@@ -880,31 +978,38 @@ func TestDecodeContextParallelWidthComesFromTheResolvedLayout(t *testing.T) {
 	}
 }
 
-// THE DEPLOYMENT THIS WAS WRITTEN FOR, priced as four independent arms.
+// THE DEPLOYMENT THIS WAS WRITTEN FOR, priced arm by arm.
 //
 // The GLM-5.3-Flash canary runs tp=1 with --prefill-context-parallel-size 8,
 // --decode-context-parallel-size 8, --dcp-comm-backend ag_rs and a 64-token KV block. That
 // shape is why the two axes had to be separated rather than collapsed: at tp=1 there is no
 // tensor-parallel width to divide anything, so before this change NOTHING in the layout
-// moved the price of that deployment at all.
+// moved the price of that deployment at all. glm5 stands in for it: the pinned catalog
+// predates GLM-5.3-Flash, and both are sparse-MLA stacks.
 //
-// It also evaluates the claim the published serving analysis makes -- that `-dcp 8` is
-// "close to free for an MLA model" -- which this kernel previously could not assess in
-// either direction. On this fixture it comes out supported: the decode step rises about
-// 1.4% while the cache a rank holds falls eightfold.
+// THREE ARMS, NOT FOUR. A DCP-only arm at tp=1 is a layout the engine refuses: with PCP off
+// "DCP reuses the TP ranks", so tp must be divisible by dcp (vllm/config/parallel.py:566-569
+// at v0.31.0), and blis-schemas v0.2.2 now enforces that too. An earlier form of this test
+// priced tp=1, dcp=8 anyway, so its DCP-only assertions described a deployment that does
+// not start. DCP alone is exercised at tp=8 by the tests above, where it is admissible.
 //
-// Asserted as a matrix of non-interference rather than as four numbers: PCP must move
-// prefill and only prefill, DCP must move decode and capacity and only those, and the
-// combined arm must show both effects.
+// The backend is STATED, as the canary states it. GLM's model hook would otherwise choose
+// a2a with a replicated query projection (models/config.py:43-50), which is a different
+// set of collectives; stating ag_rs is what the measured deployment did.
+//
+// Asserted as a matrix of non-interference rather than as figures: PCP must move prefill
+// and only prefill, and adding DCP to it must move decode and capacity and not prefill.
 func TestTheContextParallelArmsOfTheCanaryDeploymentPriceIndependently(t *testing.T) {
 	build := func(pcp, dcp int) *Kernel {
 		t.Helper()
 		in := fixtureInputs(t, dcpSparseFixture)
-		in.Deployment.Pools[0].Parallel.TP = 1
-		in.Deployment.Pools[0].Parallel.DP = 1
-		in.Deployment.Pools[0].Parallel.PCP = pcp
-		in.Deployment.Pools[0].Parallel.DCP = dcp
-		in.Deployment.Pools[0].Engine.BlockSize = 64
+		pool := &in.Deployment.Pools[0]
+		pool.Parallel.TP = 1
+		pool.Parallel.DP = 1
+		pool.Parallel.PCP = pcp
+		pool.Parallel.DCP = dcp
+		pool.Engine.BlockSize = 64
+		pool.Engine.DCPCommBackend = "ag_rs"
 		k, err := New(in)
 		if err != nil {
 			t.Fatalf("tp=1 pcp=%d dcp=%d: %v", pcp, dcp, err)
@@ -916,7 +1021,6 @@ func TestTheContextParallelArmsOfTheCanaryDeploymentPriceIndependently(t *testin
 
 	base := build(1, 1)
 	pcpOnly := build(8, 1)
-	dcpOnly := build(1, 8)
 	both := build(8, 8)
 
 	// PCP moves prefill and nothing else.
@@ -933,38 +1037,19 @@ func TestTheContextParallelArmsOfTheCanaryDeploymentPriceIndependently(t *testin
 		t.Errorf("pcp=8 moved the cache a rank holds to %d from %d", got, want)
 	}
 
-	// DCP moves decode and capacity, and not prefill.
-	if dcpOnly.StepTime(decode).NoOverlap <= base.StepTime(decode).NoOverlap {
-		t.Error("dcp=8 did not raise the decode step; the combine it adds is a real cost")
+	// Adding DCP moves decode and capacity, and not an unchunked prefill: a prefill with no
+	// computed prefix has no sharded context to read.
+	if both.StepTime(decode).NoOverlap == pcpOnly.StepTime(decode).NoOverlap {
+		t.Error("dcp=8 left the decode step where pcp alone put it; the shard and the " +
+			"combine it adds both change a decode step")
 	}
-	if got, want := dcpOnly.SequenceVariableBytes(32768),
-		base.SequenceVariableBytes(32768)/8; got != want {
+	if got, want := both.SequenceVariableBytes(32768),
+		pcpOnly.SequenceVariableBytes(32768)/8; got != want {
 		t.Errorf("dcp=8 holds %d bytes, want %d (an eighth of the unsharded %d)",
-			got, want, base.SequenceVariableBytes(32768))
+			got, want, pcpOnly.SequenceVariableBytes(32768))
 	}
-	if got, want := dcpOnly.StepTime(prefill).NoOverlap,
-		base.StepTime(prefill).NoOverlap; got != want {
-		t.Errorf("dcp=8 moved the prefill step to %v from %v", got, want)
-	}
-
-	// Together, both effects and no third one.
 	if got, want := both.StepTime(prefill).NoOverlap,
 		pcpOnly.StepTime(prefill).NoOverlap; got != want {
-		t.Errorf("the combined arm priced prefill at %v against %v for pcp alone", got, want)
-	}
-	if got, want := both.StepTime(decode).NoOverlap,
-		dcpOnly.StepTime(decode).NoOverlap; got != want {
-		t.Errorf("the combined arm priced decode at %v against %v for dcp alone", got, want)
-	}
-
-	// The claim worth being able to state: the decode cost of sharding is small against
-	// the capacity it buys. Bounded loosely, because the figure is a property of the
-	// registry's collective fits rather than of this kernel's composition.
-	cost := dcpOnly.StepTime(decode).NoOverlap.Seconds() /
-		base.StepTime(decode).NoOverlap.Seconds()
-	if cost > 1.25 {
-		t.Errorf("sharding the cache eightfold cost %.1f%% of decode step time; the "+
-			"published analysis calls this close to free, and a cost this large would "+
-			"contradict it rather than quantify it", (cost-1)*100)
+		t.Errorf("dcp=8 moved an unchunked prefill step to %v from %v", got, want)
 	}
 }

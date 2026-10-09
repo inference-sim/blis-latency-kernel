@@ -2,6 +2,7 @@ package latencykernel
 
 import (
 	"math"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -43,67 +44,40 @@ func TestFixedBytesAccountsForTheWholeModelAcrossRanks(t *testing.T) {
 	}
 }
 
-func TestWiderExpertParallelismHoldsFewerWeightsPerRank(t *testing.T) {
-	narrowK := fixture(t, "minimax-m25-h200-ep8.yaml")
-	wideK := fixture(t, "minimax-m25-h200-ep72.yaml")
-	narrow, wide := narrowK.FixedBytes(), wideK.FixedBytes()
-	if wide.Weights >= narrow.Weights {
-		t.Errorf("EP=72 holds %d bytes per rank against EP=16's %d; widening the "+
-			"expert group must shrink the shard", wide.Weights, narrow.Weights)
-	}
-	// The ratio, not just the direction. This model is 99% expert parameters, so a rank's
-	// weights are dominated by its expert shard: 14 experts at EP=16 against 3 at EP=72
-	// is a 4.67x reduction, and the dense remainder only softens it slightly. A test
-	// that checked the direction alone would pass while the expert term was not sharded
-	// at all, because the dense terms differ between these two scenarios anyway — which
-	// is exactly what a mutation of the sharding term proved.
-	// The bound is DERIVED from the two layouts rather than written as a literal, so a
-	// refit of any coefficient, or a change to the expert count, moves the expectation
-	// with the model instead of breaking the test. A hardcoded range here would be
-	// asserting what the catalog contains today; what the kernel owes is that the ratio
-	// tracks the local expert shards.
-	//
-	// Bracketed by the two shard ratios the layouts themselves imply, rather than by a
-	// literal range. An expert count that does not divide the width leaves some ranks
-	// holding one more than the rest, so "experts per rank" is not a single number: the
-	// floor and the busiest rank differ, and a per-rank byte figure sits between them.
-	// Deriving both ends means a refit, a change to the expert count, or added EPLB
-	// redundancy moves the expectation with the model instead of breaking the test.
-	loNarrow, hiNarrow := expertShardBounds(t, narrowK)
-	loWide, hiWide := expertShardBounds(t, wideK)
-	// Widest and narrowest ratios consistent with those brackets.
-	lo := float64(loNarrow) / float64(hiWide)
-	hi := float64(hiNarrow) / float64(loWide)
-
-	ratio := float64(narrow.Weights) / float64(wide.Weights)
-	if ratio < lo || ratio > hi {
-		t.Errorf("EP=%d holds %.2fx the weights of EP=%d, outside the %.2fx-%.2fx the "+
-			"expert shards imply (%d-%d experts against %d-%d). For a model that is "+
-			"almost all expert parameters the weights ratio tracks the shard ratio, so a "+
-			"figure outside this means the expert term is not sharded by EP",
-			narrowK.layout.ExpertWidth, ratio, wideK.layout.ExpertWidth, lo, hi,
-			loNarrow, hiNarrow, loWide, hiWide)
-	}
-}
-
-// expertShardBounds returns how many experts the least- and most-loaded ranks hold.
+// WIDER EXPERT PARALLELISM HOLDS FEWER WEIGHTS PER RANK, by exactly the busiest rank's
+// share. The three minimax-m2.5 layouts all run tp=8, so a rank's dense weights are the same
+// on each and its weights are D + n*E, with n the experts its BUSIEST rank holds: vLLM gives
+// the first experts % width ranks one more (vllm/model_executor/layers/fused_moe/
+// expert_map_manager.py:67-69 at v0.31.0), and that rank's memory fills first. 256 experts
+// over 8, 16 and 72 ranks is 32, 16 and ceil(256/72) = 4. So with D and E unknown,
 //
-// Read from the resolved layout and the model's own expert count rather than restated as
-// numbers, so it follows a catalog change instead of contradicting one. The two differ
-// whenever the count does not divide the expert-parallel width -- 256 experts over 72 ranks
-// is 3 on most and 4 on forty of them -- which is why a byte figure brackets rather than
-// equals a single shard.
-func expertShardBounds(t *testing.T, k *Kernel) (lo, hi int) {
-	t.Helper()
-	if k.totalExperts <= 0 {
-		t.Fatal("no experts resolved; this fixture cannot test expert sharding")
+//	(W8 - W72) / (W8 - W16) = (32 - 4) / (32 - 16)
+//
+// exactly. Pricing the lighter rank (3 experts) gives 29/16 instead, and an expert term not
+// sharded by EP gives 0/0.
+func TestWiderExpertParallelismHoldsFewerWeightsPerRank(t *testing.T) {
+	weights := func(f string) float64 {
+		t.Helper()
+		return float64(fixture(t, f).FixedBytes().Weights)
 	}
-	base, withExtra, _, _ := price.ExpertsPerRank(k.totalExperts, k.layout.ExpertWidth)
-	if base == 0 {
-		t.Fatalf("EP=%d exceeds the %d experts, so some ranks hold none",
-			k.layout.ExpertWidth, k.totalExperts)
+	w8, w16, w72 := weights("minimax-m25-h200-ep8.yaml"),
+		weights("minimax-m25-h200-ep16.yaml"), weights("minimax-m25-h200-ep72.yaml")
+	in := fixtureInputs(t, "minimax-m25-h200-ep8.yaml")
+	experts := 0
+	for _, lk := range in.Model.LayerKinds {
+		for _, n := range lk.Nodes {
+			if n.Op == model.OpGroupedGEMM {
+				experts = max(experts, n.Experts)
+			}
+		}
 	}
-	return base, withExtra
+	busiest := func(width int) float64 { return float64((experts + width - 1) / width) }
+	want := (busiest(8) - busiest(72)) / (busiest(8) - busiest(16))
+	if got := (w8 - w72) / (w8 - w16); math.Abs(got-want) > 1e-6 {
+		t.Errorf("(W8 - W72)/(W8 - W16) = %.6f, want %.6f: per-rank weights must fall by "+
+			"the busiest rank's expert count (%v, %v, %v experts at ep 8, 16, 72)",
+			got, want, busiest(8), busiest(16), busiest(72))
+	}
 }
 
 // Without expert parallelism every rank holds every expert as a TENSOR SLICE, so a rank's
@@ -303,18 +277,52 @@ func TestOverlapNeverExceedsNoOverlap(t *testing.T) {
 
 func TestStepTimeIsPureAndSafeUnderConcurrency(t *testing.T) {
 	// Purity is the interface's central claim: it is what lets a simulator call this at
-	// any simulated instant from any goroutine. Repeated calls must agree exactly.
-	k := fixture(t, "minimax-m25-h200-ep8.yaml")
-	b := decodeBatch(37, 2, 4096)
-	want := k.StepTime(b)
-	results := make(chan time.Duration, 64)
-	for i := 0; i < 64; i++ {
-		go func() { results <- k.StepTime(b).Overlap }()
+	// any simulated instant from any goroutine. Repeated calls must agree exactly, and
+	// concurrent calls on one kernel -- every method, on batches that reach every pricing
+	// path -- must agree with the serial ones. CI runs this test under -race, which is the
+	// only place this repository starts goroutines, so it is also the race check.
+	kernels := []*Kernel{
+		fixture(t, "minimax-m25-h200-ep8.yaml"),
+		mustDCPVariant(t, dcpMLAFixture, 8, 1, 2, nil),
+		mustDCPVariant(t, dcpSparseFixture, 2, 4, 4, agRS),
 	}
-	for i := 0; i < 64; i++ {
-		if got := <-results; got != want.Overlap {
-			t.Fatalf("concurrent call gave %v, the serial call gave %v",
-				got, want.Overlap)
+	decode := decodeBatch(37, 2, 4096)
+	batches := []kernel.Batch{
+		decode,
+		decodeBatch(1, 3000, 3000),
+		{DecodeThreshold: 8, Reqs: append(append([]kernel.ReqShape{}, decode.Reqs...),
+			kernel.ReqShape{Scheduled: 512, Computed: 2048, PromptLen: 2560})},
+		{},
+	}
+	type answer struct {
+		step     kernel.StepEstimate
+		fixed    kernel.MemoryBreakdown
+		variable int64
+		origins  int
+		// Compared by value with reflect.DeepEqual, which follows pointers: Deployment
+		// returns a fresh deep copy on every call, by design, so its pointers differ.
+		resolved, deployment any
+	}
+	ask := func(k *Kernel, b kernel.Batch) answer {
+		return answer{
+			step: k.StepTime(b), fixed: k.FixedBytes(),
+			variable: k.SequenceVariableBytes(4096), origins: len(k.Provenance()),
+			resolved: k.Resolved(), deployment: k.Deployment(),
+		}
+	}
+	for ki, k := range kernels {
+		for bi, b := range batches {
+			want := ask(k, b)
+			results := make(chan answer, 16)
+			for i := 0; i < 16; i++ {
+				go func() { results <- ask(k, b) }()
+			}
+			for i := 0; i < 16; i++ {
+				if got := <-results; !reflect.DeepEqual(got, want) {
+					t.Fatalf("kernel %d, batch %d: a concurrent call gave %+v, the serial "+
+						"call %+v", ki, bi, got, want)
+				}
+			}
 		}
 	}
 }
@@ -1457,19 +1465,24 @@ func TestTheRoutedExpertTermComposesAsASumNotAMax(t *testing.T) {
 func TestTheRoutedHalvesAreChargedToTheirOwnResources(t *testing.T) {
 	narrow := fixture(t, "minimax-m25-h200-ep8.yaml")
 	wide := fixture(t, "minimax-m25-h200-ep72.yaml")
-	b := decodeBatch(32, 2, 8192)
 
-	// Widening the expert group gives each rank fewer experts, so both routed halves fall.
-	nSM := narrow.StepTime(b).PerResource[kernel.ResourceSM]
-	wSM := wide.StepTime(b).PerResource[kernel.ResourceSM]
-	nHBM := narrow.StepTime(b).PerResource[kernel.ResourceHBM]
-	wHBM := wide.StepTime(b).PerResource[kernel.ResourceHBM]
+	// Widening the expert group gives each rank fewer experts, so at the SAME global load
+	// both routed halves fall. The load is held: ep8 is one replica and ep72 nine, and a
+	// batch is one replica's, so 72 decodes on the first against 8 on each of the second.
+	// An earlier form gave both 32 a replica, which is nine times the load at ep72; per rank
+	// that is 9 x 4 of 256 experts' work against 1 x 32, and it fell only while the lighter
+	// rank (3 experts) was the one priced.
+	nb, wb := decodeBatch(72, 2, 8192), decodeBatch(8, 2, 8192)
+	nSM := narrow.StepTime(nb).PerResource[kernel.ResourceSM]
+	wSM := wide.StepTime(wb).PerResource[kernel.ResourceSM]
+	nHBM := narrow.StepTime(nb).PerResource[kernel.ResourceHBM]
+	wHBM := wide.StepTime(wb).PerResource[kernel.ResourceHBM]
 	if wSM >= nSM {
-		t.Errorf("SM at EP=72 (%v) did not fall below EP=16 (%v); the routed compute half is "+
+		t.Errorf("SM at EP=72 (%v) did not fall below EP=8 (%v); the routed compute half is "+
 			"not being charged to SM", wSM, nSM)
 	}
 	if wHBM >= nHBM {
-		t.Errorf("HBM at EP=72 (%v) did not fall below EP=16 (%v); the routed memory half is "+
+		t.Errorf("HBM at EP=72 (%v) did not fall below EP=8 (%v); the routed memory half is "+
 			"not being charged to HBM", wHBM, nHBM)
 	}
 }
@@ -1540,7 +1553,7 @@ func TestChunkedPrefillChargesTheWholePrefix(t *testing.T) {
 // test here pinning that division. The reasoning is at the call site in kernel.go and the
 // measurements are in docs/perf-model/hypothesis-log.md: the division is correct against
 // vLLM's own sharding (`intermediate_size_per_partition = intermediate_size // tp_size`,
-// vllm/model_executor/layers/fused_moe/config.py:1350), it improves per-step accuracy on
+// vllm/model_executor/layers/fused_moe/config.py:1321-1323), it improves per-step accuracy on
 // FPM from 27.45% to 23.03% mape over 9,161 held-out steps, and it costs 3.57 points of
 // TPOT mape and 12.29 of TTFT mape end to end because the over-charge offsets a term that
 // has not been identified.

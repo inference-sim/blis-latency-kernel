@@ -10,18 +10,20 @@ import (
 )
 
 // An MLA layer and a full-attention layer are different kernels and must not price
-// identically. The byte count was already right -- blis-catalog declares an MLA node as
-// `n_kv: 1, d_h: 576`, so NumKVHeads*HeadDim is the latent width kv_lora_rank +
-// qk_rope_head_dim and kvGeometry needs no special case -- but the RATE was not: an MLA
-// decode floor is several times a GQA decode's (51.5-89.5us against 9.5-19.5us) because its
-// per-call setup reads a latent cache, and it sustains a different fraction of peak
-// (0.61-0.80 against 0.52-0.88).
+// identically. The WIDTH comes from the graph -- blis-catalog declares an MLA node with
+// `n_kv: 1` and d_h the latent width (576 for the DeepSeek-V3 family and Kimi, 512 for
+// DeepSeek-V4) -- and KVBytesPerToken charges it once per token, a latent cache having no
+// value tensor. The RATE is what differs: an MLA decode sustains a different fraction of
+// peak (0.61-0.80 against 0.52-0.88). Its FLOOR does not: blis-registry's
+// attention_decode_floor_mla is the part's own attention floor reused, and the larger
+// module-derived floors were measured and rejected (see the attentionByKind comment in
+// lift).
 //
 // DeepSeek-V3 is the case that matters: every attention layer in its stack is `kind: mla`,
 // so before this dispatch existed its whole attention term used the full-attention pair.
-// Ten catalog models declare an mla or sparse_mla layer, and two of them (deepseek-v4-pro,
-// kimi-k3) appear in both the FPM dataset and the InferenceX corpus, so this is on the
-// scored path rather than hypothetical.
+// Nine models in the pinned catalog declare an mla or sparse_mla layer, and two of them
+// (deepseek-v4-pro, kimi-k3) appear in both the FPM dataset and the InferenceX corpus, so
+// this is on the scored path rather than hypothetical.
 //
 // Asserts BEHAVIOUR rather than a value: step time must move when the per-kind entry is
 // removed. Checking that the coefficient resolves is what let a mutation deleting the SWA

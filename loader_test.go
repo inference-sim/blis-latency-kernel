@@ -13,9 +13,9 @@ import (
 	"github.com/inference-sim/blis-schemas/spec/hardware"
 )
 
-// The catalog and registry are pinned copies committed under testdata, so these tests
-// read real artifacts without depending on a checkout outside this repository. See
-// testdata/VENDORED.md for what is vendored, from which upstream commit, and why.
+// The catalog and registry are pinned copies under testdata, fetched by
+// scripts/fetch-testdata.sh at the commits testdata/upstream.lock names, so these tests read
+// real artifacts at a known version. See testdata/README.md for what is fetched and why.
 //
 // They are relative paths because a Go test runs with its own package directory as the
 // working directory, and this package is the repository root. Overridable so a working

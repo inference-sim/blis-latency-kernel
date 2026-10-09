@@ -1,0 +1,57 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: vet and test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      # The upstream catalog and registry, at the commits testdata/upstream.lock pins. Keyed
+      # on the lock, so a bump fetches afresh; the script re-checks each stamp regardless.
+      - uses: actions/cache@v6
+        with:
+          path: |
+            testdata/catalog
+            testdata/registry
+          key: testdata-${{ hashFiles('testdata/upstream.lock') }}
+      - name: Fetch the pinned upstreams
+        run: scripts/fetch-testdata.sh
+      - name: gofmt
+        run: |
+          unformatted="$(gofmt -l .)"
+          if [ -n "$unformatted" ]; then
+            echo "not gofmt-formatted:"; echo "$unformatted"; exit 1
+          fi
+      - name: go vet
+        run: go vet ./...
+      # The scoring suite needs measurement corpora this repository does not distribute
+      # (testdata/README.md), so it is compiled and vetted here but not run.
+      - name: go vet (scoring suite)
+        run: go vet -tags scoring ./...
+      - name: go test
+        run: go test -count=1 -timeout 30m ./...
+      # The race detector reports only races between goroutines, and the one place this
+      # repository starts any is the concurrency test: the interface promises a kernel is
+      # safe to call from many goroutines, and that test calls every method concurrently
+      # on batches that reach each pricing path. Under -race it takes seconds; the whole
+      # suite under -race takes over ten minutes to instrument code that is single-threaded.
+      - name: go test -race (the concurrency contract)
+        run: go test -race -count=1 -run TestStepTimeIsPureAndSafeUnderConcurrency .
+      - name: Python script tests that need no corpus
+        run: python3 scripts/test_extract_inferencex_engine_settings.py

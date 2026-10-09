@@ -35,7 +35,9 @@ type Plan struct {
 	// Head is the final norm and language-model head, priced once per step rather than
 	// per layer.
 	Head PlannedLayer
-	// TotalLayers is the expanded layer count, kept for reporting rather than for pricing.
+	// TotalLayers is the expanded layer count: what eager launches are counted per, and the
+	// base of PiecewiseSegments. Not the divisor for one layer's share of the KV cache,
+	// which is the KV-holding count (the kernel's kvLayers).
 	TotalLayers int
 
 	// TotalKernels is the launch count for one step: every layer's kernels times its
@@ -124,6 +126,13 @@ type PlannedLayer struct {
 	// produce that curve at any rate below datasheet peak.
 	AttnIndexTopK     int
 	AttnCompressRatio int
+
+	// AttnKVLoRARank is a latent layer's compressed KV width, zero for any other kind.
+	// It is carried for the decode-context combine, whose OUTPUT crosses at this width
+	// while its query crosses at the full head width: MLADCPManager is built with
+	// query_head_dim = kv_lora_rank + qk_rope_head_dim and output_head_dim = kv_lora_rank
+	// (vllm/model_executor/layers/attention/mla_attention.py:697-708 at v0.31.0).
+	AttnKVLoRARank int
 
 	// Attentions is every attention kernel this layer launches, in graph order.
 	//
@@ -235,6 +244,53 @@ type PlannedCollective struct {
 type Emitter interface {
 	Emits(model.EmitCondition) bool
 	Recognizes(model.EmitCondition) bool
+}
+
+// ActivationBytes is the width an activation crosses a collective or a normalization at:
+// the model's compute dtype, bf16, whatever format the weights are served in. vLLM's
+// quantized linears quantize their input transiently and return out_dtype=x.dtype
+// (vllm/model_executor/kernels/linear/scaled_mm/ScaledMMLinearKernel.py:142-157 and
+// cutlass.py:147,153 at v0.31.0), so the hidden state between projections, the reductions
+// over it and the norms that read it are 16-bit on an fp8, int8 or fp4 deployment as on a
+// bf16 one.
+//
+// The MoE combine is at this width too: the experts' output is bf16. The MoE DISPATCH is
+// priced at it as well, and on a quantized deployment that is an upper bound, not the
+// engine's width. The default allgather_reducescatter backend (vllm/config/parallel.py:202)
+// quantizes the hidden state before gathering it -- moe_kernel_quantize_input in
+// _quantize_and_setup_dispatch, vllm/model_executor/layers/fused_moe/prepare_finalize/
+// naive_dp_ep.py:16-51 -- and gathers per-token or per-block scales beside it (a static
+// scalar scale is not gathered, :46-50), unless the experts kernel
+// quantizes its own input (expects_unquantized_inputs, modular_kernel.py:505-512). Which
+// experts kernel serves a layer is chosen per quantization method and platform, and this
+// kernel does not model that choice, so it cannot tell a 1-byte (fp8) or half-byte (fp4)
+// dispatch from a 2-byte one. COVERAGE LIMIT: an fp8 w8a8 deployment whose experts kernel
+// takes quantized input has its dispatch charged about twice its bytes; its combine is
+// charged right.
+//
+// An earlier form sized all three at the served weight width, so an fp8 deployment's
+// collectives and norms were charged half their bytes.
+const ActivationBytes = 2.0
+
+// PiecewiseSegments is how many graph segments a PIECEWISE capture splits a step into: the
+// split points plus one. vLLM splits at every op in CompilationConfig._attention_ops
+// (vllm/config/compilation.py:764-782 at v0.31.0) -- each layer's attention or recurrent
+// mixer, and on a sparse-MLA layer its indexer as well (vllm::sparse_attn_indexer), which
+// the graph states as a second, cache-less attention node.
+func (p *Plan) PiecewiseSegments() int {
+	splits := p.TotalLayers
+	for _, l := range p.Layers {
+		if l.AttnKind != model.AttentionSparseMLA {
+			continue
+		}
+		for _, a := range l.Attentions {
+			if !a.HoldsKV() {
+				splits += l.Count
+				break
+			}
+		}
+	}
+	return splits + 1
 }
 
 // BuildPlan flattens a graph under a layout.
@@ -440,6 +496,7 @@ func planNodes(nodes []model.Node, em Emitter, dtypeBytes, stateBytes float64,
 					n.NumQHeads, n.NumKVHeads, n.HeadDim
 				pl.AttnKind, pl.AttnWindow = n.AttentionKind, n.Window
 				pl.AttnIndexTopK, pl.AttnCompressRatio = n.IndexTopK, n.CompressRatio
+				pl.AttnKVLoRARank = n.KVLoRARank
 			}
 		case model.OpRecurrentUpdate:
 			pl.RecurrentKind = n.RecurrentKind
@@ -447,17 +504,19 @@ func planNodes(nodes []model.Node, em Emitter, dtypeBytes, stateBytes float64,
 		case model.OpElementwise:
 			b := float64(n.BytesPerToken)
 			if b == 0 {
-				// A normalization reads and writes the hidden state.
-				b = 2 * float64(hidden) * dtypeBytes
+				// A normalization reads and writes the hidden state, at the activation
+				// width.
+				b = 2 * float64(hidden) * ActivationBytes
 			}
 			pl.ElementwiseBytesPerToken += b
 		case model.OpAllReduce, model.OpAllGather, model.OpReduceScatter:
+			// The hidden state a projection produced, at the activation width.
 			pl.Collectives = append(pl.Collectives, PlannedCollective{
-				Op: n.Op, Group: GroupTP, BytesPerToken: float64(hidden) * dtypeBytes,
+				Op: n.Op, Group: GroupTP, BytesPerToken: float64(hidden) * ActivationBytes,
 			})
 		case model.OpAll2All:
 			pl.Collectives = append(pl.Collectives, PlannedCollective{
-				Op: n.Op, Group: GroupExpert, BytesPerToken: float64(hidden) * dtypeBytes,
+				Op: n.Op, Group: GroupExpert, BytesPerToken: float64(hidden) * ActivationBytes,
 				// Whether top_k multiplies this is a backend property, set by the caller
 				// that knows the resolved backend.
 				RoutedByTopK: true,

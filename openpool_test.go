@@ -21,7 +21,7 @@ name: disagg-probe
 engine_version: "0.29.0"
 
 model: minimax-m2.5
-coefficients: [cost-model-primitives, cost-model-collectives, cost-model-host-overheads, cost-model-attention, cost-model-recurrent]
+coefficients: [cost-model-primitives, cost-model-collectives, cost-model-host-overheads, cost-model-attention, cost-model-recurrent, cost-model-memory]
 
 cluster:
   hardware: h200
