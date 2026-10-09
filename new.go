@@ -1189,6 +1189,11 @@ func (k *Kernel) computeFixedBytes(g *model.Graph) kernel.MemoryBreakdown {
 		k.activationBuffers*float64(k.batchedTokens)*k.activationWidth*activationBytes,
 		k.activationFloor)
 
+	// EPLB's redundant replicas, reported apart from the weights rather than on top of
+	// them. expertsPerRank is the PHYSICAL count -- the model's experts plus the redundant
+	// ones, divided over the group -- so the expert term above already holds them; the
+	// replicas' share is moved out of Weights into EPLBRedundant, leaving Total what a rank
+	// actually holds. An earlier form added them here as well, counting every replica twice.
 	var eplb float64
 	if k.pool.Engine.EPLB != nil && k.pool.Engine.EPLB.Enabled &&
 		k.layout.ExpertWidth > 0 {
@@ -1198,8 +1203,9 @@ func (k *Kernel) computeFixedBytes(g *model.Graph) kernel.MemoryBreakdown {
 			}
 			eplb += float64(l.Count) * l.ExpertWeightBytesPerExpert *
 				float64(k.pool.Engine.EPLB.NumRedundantExperts) /
-				float64(k.layout.ExpertWidth)
+				float64(k.layout.ExpertWidth) / k.expertTensorShards
 		}
+		weights -= eplb
 	}
 	return kernel.MemoryBreakdown{
 		Weights:        int64(weights),

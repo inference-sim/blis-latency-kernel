@@ -503,3 +503,40 @@ func TestAnMLATokenCachesOneLatentVector(t *testing.T) {
 		}
 	}
 }
+
+// EPLB'S REPLICAS ARE COUNTED ONCE. A rank holds its share of the model's experts plus its
+// share of the redundant ones, and that physical total is what FixedBytes().Total() must
+// report: enabling EPLB with R redundant experts may raise Total by exactly the replicas'
+// bytes, which is what EPLBRedundant reports. An earlier form reported the replicas in
+// EPLBRedundant AND inside Weights, so Total rose by twice that.
+//
+// minimax-m2.5 at EP 8 holds 256 experts as 32 per rank; 8 redundant ones make it 33, one
+// expert per layer more, which is EPLBRedundant's figure too.
+func TestEPLBReplicasAreCountedOnce(t *testing.T) {
+	build := func(redundant int) kernel.MemoryBreakdown {
+		t.Helper()
+		in := fixtureInputs(t, "minimax-m25-h200-ep8.yaml")
+		if redundant > 0 {
+			in.Deployment.Pools[0].Engine.EPLB = &deployment.EPLB{
+				Enabled: true, NumRedundantExperts: redundant,
+			}
+		}
+		k, err := New(in)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return k.FixedBytes()
+	}
+	off, on := build(0), build(8)
+	if on.EPLBRedundant <= 0 {
+		t.Fatalf("EPLB with 8 redundant experts reported %d replica bytes", on.EPLBRedundant)
+	}
+	if grew := on.Total() - off.Total(); grew != on.EPLBRedundant {
+		t.Errorf("enabling 8 redundant experts raised Total by %d bytes, want the replicas' "+
+			"%d: a replica is held once", grew, on.EPLBRedundant)
+	}
+	if on.Weights != off.Weights {
+		t.Errorf("enabling EPLB moved Weights from %d to %d; the replicas belong in "+
+			"EPLBRedundant", off.Weights, on.Weights)
+	}
+}
