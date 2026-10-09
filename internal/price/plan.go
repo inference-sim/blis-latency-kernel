@@ -262,7 +262,8 @@ type Emitter interface {
 // engine's width. The default allgather_reducescatter backend (vllm/config/parallel.py:202)
 // quantizes the hidden state before gathering it -- moe_kernel_quantize_input in
 // _quantize_and_setup_dispatch, vllm/model_executor/layers/fused_moe/prepare_finalize/
-// naive_dp_ep.py:16-51 -- and gathers the scales beside it, unless the experts kernel
+// naive_dp_ep.py:16-51 -- and gathers per-token or per-block scales beside it (a static
+// scalar scale is not gathered, :46-50), unless the experts kernel
 // quantizes its own input (expects_unquantized_inputs, modular_kernel.py:505-512). Which
 // experts kernel serves a layer is chosen per quantization method and platform, and this
 // kernel does not model that choice, so it cannot tell a 1-byte (fp8) or half-byte (fp4)

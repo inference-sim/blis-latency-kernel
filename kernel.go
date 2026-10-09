@@ -22,6 +22,7 @@ package latencykernel
 import (
 	"fmt"
 	"math"
+	"sort"
 	"time"
 
 	"github.com/inference-sim/blis-schemas/kernel"
@@ -386,12 +387,12 @@ func (k *Kernel) stepTime(b kernel.Batch,
 	// decode-context combine: one row per scheduled token, so a speculative decode
 	// verifying four tokens moves four rows, not one.
 	var decodeTokens int
-	// prefillPrefixes is each prefill request's already-computed context, which a
-	// decode-context-parallel latent layer gathers back before attending (see
+	// prefills is each prefill request's scheduled tokens and already-computed context, which
+	// a decode-context-parallel latent layer gathers back before attending (see
 	// dcpPrefillContextGathers). anyContext is whether any request in the step reads cached
 	// context at all, which decides whether a full-attention DCP layer runs its context
 	// pass.
-	var prefillPrefixes []int
+	var prefills []prefillShape
 	anyContext := false
 	// prefillTokens is the scheduled prefill tokens THIS RANK computes, which the KV
 	// gather's payload is sized from. withheldByPCP is how many of the batch's scheduled
@@ -473,9 +474,9 @@ func (k *Kernel) stepTime(b kernel.Batch,
 			// wherever it sits -- which is why a long-context fixture cannot reveal it.
 			prefillChunks = k.appendPrefillRuns(prefillChunks,
 				r.Scheduled, r.Computed)
-			// Every prefill is recorded, a fresh one as a zero: it ends a run of
+			// Every prefill is recorded, a fresh one too: it ends a run of
 			// context-reading prefills, which is what decides how they pack into chunks.
-			prefillPrefixes = append(prefillPrefixes, r.Computed)
+			prefills = append(prefills, prefillShape{r.Scheduled, r.Computed})
 			anyContext = anyContext || r.Computed > 0
 			continue
 		}
@@ -1017,8 +1018,8 @@ func (k *Kernel) stepTime(b kernel.Batch,
 				onNode += on
 				crossNode += cross
 			}
-			if latentAttention(l.AttnKind) && len(prefillPrefixes) > 0 {
-				on, cross := k.dcpPrefillContextGathers(l, prefillPrefixes)
+			if latentAttention(l.AttnKind) && len(prefills) > 0 {
+				on, cross := k.dcpPrefillContextGathers(l, prefills)
 				onNode += on
 				crossNode += cross
 			}
@@ -1969,14 +1970,23 @@ func (k *Kernel) pcpPrefillGathers(l *price.PlannedLayer,
 // with consecutive context-reading prefills until the workspace is full, splitting the
 // request that overflows it, and starts a new run at a prefill with no context. So a run
 // of prefills whose contexts sum to S pays ceil(S / chunk) gathers, not one or more per
-// request. prefixes is every prefill's context in batch order, zero for a fresh one.
+// request.
 //
-// Two simplifications, both in the direction of fewer bytes per launch: a split is rounded
+// The runs are formed in the order the engine lays the batch out, which is not the order a
+// caller lists it. Model Runner V2 -- v0.31.0's runner unless a configuration needs V1
+// (VllmConfig.use_v2_model_runner, vllm/config/vllm.py:718-760), and the only one that runs
+// PCP -- sorts requests by (no drafts, not a decode-sized query, scheduled tokens), a stable
+// sort (sort_batch_req_ids, vllm/v1/worker/gpu/model_runner.py:2398-2410). So prefills run in
+// ascending scheduled-token order, ties in arrival order, and that is the order sorted here.
+// The V1 runner orders differently (every context-reading prefill ahead of every fresh one,
+// vllm/v1/attention/backends/utils.py:936-945), which would join runs this order splits.
+//
+// Two simplifications, both toward more launches than counted here: a split is rounded
 // down to the cache's block alignment, and under DCP each rank's share is padded to the
 // interleave block (:2051-2064), so a chunk can hold slightly less context than the
 // workspace and a run can take one launch more than this counts.
 func (k *Kernel) dcpPrefillContextGathers(l *price.PlannedLayer,
-	prefixes []int) (onNode, crossNode float64) {
+	prefills []prefillShape) (onNode, crossNode float64) {
 	key := collKey{Op: model.OpAllGather, Group: price.GroupDCP}
 	width := float64(l.AttnHeadDim) * price.ActivationBytes
 	gatherRun := func(context int) {
@@ -1993,8 +2003,13 @@ func (k *Kernel) dcpPrefillContextGathers(l *price.PlannedLayer,
 			}
 		}
 	}
+	ordered := append([]prefillShape(nil), prefills...)
+	sort.SliceStable(ordered, func(i, j int) bool {
+		return ordered[i].scheduled < ordered[j].scheduled
+	})
 	run := 0
-	for _, prefix := range prefixes {
+	for _, p := range ordered {
+		prefix := p.computed
 		if prefix <= 0 {
 			gatherRun(run)
 			run = 0
@@ -2005,6 +2020,9 @@ func (k *Kernel) dcpPrefillContextGathers(l *price.PlannedLayer,
 	gatherRun(run)
 	return onNode, crossNode
 }
+
+// prefillShape is one prefill request as the context gather sees it.
+type prefillShape struct{ scheduled, computed int }
 
 // moeDPFunnel is how many replica groups' tokens reach one rank's experts.
 //

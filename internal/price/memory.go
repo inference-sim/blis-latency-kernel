@@ -36,7 +36,7 @@ import "math"
 // them (the packed ds_mla caches; see lift). COVERAGE LIMIT: per-token-head quantization
 // adds two fp32 scales a token (vllm/model_executor/layers/attention/mla_attention.py:
 // 1580-1593), and padded pages are sized by their own specs
-// (vllm/v1/kv_cache_interface.py:527-535); neither is modelled, and nor is a compressed
+// (vllm/v1/kv_cache_interface.py:527-536); neither is modelled, and nor is a compressed
 // cache (a compress_ratio layer), which holds fewer states than tokens.
 //
 // The cache dtype is independent of the weight dtype. A bf16 model with an fp8 cache

@@ -492,20 +492,26 @@ func TestAFullAttentionDCPLayerCombinesEveryRowWhenContextIsRead(t *testing.T) {
 // min(max(8 x 32768, ...), 65536) = 65,536 context tokens.
 //
 // Chunks pack consecutive context-reading prefills (plan_mla_context_chunks, :1922-1990),
-// so the count follows each run's summed context, and a fresh prefill ends a run.
+// so the count follows each run's summed context, and a fresh prefill ends a run. Runs are
+// consecutive in the ENGINE's order, which Model Runner V2 sorts by scheduled tokens
+// (sort_batch_req_ids, vllm/v1/worker/gpu/model_runner.py:2398-2410): a fresh prefill listed
+// between two context-reading ones splits them only if it also sorts between them.
 //
 // Counted by inflating the 2-rank all-gather floor at tp=8, dcp=2, where the only 2-rank
 // all-gather a prefill-only step can run is this one: launches per layer are 0 with no
 // prefix, 1 for a 1,000-token prefix and 2 for a 70,000-token one; 1 for two adjacent
 // 1,000-token prefixes, which share a chunk, and 2 when a fresh prefill separates them; and
-// 2 for two adjacent 40,000-token prefixes, whose 80,000 tokens overflow one chunk.
+// 2 for two adjacent 40,000-token prefixes, whose 80,000 tokens overflow one chunk. Listed
+// as 512, fresh 256, 1,024 scheduled tokens, the fresh prefill sorts first and the two
+// context reads share a chunk; listed as 256, fresh 512, 1,024, it sorts between them.
 func TestALatentPrefillGathersItsContextOnceAChunk(t *testing.T) {
-	launches := func(prefixes ...int) float64 {
+	type req struct{ scheduled, prefix int }
+	launchesOf := func(reqs ...req) float64 {
 		t.Helper()
 		b := kernel.Batch{DecodeThreshold: 8}
-		for _, prefix := range prefixes {
+		for _, r := range reqs {
 			b.Reqs = append(b.Reqs, kernel.ReqShape{
-				Scheduled: 256, Computed: prefix, PromptLen: prefix + 256})
+				Scheduled: r.scheduled, Computed: r.prefix, PromptLen: r.prefix + r.scheduled})
 		}
 		base := mustDCPVariant(t, dcpMLAFixture, 8, 1, 2, nil)
 		inflated := mustDCPVariant(t, dcpMLAFixture, 8, 1, 2, func(in *Inputs) {
@@ -515,6 +521,14 @@ func TestALatentPrefillGathersItsContextOnceAChunk(t *testing.T) {
 		moved := (inflated.StepTime(b).PerResource[kernel.ResourceNVLink] -
 			base.StepTime(b).PerResource[kernel.ResourceNVLink]).Seconds()
 		return moved / (9 * floor.Seconds() * float64(base.plan.TotalLayers))
+	}
+	launches := func(prefixes ...int) float64 {
+		t.Helper()
+		reqs := make([]req, len(prefixes))
+		for i, p := range prefixes {
+			reqs[i] = req{256, p}
+		}
+		return launchesOf(reqs...)
 	}
 	for _, c := range []struct {
 		prefixes []int
@@ -530,6 +544,18 @@ func TestALatentPrefillGathersItsContextOnceAChunk(t *testing.T) {
 		if got := launches(c.prefixes...); math.Abs(got-c.want) > 1e-6 {
 			t.Errorf("prefills on prefixes %v ran %.6f context gathers per layer, want %v",
 				c.prefixes, got, c.want)
+		}
+	}
+	for _, c := range []struct {
+		reqs []req
+		want float64
+	}{
+		{[]req{{512, 1000}, {256, 0}, {1024, 1000}}, 1},
+		{[]req{{256, 1000}, {512, 0}, {1024, 1000}}, 2},
+	} {
+		if got := launchesOf(c.reqs...); math.Abs(got-c.want) > 1e-6 {
+			t.Errorf("prefills %v (scheduled, prefix) ran %.6f context gathers per layer, "+
+				"want %v", c.reqs, got, c.want)
 		}
 	}
 }
