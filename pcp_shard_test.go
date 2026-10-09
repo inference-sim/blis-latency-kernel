@@ -537,79 +537,87 @@ func TestPCPGeometryReachesThePricer(t *testing.T) {
 // The gather PCP pays for keeping every rank's cache whole.
 // ---------------------------------------------------------------------------
 
+// collectiveSeconds is a step's whole collective time, on-node and cross-node together.
+// The PCP gather lands on either depending on where its group's members sit, so a test
+// about whether the gather is charged reads both.
+func collectiveSeconds(e kernel.StepEstimate) float64 {
+	return (e.PerResource[kernel.ResourceNVLink] + e.PerResource[kernel.ResourceNIC]).Seconds()
+}
+
 // A PCP rank writes only its share of the new KV, but every rank must hold the whole
 // cache, so the ranks all-gather what they wrote. Omitting it would make PCP look like a
 // pure win, which it is not.
 //
 // Two properties: the gather exists on a prefill step, and it does NOT exist on a
 // decode-only one -- the engine keeps replicated decode writes local and gathers
-// partitioned prefills only (attention/ops/pcp.py:16, :31-35).
+// partitioned prefills only (vllm/v1/attention/ops/pcp.py:16, :31-35 at v0.31.0).
 func TestPCPAddsAKVGatherOnPrefillOnly(t *testing.T) {
-	link := func(pcp int, b kernel.Batch) float64 {
-		return pcpKernel(t, pcpFixture, pcp).StepTime(b).
-			PerResource[kernel.ResourceNVLink].Seconds()
+	coll := func(pcp int, b kernel.Batch) float64 {
+		return collectiveSeconds(pcpKernel(t, pcpFixture, pcp).StepTime(b))
 	}
 	// A decode-only step carries no PCP gather at all.
 	decode := decodeBatch(32, 1, 32768)
-	if on, off := link(2, decode), link(1, decode); on != off {
-		t.Errorf("a decode-only step carried %.6f ms of on-node collective at pcp=2 "+
-			"against %.6f ms at pcp=1; a replicated decode write is not gathered",
-			on*1e3, off*1e3)
+	if on, off := coll(2, decode), coll(1, decode); on != off {
+		t.Errorf("a decode-only step carried %.6f ms of collective at pcp=2 against "+
+			"%.6f ms at pcp=1; a replicated decode write is not gathered", on*1e3, off*1e3)
 	}
 
 	// ON A SHORT PREFILL THE GATHER CHANGES THE SIGN, which is the shape that makes its
-	// omission visible. Splitting halves the tensor-parallel payload, so the on-node total
-	// would fall if nothing were added -- but the gather pays a floor on every KV-holding
-	// layer, and at a small chunk those floors outweigh what the halving saves. So the
-	// on-node term must RISE.
+	// omission visible. Splitting halves the tensor-parallel payload, so the collective
+	// total would fall if nothing were added -- but the gather pays a floor on every
+	// KV-holding layer, and at a small chunk those floors outweigh what the halving saves.
+	// So the total must RISE.
 	//
 	// At a long chunk it falls again, because the bytes saved dominate the floors added.
 	// Both directions are asserted: a test that only looked at the long chunk would pass
 	// with the gather deleted.
 	short := decodeBatch(1, 64, 64)
-	if whole, split := link(1, short), link(2, short); split <= whole {
-		t.Errorf("a 64-token prefill priced %.6f ms of on-node collective at pcp=2 "+
-			"against %.6f ms at pcp=1; the KV gather's per-layer floors must outweigh "+
-			"the halved tensor-parallel payload at this size", split*1e3, whole*1e3)
+	if whole, split := coll(1, short), coll(2, short); split <= whole {
+		t.Errorf("a 64-token prefill priced %.6f ms of collective at pcp=2 against "+
+			"%.6f ms at pcp=1; the KV gather's per-layer floors must outweigh the halved "+
+			"tensor-parallel payload at this size", split*1e3, whole*1e3)
 	}
 	long := decodeBatch(1, 4096, 4096)
-	if whole, split := link(1, long), link(2, long); split >= whole {
-		t.Errorf("a 4,096-token prefill priced %.6f ms at pcp=2 against %.6f ms at "+
-			"pcp=1; at this size the bytes saved must dominate the floors added",
+	if whole, split := coll(1, long), coll(2, long); split >= whole {
+		t.Errorf("a 4,096-token prefill priced %.6f ms of collective at pcp=2 against "+
+			"%.6f ms at pcp=1; at this size the bytes saved must dominate the floors added",
 			split*1e3, whole*1e3)
 	}
+}
 
-	// And the charge must be at least one floor per KV-holding layer, at the PCP group's
-	// own width. Pricing it at the tensor-parallel width would roughly double it -- the
-	// 8-rank all-gather floor is 10.3us against the 2-rank 5.08us on this part -- so the
-	// bound below is stated against the width this group actually spans.
-	k := pcpKernel(t, pcpFixture, 2)
-	floor := k.collectiveFloors[collKey{Op: model.OpAllGather, Group: price.GroupPCP}]
-	if floor <= 0 {
-		t.Fatal("no all-gather floor resolved for the prefill-context group")
-	}
-	floors := floor.Seconds() * float64(k.plan.TotalLayers)
-	tpFloor := k.collectiveFloors[collKey{Op: model.OpAllGather, Group: price.GroupTP}]
-	tpFloors := tpFloor.Seconds() * float64(k.plan.TotalLayers)
-
-	// The NET change on the short prefill is the gather added MINUS the tensor-parallel
-	// payload the split saved, so it cannot be compared against the gather's floors
-	// directly -- an earlier draft of this test did exactly that and failed against
-	// correct code. What the net DOES bound is the width: the gather is charged at the
-	// prefill-context group's own 2-rank floor, and at the 8-rank floor its floors alone
-	// would be tpFloors, which exceeds the whole on-node term at this size. So a net
-	// change smaller than the difference between the two floor totals is only reachable
-	// at the narrower width.
-	added := link(2, short) - link(1, short)
-	if added >= tpFloors-floors {
-		t.Errorf("the split changed the on-node term by %+.6f ms, at or above the "+
-			"%.6f ms by which %d layers of 8-rank floor exceed %d layers of 2-rank; the "+
-			"gather is being priced at the tensor-parallel width",
-			added*1e3, (tpFloors-floors)*1e3, k.plan.TotalLayers, k.plan.TotalLayers)
-	}
-	if added <= 0 {
-		t.Errorf("the split changed the on-node term by %+.6f ms; the gather must add "+
-			"more than the halved payload saves at this size", added*1e3)
+// The PCP gather is charged to the fabric exactly when the engine's rank layout puts its
+// group across nodes, and to NVLink otherwise.
+//
+// vLLM lays ranks out with the tensor-parallel axis innermost, so a PCP group's members are
+// tp ranks apart (vllm/distributed/parallel_state.py:2054-2060, :2155-2160 at v0.31.0). On
+// 8-GPU nodes: tp=8, pcp=2 puts one member on each of two nodes, every hop crossing; tp=4,
+// pcp=2 and tp=2, pcp=4 fit one node. Only the gather moves between the two -- a decode
+// step has none, and the tensor-parallel group stays on a node in all three layouts -- so
+// a prefill's NIC term is the gather or nothing.
+func TestThePCPGatherCrossesTheFabricExactlyWhenItsGroupDoes(t *testing.T) {
+	prefill := decodeBatch(1, 4096, 4096)
+	for _, c := range []struct {
+		tp, pcp, nodes int
+		crosses        bool
+	}{
+		{8, 2, 2, true},
+		{8, 4, 4, true},
+		{4, 2, 1, false},
+		{2, 4, 1, false},
+	} {
+		in := pcpInputs(t, pcpFixture, 1)
+		pool := &in.Deployment.Pools[0]
+		pool.Parallel.TP, pool.Parallel.PCP = c.tp, c.pcp
+		pool.Nodes, in.Scenario.Cluster.Nodes = c.nodes, c.nodes
+		k, err := New(in)
+		if err != nil {
+			t.Fatalf("tp=%d pcp=%d: %v", c.tp, c.pcp, err)
+		}
+		per := k.StepTime(prefill).PerResource
+		if nic := per[kernel.ResourceNIC]; (nic > 0) != c.crosses {
+			t.Errorf("tp=%d pcp=%d on %d node(s): the prefill charged %v to the fabric; "+
+				"the PCP group crosses a node: %v", c.tp, c.pcp, c.nodes, nic, c.crosses)
+		}
 	}
 }
 
@@ -638,8 +646,7 @@ func TestThePCPGatherIsScopedToPrefillTokensAndKVLayers(t *testing.T) {
 		return k
 	}
 	link := func(fixture string, pcp int, b kernel.Batch) float64 {
-		return build(fixture, pcp).StepTime(b).
-			PerResource[kernel.ResourceNVLink].Seconds()
+		return collectiveSeconds(build(fixture, pcp).StepTime(b))
 	}
 
 	// PREFILL TOKENS ONLY. A 64-token prefill alone, and the same prefill beside 64
@@ -705,7 +712,7 @@ func TestThePCPGatherIsScopedToPrefillTokensAndKVLayers(t *testing.T) {
 	// spurious floors are a known quantity, so the scoped reading must sit at least half
 	// of them below the unscoped one.
 	if added > -(allFloors-kvFloors)/2 {
-		t.Errorf("the split changed the on-node term by %+.6f ms on a model holding KV "+
+		t.Errorf("the split changed the collective term by %+.6f ms on a model holding KV "+
 			"on %d of %d layers; charging every layer would add %.6f ms of floor that "+
 			"no cache-free layer pays, and the change is not far enough below that to "+
 			"show the gather is scoped",

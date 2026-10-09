@@ -88,9 +88,19 @@ func ResolveLayout(s *scenario.Scenario, pool deployment.Pool, fab Fabric,
 
 	// The widest group decides how many nodes a collective spans. Expert parallelism is
 	// usually the widest; tensor parallelism spans nodes only where it exceeds a node.
+	//
+	// A prefill-context group is narrow but SPREAD: its members are tp ranks apart, since
+	// the engine numbers ranks DP x PP x PCP x TP with TP innermost
+	// (vllm/distributed/parallel_state.py:2054-2060, :2155-2160 at v0.31.0), so it covers
+	// the whole tp x pcp block. At tp=8 and pcp=2 that is two nodes for a two-rank group,
+	// which counting its width alone would call one. The decode-context group never
+	// covers more than that block either (parallel.py:563-578), so the block bounds both.
 	widest := l.TP
 	if l.ExpertWidth > widest {
 		widest = l.ExpertWidth
+	}
+	if block := l.TP * max(l.PCP, 1); block > widest {
+		widest = block
 	}
 	if l.GPUsPerNode > 0 {
 		l.NodesSpanned = (widest + l.GPUsPerNode - 1) / l.GPUsPerNode

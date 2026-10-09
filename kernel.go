@@ -1095,6 +1095,10 @@ func (k *Kernel) collectiveTime(key collKey, bytes float64) time.Duration {
 // 8-GPU node however wide expert parallelism is, and an expert-parallel group of 72 does
 // not. Using the deployment's widest group for both would move every reduction onto the
 // NIC in a wide-EP layout, where in fact it never leaves the node.
+//
+// And by PLACEMENT rather than by width alone, because a group's members are not always
+// neighbours. See groupPerNode: a two-rank prefill-context group at tp=8 has one member on
+// each of two nodes, which a width test reads as fitting comfortably inside one.
 func (k *Kernel) crossesNodes(key collKey) bool {
 	if k.layout.GPUsPerNode <= 0 {
 		return false
@@ -1103,7 +1107,48 @@ func (k *Kernel) crossesNodes(key collKey) bool {
 	if !ok {
 		return false
 	}
-	return width > k.layout.GPUsPerNode
+	return width > k.groupPerNode(key.Group)
+}
+
+// groupPerNode is how many of one group's ranks share a node, which is what decides both
+// whether the group crosses a node boundary and how much of its traffic does.
+//
+// THE ENGINE'S RANK LAYOUT DECIDES IT. vLLM numbers ranks DP x PP x PCP x TP with the
+// tensor-parallel axis innermost (vllm/distributed/parallel_state.py:2054-2060 at v0.31.0),
+// and a node holds consecutive ranks. So a group's members sit `stride` ranks apart, where
+// the stride is the product of the axes inside the one the group runs along:
+//
+//	tensor-parallel     contiguous                                     stride 1
+//	expert-parallel     one contiguous DP x PCP x TP block (:2212-2220)   stride 1
+//	prefill-context     the PCP axis, at a fixed TP rank (:2155-2160)     stride tp
+//	decode-context      within TP when pcp is 1; along the PCP axis when  stride 1, tp
+//	                    dcp == pcp; the whole TP x PCP block when          or 1
+//	                    dcp == tp*pcp (:2139-2144)
+//
+// and a node of g GPUs holds g/stride of them. At tp=8 on 8-GPU nodes a prefill-context
+// group therefore has ONE member per node: every hop of its ring crosses the fabric. A
+// width test priced exactly that gather on NVLink.
+//
+// A stride that does not divide the node (tp=6 on 8-GPU nodes) has no uniform answer, and
+// is floored -- which charges more of the group to the fabric than some nodes carry, the
+// conservative direction.
+func (k *Kernel) groupPerNode(group price.GroupAxis) int {
+	gpn := k.layout.GPUsPerNode
+	if gpn <= 0 {
+		return math.MaxInt
+	}
+	stride := 1
+	switch group {
+	case price.GroupPCP:
+		stride = max(k.layout.TP, 1)
+	case price.GroupDCP:
+		// dcp is 1, pcp or tp*pcp once pcp exceeds one (parallel.py:571-578); of those,
+		// only dcp == pcp runs along the PCP axis rather than over a contiguous block.
+		if k.layout.PCP > 1 && k.layout.DCP <= k.layout.PCP {
+			stride = max(k.layout.TP, 1)
+		}
+	}
+	return max(gpn/stride, 1)
 }
 
 // groupSize returns the rank count a collective's group spans.
@@ -1142,10 +1187,11 @@ func (k *Kernel) groupSize(group price.GroupAxis) (int, bool) {
 func (k *Kernel) spanFor(key collKey) float64 {
 	ratio := k.fabric.Ratio()
 	group, _ := k.groupSize(key.Group)
+	perNode := k.groupPerNode(key.Group)
 	if key.Op == model.OpAll2All && k.routedAll2All() {
-		return price.All2AllSpan(group, k.layout.GPUsPerNode, ratio)
+		return price.All2AllSpan(group, perNode, ratio)
 	}
-	return price.RingSpan(group, k.layout.GPUsPerNode, ratio)
+	return price.RingSpan(group, perNode, ratio)
 }
 
 // routedAll2All reports whether the resolved MoE backend moves top-k-selected bytes point
