@@ -624,6 +624,11 @@ func (k *Kernel) stepTime(b kernel.Batch,
 			// the sixth such cancellation this model is known to rest on. Correcting it
 			// alone makes the kernel worse, so it waits for the term it offsets.
 			//
+			// Re-measured after the activation-width, MLA-cache and shared-MoE corrections,
+			// which changed what it offsets: dividing it takes cmd/score's in-scope MAPE
+			// from 32.7% to 62.1% -- both scored arms then under-predict by more than half --
+			// and cmd/shape's from 11.32% to 11.41%. The cancellation still holds.
+			//
 			// docs/perf-model/hypothesis-log.md records the measurements on both sides.
 			// ATTENTION-DP FUNNEL. With attention data parallelism every DP rank's
 			// tokens are concatenated before expert routing, so the grouped GEMM sees
