@@ -1,10 +1,9 @@
 // Command bandprobe prices one step per line of a CSV and prints both band edges.
 //
-// It exists so a fitter outside this repository can ask the kernel where the truth sits
-// between `Overlap` and `NoOverlap` without reimplementing step composition. The kernel
-// prices the step; this command only moves rows in and out. A second implementation of
-// the cost model is how two answers to one modelling question get maintained, which is
-// the mistake the design document's §2.1 records.
+// It exists so a fitter outside this repository can compare both edges, `Overlap` and
+// `NoOverlap`, with measured step times without reimplementing step composition. The kernel
+// prices the step; this command only moves rows in and out. A second implementation of the
+// cost model would be a second answer to the same modelling question, maintained apart.
 //
 // Input on stdin, one step per line, no header:
 //
