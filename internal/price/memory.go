@@ -27,13 +27,10 @@ import "math"
 // (head_size + head_size_v) * dtype per head unless a spec states its own state size
 // (:521-525). So a latent layer is charged one tensor, not two.
 //
-// COVERAGE LIMIT: the layouts that state their own size are not modelled. The ds_mla
-// caches pack scales beside the latent -- 656 bytes a token for fp8_ds_mla and 352 for
-// nvfp4_ds_mla against 576 by this formula (mla_attention.py:1361-1363) -- and the sparse
-// FlashMLA backend accepts "fp8" as fp8_ds_mla (mla/flashmla_sparse.py:137), so a sparse-MLA
-// deployment stating fp8 (glm5-h200-tp8 does) can run a cache 14% larger than this charges.
-// Per-token-head quantization adds two fp32 scales a token (mla_attention.py:1580-1594),
-// and compressed or padded pages are sized by their own specs (:529-535). Its head count is one whatever the config says and no tensor-parallel
+// The layouts that state their own size are applied by the kernel where a deployment names
+// them (the packed ds_mla caches; see lift). COVERAGE LIMIT: per-token-head quantization
+// adds two fp32 scales a token (mla_attention.py:1580-1594), and compressed or padded pages
+// are sized by their own specs (:529-535); neither is modelled. Its head count is one whatever the config says and no tensor-parallel
 // width reduces it; the model graph records nKV = 1 for those kinds. An earlier form
 // charged a latent layer two tensors -- every MLA and sparse-MLA model's cache at double
 // its size -- against a decode rate blis-registry fitted on the single vector

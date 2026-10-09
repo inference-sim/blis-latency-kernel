@@ -740,3 +740,31 @@ func TestASparseMLALayersIndexerIsAPiecewiseSplitPoint(t *testing.T) {
 		}
 	}
 }
+
+// A PACKED SPARSE-MLA CACHE IS ITS OWN SIZE. fp8_ds_mla stores 656 bytes a token per layer
+// and nvfp4_ds_mla 352 (vllm/model_executor/layers/attention/mla_attention.py:1361-1363 at
+// v0.31.0), where the per-element formula gives 576 at one byte. Stated on glm5, a 16-token
+// page must hold exactly that times its layers; a plain "fp8" keeps the per-element size,
+// because the backends v0.31.0 prefers for an fp8 sparse cache do not repack it.
+func TestAPackedSparseMLACacheIsItsOwnSize(t *testing.T) {
+	page := func(cache string) int64 {
+		t.Helper()
+		in := fixtureInputs(t, dcpSparseFixture)
+		in.Deployment.Pools[0].Engine.CacheDType = cache
+		k, err := New(in)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return k.SequenceVariableBytes(16)
+	}
+	layers := int64(fixture(t, dcpSparseFixture).kvLayers)
+	for _, c := range []struct {
+		cache string
+		cell  int64
+	}{{"fp8_ds_mla", 656}, {"nvfp4_ds_mla", 352}, {"fp8", 576}} {
+		if got, want := page(c.cache), 16*c.cell*layers; got != want {
+			t.Errorf("%s: a 16-token page holds %d bytes, want %d (%d a token per layer)",
+				c.cache, got, want, c.cell)
+		}
+	}
+}

@@ -289,6 +289,10 @@ func (k *Kernel) resolveContextParallel(in Inputs) error {
 	return nil
 }
 
+// dsMLAStateBytes is the packed page cell, in bytes per token per layer, of the cache
+// layouts that state their own size.
+var dsMLAStateBytes = map[string]float64{"fp8_ds_mla": 656, "nvfp4_ds_mla": 352}
+
 // latentAttention reports whether an attention kind keeps a latent (MLA) cache, which is
 // what the engine's MLA attention implementations serve.
 func latentAttention(kind model.AttentionKind) bool {
@@ -685,6 +689,17 @@ func (k *Kernel) lift(c *resolve.Coefficients, g *model.Graph, cacheBytes float6
 	nkv, headDim, layers, kind := kvGeometry(g)
 	k.kvBytesPerToken = price.KVBytesPerToken(nkv, k.layout.TP, headDim, layers, cacheBytes,
 		latentAttention(kind))
+	// The packed DeepSeek sparse-MLA layouts state their own page cell: fp8_ds_mla packs the
+	// latent with its scales into 656 bytes a token and nvfp4_ds_mla into 352, against 576
+	// elements by the per-element formula (state_content_bytes,
+	// vllm/model_executor/layers/attention/mla_attention.py:1361-1363 at v0.31.0). Taken
+	// where a deployment states one. A plain "fp8" becomes fp8_ds_mla only on the
+	// FlashMLA-sparse backend (_canonicalize_sparse_mla_kv_cache_dtype, :358-375), which
+	// v0.31.0 ranks behind FlashInfer on Blackwell and FlashAttention on Hopper for an fp8
+	// cache (vllm/platforms/cuda.py:95-152), so a stated "fp8" keeps the plain layout.
+	if b, ok := dsMLAStateBytes[k.pool.Engine.CacheDType]; ok && latentAttention(kind) {
+		k.kvBytesPerToken = b * float64(layers)
+	}
 	// The layer count kvBytesPerToken is spread over. kvGeometry counts only layers that
 	// HOLD KV, so this is the divisor that recovers one layer's share of the cache -- on a
 	// hybrid stack it is not the total layer count, and the two differ ninefold on

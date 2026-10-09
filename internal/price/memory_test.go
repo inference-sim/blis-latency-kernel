@@ -24,7 +24,7 @@ func vllmPageBytesPerToken(nKV, tp, headDim int, dtype float64, latent bool) flo
 // KVBytesPerToken must equal the engine's own page arithmetic, layer for layer, for every
 // geometry whose cache is a plain per-element dtype -- full attention and latent, any head
 // count and tensor-parallel width, any element width. The layouts that state their own size
-// (ds_mla, per-token-head scales) are a stated coverage limit; see KVBytesPerToken.
+// are applied by the kernel, not this law; see KVBytesPerToken.
 //
 // Property-checked over random geometries against the transcription above. The case that
 // motivated it is the latent one: an earlier form charged an MLA token a key AND a value,
