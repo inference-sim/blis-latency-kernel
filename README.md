@@ -61,14 +61,16 @@ a symbol exists. Several carry a comment naming the defect they were written aga
 test whose purpose is forgotten is the next test to be deleted.
 
 ```
+scripts/fetch-testdata.sh
 go test ./...
-go run ./cmd/shape -testdata testdata/aisimulate
 ```
 
-Both run against the pinned copies under `testdata/` (see `testdata/VENDORED.md`), and
-blis-schemas is an ordinary module dependency. To score against a live upstream checkout
-instead, set `BLIS_CATALOG` / `BLIS_REGISTRY` for the tests, or pass `-catalog` / `-registry`
-to the commands.
+The catalog and registry are fetched at the commits `testdata/upstream.lock` pins rather than
+committed, and blis-schemas is an ordinary module dependency. The measurement corpora the
+scoring commands compare against are third-party data and are not distributed here; `cmd/score`,
+`cmd/shape` and the `scoring` test suite read them from `BLIS_MEASUREMENTS`. `testdata/README.md`
+has the details. CI (`.github/workflows/ci.yml`) runs the fetch and the full default suite on
+every pull request.
 
 Where a law has an exact engine counterpart, the tests check it against that counterpart
 transcribed from vLLM v0.31.0 -- the decode-context per-rank length, the prefill-context zigzag,
@@ -86,8 +88,8 @@ pin is a commit, not a moving name:
 |---|---|---|
 | engine behaviour | vLLM `v0.31.0` | `db9527a46873454610df6dbedf79a36d6bf1a7f6` |
 | interface and document schemas | blis-schemas `v0.2.2` | `a0ba5d42ff753713f4dabc74a4ca38b374a91ef4` (`go.mod`) |
-| coefficients | blis-registry `v0.1.1` | `f7519b12b3393851a3ad416e26c819dd951d4c0d` (`testdata/VENDORED.md`) |
-| catalog | blis-catalog `0.2.1` | `28e82d4c249893ee25b1412a63d2347c5165b004` (`testdata/VENDORED.md`) |
+| coefficients | blis-registry `v0.1.1` | `f7519b12b3393851a3ad416e26c819dd951d4c0d` (`testdata/upstream.lock`) |
+| catalog | blis-catalog `0.2.1` | `28e82d4c249893ee25b1412a63d2347c5165b004` (`testdata/upstream.lock`) |
 
 A comment citing `vllm/<path>:<lines>` means those lines at `v0.31.0`; read them with
 `git show v0.31.0:<path>` in a vLLM checkout. Engine behaviour this repository encodes itself

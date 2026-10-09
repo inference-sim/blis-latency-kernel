@@ -87,7 +87,7 @@ func TestFixedOccupancyIsTheRegistrysComposition(t *testing.T) {
 	}
 }
 
-// THE FIGURES #22 STATES, against the vendored registry (blis-registry v0.1.1). Pinned
+// THE FIGURES #22 STATES, against the pinned registry (blis-registry v0.1.1). Pinned
 // because the issue's verification names them; a re-vendoring that changes them is
 // supposed to break this, and the commit that does so says why.
 //

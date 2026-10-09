@@ -549,7 +549,7 @@ func (k *Kernel) lift(c *resolve.Coefficients, g *model.Graph, cacheBytes float6
 	// including down-projections this kernel prices separately as GEMM nodes, and charging
 	// them took kimi-k2.5's TPOT error from 6.38% to 14.57%.
 	//
-	// Nine models in the vendored catalog declare an mla or sparse_mla layer, and two of them
+	// Nine models in the pinned catalog declare an mla or sparse_mla layer, and two of them
 	// (deepseek-v4-pro, kimi-k3) appear in both the FPM dataset and the InferenceX corpus,
 	// so this is on the scored path rather than hypothetical.
 	//

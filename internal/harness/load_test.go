@@ -137,7 +137,8 @@ func TestLoadBundleReportsAMissingFile(t *testing.T) {
 
 // TestDefaultRootsPointAtTheVendoredCopy is the hermeticity check.
 //
-// The suite reads a catalog and registry pinned under testdata. It used to read absolute
+// The suite reads a catalog and registry pinned under testdata (fetched by
+// scripts/fetch-testdata.sh). It used to read absolute
 // paths in one developer's home directory and SKIP when that failed, which is how a real
 // incompatibility stayed hidden for the life of a dependency pin. If these defaults ever
 // resolve somewhere else, that silence comes back.
@@ -157,7 +158,8 @@ func TestDefaultRootsPointAtTheVendoredCopy(t *testing.T) {
 			}
 			// Resolving to a path is not enough; the artifacts have to be there.
 			if _, err := os.Stat(filepath.Join(c.got, c.probe)); err != nil {
-				t.Errorf("%s root %q does not hold %s: %v", c.what, c.got, c.probe, err)
+				t.Errorf("%s root %q does not hold %s (run scripts/fetch-testdata.sh): %v",
+					c.what, c.got, c.probe, err)
 			}
 		})
 	}

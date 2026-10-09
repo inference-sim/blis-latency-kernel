@@ -14,14 +14,16 @@ import (
 // unrunnable for anyone else and, because a failed read became a SKIP, silent about it:
 // under the pseudo-version this repo was pinned to, the sibling catalog had already moved
 // to v0.2.0 field names the pinned schema rejected, so every test that built a kernel from
-// a committed fixture skipped and 41 of them passed by not running. See testdata/VENDORED.md.
+// a committed fixture skipped and 41 of them passed by not running. See testdata/README.md;
+// scripts/fetch-testdata.sh populates the pinned copies.
 //
 // A caller that wants a live upstream checkout passes -catalog/-registry, or sets
-// BLIS_CATALOG/BLIS_REGISTRY. The vendored copy is only the default.
+// BLIS_CATALOG/BLIS_REGISTRY. The pinned copy is only the default.
 const (
-	catalogEnv   = "BLIS_CATALOG"
-	registryEnv  = "BLIS_REGISTRY"
-	scenariosEnv = "BLIS_SCENARIOS"
+	catalogEnv      = "BLIS_CATALOG"
+	registryEnv     = "BLIS_REGISTRY"
+	scenariosEnv    = "BLIS_SCENARIOS"
+	measurementsEnv = "BLIS_MEASUREMENTS"
 )
 
 // repoRoot returns this repository's root.
@@ -108,6 +110,20 @@ func DefaultScenarios() string {
 		return p
 	}
 	return underRoot("testdata")
+}
+
+// DefaultMeasurements is the directory holding the measurement corpora cmd/score and
+// cmd/shape score against: BLIS_MEASUREMENTS, or testdata/measurements.
+//
+// The corpora are NOT part of this repository. They are measured latencies extracted from
+// third-party publications (SemiAnalysis InferenceX's database dump, NVIDIA AISimulate's
+// accuracy artifact) by the scripts/extract_* tools, and are not redistributed here; a
+// reader who has the sources regenerates them, or points this at a copy they hold.
+func DefaultMeasurements() string {
+	if p := os.Getenv(measurementsEnv); p != "" {
+		return p
+	}
+	return underRoot("testdata", "measurements")
 }
 
 // DefaultRepos is the three roots together, which is how every caller uses them.

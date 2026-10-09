@@ -21,7 +21,7 @@ import (
 //
 // DeepSeek-V3 is the case that matters: every attention layer in its stack is `kind: mla`,
 // so before this dispatch existed its whole attention term used the full-attention pair.
-// Nine models in the vendored catalog declare an mla or sparse_mla layer, and two of them
+// Nine models in the pinned catalog declare an mla or sparse_mla layer, and two of them
 // (deepseek-v4-pro, kimi-k3) appear in both the FPM dataset and the InferenceX corpus, so
 // this is on the scored path rather than hypothetical.
 //

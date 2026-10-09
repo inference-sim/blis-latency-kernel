@@ -984,7 +984,7 @@ func TestDecodeContextParallelWidthComesFromTheResolvedLayout(t *testing.T) {
 // --decode-context-parallel-size 8, --dcp-comm-backend ag_rs and a 64-token KV block. That
 // shape is why the two axes had to be separated rather than collapsed: at tp=1 there is no
 // tensor-parallel width to divide anything, so before this change NOTHING in the layout
-// moved the price of that deployment at all. glm5 stands in for it: the vendored catalog
+// moved the price of that deployment at all. glm5 stands in for it: the pinned catalog
 // predates GLM-5.3-Flash, and both are sparse-MLA stacks.
 //
 // THREE ARMS, NOT FOUR. A DCP-only arm at tp=1 is a layout the engine refuses: with PCP off

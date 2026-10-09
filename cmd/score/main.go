@@ -89,13 +89,16 @@ type resolved struct {
 func main() {
 	catalog := flag.String("catalog", harness.DefaultCatalog(), "")
 	registry := flag.String("registry", harness.DefaultRegistry(), "")
-	data := flag.String("data", "testdata/measurements/scoreable.json", "")
+	data := flag.String("data",
+		filepath.Join(harness.DefaultMeasurements(), "scoreable.json"), "")
 	verbose := flag.Bool("verbose", false, "print every point, not only a summary")
 	flag.Parse()
 
 	raw, err := os.ReadFile(*data)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
+		fmt.Fprintf(os.Stderr, "%v\nThe measurement corpora are not distributed with this "+
+			"repository: regenerate them from their sources with scripts/extract_*, or point "+
+			"-data or BLIS_MEASUREMENTS at a copy you hold.\n", err)
 		os.Exit(1)
 	}
 	var points []point
