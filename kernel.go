@@ -1102,7 +1102,23 @@ func (k *Kernel) crossesNodes(key collKey) bool {
 	if !ok {
 		return false
 	}
-	return width > k.groupPerNode(key.Group)
+	if width <= k.groupPerNode(key.Group) {
+		return false
+	}
+	// A rack that is one NVLink domain -- an NVL72-class part, where the NVSwitch fabric
+	// spans every tray at the full per-GPU rate -- is crossed only at its own boundary. A
+	// group whose rank footprint fits inside it never reaches the inter-node fabric,
+	// however many trays it spans.
+	if k.fabric.RackIsOneDomain {
+		rack := k.layout.GPUsPerRack
+		if rack <= 0 {
+			rack = k.chip.GPUsPerRack
+		}
+		if footprint := width * k.groupStride(key.Group); rack > 0 && footprint <= rack {
+			return false
+		}
+	}
+	return true
 }
 
 // groupPerNode is how many of one group's ranks share a node, which is what decides both
@@ -1130,27 +1146,31 @@ func (k *Kernel) crossesNodes(key collKey) bool {
 // is floored -- which charges more of the group to the fabric than some nodes carry, the
 // conservative direction.
 //
-// COVERAGE LIMIT: a rack that is one NVLink domain (an NVL72-class part, four GPUs to a
-// tray) is not consulted here, for any group. ResolveLayout treats such a rack as one node
-// when it counts NodesSpanned, but a group spanning trays inside it is still priced as
-// crossing, scaled by whatever inter-node ratio the deployment's fabric states.
+// A rack that is one NVLink domain is consulted in crossesNodes, not here: inside such a
+// rack a tray boundary is not a bandwidth change, so it decides WHETHER a group crosses,
+// and this per-node count only matters for a group that does.
 func (k *Kernel) groupPerNode(group price.GroupAxis) int {
 	gpn := k.layout.GPUsPerNode
 	if gpn <= 0 {
 		return math.MaxInt
 	}
-	stride := 1
+	return max(gpn/k.groupStride(group), 1)
+}
+
+// groupStride is how many ranks apart a group's members sit in the engine's rank layout;
+// see groupPerNode for the table and its citations.
+func (k *Kernel) groupStride(group price.GroupAxis) int {
 	switch group {
 	case price.GroupPCP:
-		stride = max(k.layout.TP, 1)
+		return max(k.layout.TP, 1)
 	case price.GroupDCP:
 		// dcp is 1, pcp or tp*pcp once pcp exceeds one (parallel.py:571-578); of those,
 		// only dcp == pcp runs along the PCP axis rather than over a contiguous block.
 		if k.layout.PCP > 1 && k.layout.DCP <= k.layout.PCP {
-			stride = max(k.layout.TP, 1)
+			return max(k.layout.TP, 1)
 		}
 	}
-	return max(gpn/stride, 1)
+	return 1
 }
 
 // groupSize returns the rank count a collective's group spans.
