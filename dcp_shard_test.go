@@ -2,8 +2,10 @@ package latencykernel
 
 import (
 	"math"
+	"path/filepath"
 	"testing"
 
+	schemas "github.com/inference-sim/blis-schemas"
 	"github.com/inference-sim/blis-schemas/kernel"
 	"github.com/inference-sim/blis-schemas/spec/coefficient"
 	"github.com/inference-sim/blis-schemas/spec/hardware"
@@ -167,6 +169,63 @@ func TestDCPLocalTokensShardsSumToTheWholeContextWithNoReplication(t *testing.T)
 	}
 }
 
+// New refuses exactly the context-parallel layouts the engine refuses, and admits their
+// neighbours.
+//
+// vLLM v0.31.0 checks two things at startup (vllm/config/parallel.py:563-578):
+//
+//	pcp == 1:  tp % dcp == 0                  "DCP reuses the TP ranks"
+//	pcp  > 1:  dcp in {1, pcp, tp*pcp}         "disabled, span the PCP axis, or span the
+//	                                            full TP x PCP axis"
+//
+// and its world size is pp * tp * pcp (:899-903), so PCP adds ranks where DCP adds none.
+// blis-schemas v0.2.2 enforces all three, and New runs its field validation, so a kernel is
+// never built for a layout that does not start. Asserted here because it is the contract a
+// caller sweeping layouts relies on: a refused layout is an error, never a price.
+func TestNewRefusesTheContextParallelLayoutsTheEngineRefuses(t *testing.T) {
+	build := func(tp, pcp, dcp, nodes int) error {
+		t.Helper()
+		in := fixtureInputs(t, dcpMLAFixture)
+		pool := &in.Deployment.Pools[0]
+		pool.Parallel.TP, pool.Parallel.PCP, pool.Parallel.DCP = tp, pcp, dcp
+		pool.Nodes, in.Scenario.Cluster.Nodes = nodes, nodes
+		if nodes > 1 {
+			in.Scenario.Cluster.Fabric = "ib-400g"
+			f, err := schemas.LoadFabric(filepath.Join(catalogRoot, "networks", "ib-400g.yaml"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			in.Fabric = f
+		}
+		_, err := New(in)
+		return err
+	}
+	for _, c := range []struct {
+		name                string
+		tp, pcp, dcp, nodes int
+		admitted            bool
+	}{
+		{"dcp divides tp", 8, 1, 4, 1, true},
+		{"dcp does not divide tp", 8, 1, 3, 1, false},
+		{"dcp wider than tp", 4, 1, 8, 1, false},
+		{"dcp spans the pcp axis", 8, 2, 2, 2, true},
+		{"dcp spans tp x pcp", 4, 2, 8, 1, true},
+		{"dcp is neither", 8, 2, 4, 2, false},
+		{"pcp fits the GPUs", 4, 2, 1, 1, true},
+		{"pcp needs more GPUs than the pool has", 8, 2, 1, 1, false},
+	} {
+		err := build(c.tp, c.pcp, c.dcp, c.nodes)
+		if c.admitted && err != nil {
+			t.Errorf("%s (tp=%d pcp=%d dcp=%d on %d node(s)): refused, but the engine "+
+				"starts it: %v", c.name, c.tp, c.pcp, c.dcp, c.nodes, err)
+		}
+		if !c.admitted && err == nil {
+			t.Errorf("%s (tp=%d pcp=%d dcp=%d on %d node(s)): priced, but the engine "+
+				"refuses it at startup", c.name, c.tp, c.pcp, c.dcp, c.nodes)
+		}
+	}
+}
+
 // A context shorter than the group still occupies a token somewhere. Zero here would make
 // a decode read free, which is the silent-and-cheap direction this repository refuses.
 func TestDCPLocalTokensFloorsAtOneTokenPerRank(t *testing.T) {
@@ -177,7 +236,7 @@ func TestDCPLocalTokensFloorsAtOneTokenPerRank(t *testing.T) {
 	}
 	// Defensive arithmetic, since a library cannot assume its caller validated: a
 	// non-positive width is absent, not a division by zero. blis-schemas owns the
-	// admissibility rules (tp %% dcp == 0, and dcp in {1, pcp, tp*pcp} when pcp is on);
+	// admissibility rules (tp % dcp == 0, and dcp in {1, pcp, tp*pcp} when pcp is on);
 	// this only refuses to divide by zero, following the max(TP, 1) pattern elsewhere.
 	for _, dcp := range []int{0, -4} {
 		if got := dcpLocalTokens([]int{4096}, dcp, 1); got != -1 {
@@ -880,31 +939,38 @@ func TestDecodeContextParallelWidthComesFromTheResolvedLayout(t *testing.T) {
 	}
 }
 
-// THE DEPLOYMENT THIS WAS WRITTEN FOR, priced as four independent arms.
+// THE DEPLOYMENT THIS WAS WRITTEN FOR, priced arm by arm.
 //
 // The GLM-5.3-Flash canary runs tp=1 with --prefill-context-parallel-size 8,
 // --decode-context-parallel-size 8, --dcp-comm-backend ag_rs and a 64-token KV block. That
 // shape is why the two axes had to be separated rather than collapsed: at tp=1 there is no
 // tensor-parallel width to divide anything, so before this change NOTHING in the layout
-// moved the price of that deployment at all.
+// moved the price of that deployment at all. glm5 stands in for it: the vendored catalog
+// predates GLM-5.3-Flash, and both are sparse-MLA stacks.
 //
-// It also evaluates the claim the published serving analysis makes -- that `-dcp 8` is
-// "close to free for an MLA model" -- which this kernel previously could not assess in
-// either direction. On this fixture it comes out supported: the decode step rises about
-// 1.4% while the cache a rank holds falls eightfold.
+// THREE ARMS, NOT FOUR. A DCP-only arm at tp=1 is a layout the engine refuses: with PCP off
+// "DCP reuses the TP ranks", so tp must be divisible by dcp (vllm/config/parallel.py:566-569
+// at v0.31.0), and blis-schemas v0.2.2 now enforces that too. An earlier form of this test
+// priced tp=1, dcp=8 anyway, so its DCP-only assertions described a deployment that does
+// not start. DCP alone is exercised at tp=8 by the tests above, where it is admissible.
 //
-// Asserted as a matrix of non-interference rather than as four numbers: PCP must move
-// prefill and only prefill, DCP must move decode and capacity and only those, and the
-// combined arm must show both effects.
+// The backend is STATED, as the canary states it. GLM's model hook would otherwise choose
+// a2a with a replicated query projection (models/config.py:43-50), which is a different
+// set of collectives; stating ag_rs is what the measured deployment did.
+//
+// Asserted as a matrix of non-interference rather than as figures: PCP must move prefill
+// and only prefill, and adding DCP to it must move decode and capacity and not prefill.
 func TestTheContextParallelArmsOfTheCanaryDeploymentPriceIndependently(t *testing.T) {
 	build := func(pcp, dcp int) *Kernel {
 		t.Helper()
 		in := fixtureInputs(t, dcpSparseFixture)
-		in.Deployment.Pools[0].Parallel.TP = 1
-		in.Deployment.Pools[0].Parallel.DP = 1
-		in.Deployment.Pools[0].Parallel.PCP = pcp
-		in.Deployment.Pools[0].Parallel.DCP = dcp
-		in.Deployment.Pools[0].Engine.BlockSize = 64
+		pool := &in.Deployment.Pools[0]
+		pool.Parallel.TP = 1
+		pool.Parallel.DP = 1
+		pool.Parallel.PCP = pcp
+		pool.Parallel.DCP = dcp
+		pool.Engine.BlockSize = 64
+		pool.Engine.DCPCommBackend = "ag_rs"
 		k, err := New(in)
 		if err != nil {
 			t.Fatalf("tp=1 pcp=%d dcp=%d: %v", pcp, dcp, err)
@@ -916,7 +982,6 @@ func TestTheContextParallelArmsOfTheCanaryDeploymentPriceIndependently(t *testin
 
 	base := build(1, 1)
 	pcpOnly := build(8, 1)
-	dcpOnly := build(1, 8)
 	both := build(8, 8)
 
 	// PCP moves prefill and nothing else.
@@ -933,38 +998,19 @@ func TestTheContextParallelArmsOfTheCanaryDeploymentPriceIndependently(t *testin
 		t.Errorf("pcp=8 moved the cache a rank holds to %d from %d", got, want)
 	}
 
-	// DCP moves decode and capacity, and not prefill.
-	if dcpOnly.StepTime(decode).NoOverlap <= base.StepTime(decode).NoOverlap {
-		t.Error("dcp=8 did not raise the decode step; the combine it adds is a real cost")
+	// Adding DCP moves decode and capacity, and not an unchunked prefill: a prefill with no
+	// computed prefix has no sharded context to read.
+	if both.StepTime(decode).NoOverlap == pcpOnly.StepTime(decode).NoOverlap {
+		t.Error("dcp=8 left the decode step where pcp alone put it; the shard and the " +
+			"combine it adds both change a decode step")
 	}
-	if got, want := dcpOnly.SequenceVariableBytes(32768),
-		base.SequenceVariableBytes(32768)/8; got != want {
+	if got, want := both.SequenceVariableBytes(32768),
+		pcpOnly.SequenceVariableBytes(32768)/8; got != want {
 		t.Errorf("dcp=8 holds %d bytes, want %d (an eighth of the unsharded %d)",
-			got, want, base.SequenceVariableBytes(32768))
+			got, want, pcpOnly.SequenceVariableBytes(32768))
 	}
-	if got, want := dcpOnly.StepTime(prefill).NoOverlap,
-		base.StepTime(prefill).NoOverlap; got != want {
-		t.Errorf("dcp=8 moved the prefill step to %v from %v", got, want)
-	}
-
-	// Together, both effects and no third one.
 	if got, want := both.StepTime(prefill).NoOverlap,
 		pcpOnly.StepTime(prefill).NoOverlap; got != want {
-		t.Errorf("the combined arm priced prefill at %v against %v for pcp alone", got, want)
-	}
-	if got, want := both.StepTime(decode).NoOverlap,
-		dcpOnly.StepTime(decode).NoOverlap; got != want {
-		t.Errorf("the combined arm priced decode at %v against %v for dcp alone", got, want)
-	}
-
-	// The claim worth being able to state: the decode cost of sharding is small against
-	// the capacity it buys. Bounded loosely, because the figure is a property of the
-	// registry's collective fits rather than of this kernel's composition.
-	cost := dcpOnly.StepTime(decode).NoOverlap.Seconds() /
-		base.StepTime(decode).NoOverlap.Seconds()
-	if cost > 1.25 {
-		t.Errorf("sharding the cache eightfold cost %.1f%% of decode step time; the "+
-			"published analysis calls this close to free, and a cost this large would "+
-			"contradict it rather than quantify it", (cost-1)*100)
+		t.Errorf("dcp=8 moved an unchunked prefill step to %v from %v", got, want)
 	}
 }

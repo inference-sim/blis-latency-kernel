@@ -2,8 +2,10 @@ package latencykernel
 
 import (
 	"math"
+	"path/filepath"
 	"testing"
 
+	schemas "github.com/inference-sim/blis-schemas"
 	"github.com/inference-sim/blis-schemas/kernel"
 	"github.com/inference-sim/blis-schemas/spec/model"
 
@@ -14,7 +16,7 @@ import (
 // behaviourally.
 //
 // THE DEFECT. PCP was half-modelled where DCP was not modelled at all. It reached a price,
-// but only as a side effect of the expert group: ExpertParallelWidth is tp * max(DP, PCP),
+// but only as a side effect of the expert group -- ExpertParallelWidth widens with pcp --
 // so a wider PCP sharded more experts and paid a wider all-to-all. The sharding PCP is
 // NAMED for -- "Number of ranks that split prefill sequence computation"
 // (vllm/config/parallel.py:131-133 at v0.31.0) -- was not credited at all, so a PCP
@@ -34,24 +36,58 @@ import (
 const pcpFixture = dcpMLAFixture
 
 // pcpKernel builds a kernel from a committed fixture with the prefill-context-parallel
-// width changed. The fixtures state dp 1, which matters: blis-schemas rejects pcp > 1
-// alongside dp > 1.
-//
-// That constraint is blis-schemas' own (spec/deployment/validate.go:146-149), NOT a quote
-// from the engine: vLLM v0.31.0 carries no PCP-with-DP refusal, and an earlier draft of
-// this comment attributed one to config/parallel.py:548-549, which is in fact EPLB
-// validation. The schema's reasoning stands on its own -- combining the two makes the
-// expert group's extent ambiguous, since ExpertParallelWidth is tp * max(DP, PCP) -- and
-// is recorded here rather than borrowed.
+// width changed, laid out the way the engine actually runs it.
 func pcpKernel(t testing.TB, fixture string, pcp int) *Kernel {
 	t.Helper()
-	in := fixtureInputs(t, fixture)
-	in.Deployment.Pools[0].Parallel.PCP = pcp
+	in := pcpInputs(t, fixture, pcp)
 	k, err := New(in)
 	if err != nil {
 		t.Fatalf("%s at pcp=%d: %v", fixture, pcp, err)
 	}
 	return k
+}
+
+// pcpInputs is a committed fixture's Inputs with the prefill-context-parallel width set to
+// pcp AND the nodes to hold it.
+//
+// PCP EXPANDS THE WORLD SIZE. vLLM's ParallelConfig sets world_size = pp * tp * pcp
+// (vllm/config/parallel.py:899-903 at v0.31.0) -- DCP reuses ranks, PCP adds them -- so a
+// tp=8 fixture on one 8-GPU node at pcp=2 needs sixteen GPUs. An earlier form of this
+// helper set the width alone and priced exactly that sixteen-rank layout on eight GPUs,
+// which the engine cannot start; blis-schemas v0.2.2 refuses it ("needs 16 GPUs (pp 1 x
+// tp 8 x pcp 2 x dp 1, one per rank) but the pool's 1 node(s) of 8 GPUs provide 8").
+//
+// So the pool and the cluster grow by the split, which is the shape PCP is deployed in:
+// the tensor-parallel group stays inside a node and the PCP ranks are added across nodes.
+// The ranks are laid out DP x PP x PCP x TP with TP innermost (parallel_state.py:2054-2060),
+// which is what places a PCP group's members one tensor-parallel width apart and therefore
+// on different nodes here.
+//
+// A cross-node cluster must name its fabric, a rule blis-schemas held before PCP existed.
+// The fabric is set at EVERY width, pcp=1 included, so a comparison across widths differs
+// in the split and nothing else; nothing crosses a node at pcp=1, so it prices no term there.
+func pcpInputs(t testing.TB, fixture string, pcp int) Inputs {
+	t.Helper()
+	in := fixtureInputs(t, fixture)
+	if len(in.Deployment.Pools) != 1 {
+		t.Fatalf("%s has %d pools; pcpInputs grows one pool and its cluster together",
+			fixture, len(in.Deployment.Pools))
+	}
+	pool := &in.Deployment.Pools[0]
+	pool.Parallel.PCP = pcp
+	if pcp > 1 {
+		pool.Nodes *= pcp
+		in.Scenario.Cluster.Nodes *= pcp
+	}
+	if in.Fabric == nil {
+		const fabric = "ib-400g"
+		f, err := schemas.LoadFabric(filepath.Join(catalogRoot, "networks", fabric+".yaml"))
+		if err != nil {
+			t.Fatalf("fabric %s: %v", fabric, err)
+		}
+		in.Scenario.Cluster.Fabric, in.Fabric = fabric, f
+	}
+	return in
 }
 
 // ---------------------------------------------------------------------------
@@ -588,14 +624,13 @@ func TestPCPAddsAKVGatherOnPrefillOnly(t *testing.T) {
 // the second needs a model whose layers are not all attention. Nemotron-3-Ultra is that
 // model -- 96 of its 108 layers hold no KV.
 func TestThePCPGatherIsScopedToPrefillTokensAndKVLayers(t *testing.T) {
-	// Prefill-context parallelism and data parallelism cannot both exceed one -- the
-	// engine refuses it and blis-schemas enforces that -- so a fixture carrying dp > 1
-	// has it cleared here rather than being skipped.
+	// dp is cleared so the hybrid fixture's three replicas do not multiply the node count
+	// pcpInputs grows: the gather's scoping is a per-rank question, and a wider expert or
+	// data-parallel layout would only add collectives this comparison has to subtract.
 	build := func(fixture string, pcp int) *Kernel {
 		t.Helper()
-		in := fixtureInputs(t, fixture)
+		in := pcpInputs(t, fixture, pcp)
 		in.Deployment.Pools[0].Parallel.DP = 1
-		in.Deployment.Pools[0].Parallel.PCP = pcp
 		k, err := New(in)
 		if err != nil {
 			t.Fatalf("%s at pcp=%d: %v", fixture, pcp, err)
@@ -709,32 +744,37 @@ func TestThePCPGatherIsPricedAtItsOwnWidth(t *testing.T) {
 	}
 }
 
-// The expert group must keep widening with PCP, because that part was already right and a
-// change to the prefill split must not disturb it. ExpertParallelWidth is tp * max(DP, PCP),
-// which agrees with the engine's tp * pcp * dp throughout the admissible region, since
-// pcp > 1 alongside dp > 1 is refused by both.
-func TestPCPStillWidensTheExpertGroup(t *testing.T) {
-	// A fixture with expert parallelism on, so the width is not trivially one.
-	in := fixtureInputs(t, "minimax-m25-h200-ep8.yaml")
-	in.Deployment.Pools[0].Parallel.DP = 1
-	base, err := New(in)
-	if err != nil {
-		t.Fatalf("pcp=1: %v", err)
-	}
-	in2 := fixtureInputs(t, "minimax-m25-h200-ep8.yaml")
-	in2.Deployment.Pools[0].Parallel.DP = 1
-	in2.Deployment.Pools[0].Parallel.PCP = 2
-	wider, err := New(in2)
-	if err != nil {
-		t.Fatalf("pcp=2: %v", err)
-	}
-	if !in2.Deployment.Pools[0].Parallel.EnableExpertParallel {
-		t.Skip("this fixture has expert parallelism off, so there is no group to widen")
-	}
-	if wider.layout.ExpertWidth <= base.layout.ExpertWidth {
-		t.Errorf("the expert group is %d ranks at pcp=2 against %d at pcp=1; "+
-			"ExpertParallelWidth is tp * max(DP, PCP) and must still widen",
-			wider.layout.ExpertWidth, base.layout.ExpertWidth)
+// The expert group spans the prefill-context ranks as well as the tensor- and data-parallel
+// ones: vLLM builds it over all three axes together, `data_parallel_size *
+// prefill_context_model_parallel_size * tensor_model_parallel_size`
+// (vllm/distributed/parallel_state.py:2212-2220 at v0.31.0).
+//
+// THE CASE THAT SEPARATES THE TWO FORMULAS is dp > 1 AND pcp > 1. blis-schemas v0.2.0
+// computed tp * max(dp, pcp), which agrees with the product whenever one of dp and pcp is
+// one -- every layout that version admitted -- and is a factor of min(dp, pcp) narrow once
+// both exceed one, which v0.31.0 runs ("DP 4 x PCP 8 is an expert group of 32, not 8", in
+// v0.2.2's own changelog). So the grid below includes that corner, and a regression to the
+// max would fail exactly there.
+//
+// Asserted on the RESOLVED width, which is what selects the routed-expert shard and the
+// all-to-all's group, and which a consumer reads.
+func TestTheExpertGroupSpansTensorPrefillContextAndDataParallelRanks(t *testing.T) {
+	for _, c := range []struct{ pcp, dp int }{{1, 1}, {2, 1}, {1, 2}, {2, 2}, {4, 2}} {
+		in := pcpInputs(t, pcpFixture, c.pcp)
+		pool := &in.Deployment.Pools[0]
+		pool.Parallel.EnableExpertParallel = true
+		pool.Parallel.DP = c.dp
+		pool.Nodes *= c.dp
+		in.Scenario.Cluster.Nodes *= c.dp
+		k, err := New(in)
+		if err != nil {
+			t.Fatalf("pcp=%d dp=%d: %v", c.pcp, c.dp, err)
+		}
+		want := pool.Parallel.TP * c.pcp * c.dp
+		if got := k.Resolved().ExpertParallelWidth; got != want {
+			t.Errorf("tp=%d pcp=%d dp=%d: the expert group is %d ranks, want %d "+
+				"(tp x pcp x dp)", pool.Parallel.TP, c.pcp, c.dp, got, want)
+		}
 	}
 }
 

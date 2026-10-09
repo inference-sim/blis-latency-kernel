@@ -1830,6 +1830,15 @@ func (k *Kernel) Provenance() []kernel.CoefficientOrigin { return k.origins }
 // Resolved reports the configuration after resolution, including overridden requests.
 func (k *Kernel) Resolved() kernel.Resolution { return k.resolution }
 
+// Deployment returns the pool this kernel prices, as the document stated it.
+//
+// The request, not the resolution: a caller wanting a width or a backend reads Resolved,
+// and reads this for the settings resolution does not touch -- the admission settings a
+// scheduler sizes itself from. It is the pool New was given at PoolIndex, so a caller
+// holding several kernels of one disaggregated deployment needs no index of its own to
+// know which pool each prices.
+func (k *Kernel) Deployment() deployment.Pool { return k.pool }
+
 // Engine returns the engine settings of the pool this kernel prices.
 //
 // Exported because a consumer needs them for the decisions a cost model does not make. A
