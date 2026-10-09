@@ -157,10 +157,9 @@ type Kernel struct {
 	graphOther         graphMode
 	graphModeName      string
 	uniformDecodeWidth int
-	// captureTokens is the largest batch a captured graph covers, and captureDecodeTokens
-	// the largest uniform decode batch; a step with more tokens runs with no graph. Zero
-	// when nothing is captured.
-	captureTokens, captureDecodeTokens int
+	// captureTokens is the largest batch a captured graph covers, decode or not; a step
+	// with more tokens runs with no graph. Zero when nothing is captured.
+	captureTokens int
 	// mlaContextChunk is how many context tokens one chunk of an MLA prefill's context
 	// gather covers (see dcpPrefillContextGathers).
 	mlaContextChunk int
@@ -474,10 +473,10 @@ func (k *Kernel) stepTime(b kernel.Batch,
 			// wherever it sits -- which is why a long-context fixture cannot reveal it.
 			prefillChunks = k.appendPrefillRuns(prefillChunks,
 				r.Scheduled, r.Computed)
-			if r.Computed > 0 {
-				prefillPrefixes = append(prefillPrefixes, r.Computed)
-				anyContext = true
-			}
+			// Every prefill is recorded, a fresh one as a zero: it ends a run of
+			// context-reading prefills, which is what decides how they pack into chunks.
+			prefillPrefixes = append(prefillPrefixes, r.Computed)
+			anyContext = anyContext || r.Computed > 0
 			continue
 		}
 		decodeRequests++
@@ -759,7 +758,13 @@ func (k *Kernel) stepTime(b kernel.Batch,
 			// FlashAttention is v0.31.0's default for causal non-MLA attention everywhere
 			// but data-center Blackwell, where FlashInfer, which splits the batch, is
 			// (vllm/platforms/cuda.py:157-180); the catalog marks that family by native NVFP4.
+			//
+			// Not under decode-context parallelism: there FlashAttention runs
+			// _forward_with_dcp instead (flash_attn.py:1344-1357), a context pass and a query
+			// pass over the whole step and a merge (:1543-1717), so a mixed step whose
+			// decodes read context is two launches -- which the two floors already charge.
 			if decodeRequests > 0 && prefillRequests > 0 && !latentAttention(l.AttnKind) &&
+				k.layout.DCP <= 1 &&
 				k.chip.NVFP4Peak <= 0 && rate > 0 && k.attentionPrefillScale > 0 {
 				if floor < k.attentionPrefillFloor {
 					attnSeconds -= floor.Seconds()
@@ -1960,16 +1965,26 @@ func (k *Kernel) pcpPrefillGathers(l *price.PlannedLayer,
 // context tokens (:2060-2080). The gathered rows are the latent width at the model dtype --
 // the cache is dequantized or upconverted into the workspace first (:3060-3089).
 //
-// Each prefill request is chunked on its own, which is how the plan packs them
-// ("workspace-sized per-request chunks", :2023-2024); requests sharing one chunk would pay
-// one floor where this charges two, a small over-charge at short contexts.
+// Chunks are packed across requests: plan_mla_context_chunks (:1922-1990) fills each chunk
+// with consecutive context-reading prefills until the workspace is full, splitting the
+// request that overflows it, and starts a new run at a prefill with no context. So a run
+// of prefills whose contexts sum to S pays ceil(S / chunk) gathers, not one or more per
+// request. prefixes is every prefill's context in batch order, zero for a fresh one.
+//
+// Two simplifications, both in the direction of fewer bytes per launch: a split is rounded
+// down to the cache's block alignment, and under DCP each rank's share is padded to the
+// interleave block (:2051-2064), so a chunk can hold slightly less context than the
+// workspace and a run can take one launch more than this counts.
 func (k *Kernel) dcpPrefillContextGathers(l *price.PlannedLayer,
 	prefixes []int) (onNode, crossNode float64) {
 	key := collKey{Op: model.OpAllGather, Group: price.GroupDCP}
 	width := float64(l.AttnHeadDim) * price.ActivationBytes
-	for _, prefix := range prefixes {
-		chunks := (prefix + k.mlaContextChunk - 1) / k.mlaContextChunk
-		bytes := float64(prefix) * width / float64(chunks)
+	gatherRun := func(context int) {
+		if context <= 0 {
+			return
+		}
+		chunks := (context + k.mlaContextChunk - 1) / k.mlaContextChunk
+		bytes := float64(context) * width / float64(chunks)
 		for c := 0; c < chunks; c++ {
 			if k.crossesNodes(key) {
 				crossNode += k.collectiveSeconds(key, bytes*k.spanFor(key))
@@ -1978,6 +1993,16 @@ func (k *Kernel) dcpPrefillContextGathers(l *price.PlannedLayer,
 			}
 		}
 	}
+	run := 0
+	for _, prefix := range prefixes {
+		if prefix <= 0 {
+			gatherRun(run)
+			run = 0
+			continue
+		}
+		run += prefix
+	}
+	gatherRun(run)
 	return onNode, crossNode
 }
 
@@ -2039,12 +2064,12 @@ func (k *Kernel) moeDPFunnel() float64 {
 // the mode (captureTokens), so a large prefill step is charged eager launches rather than
 // replays it does not make.
 func (k *Kernel) hostPerStep(b kernel.Batch) time.Duration {
-	mode, ceiling := k.graphOther, k.captureTokens
+	mode := k.graphOther
 	// An empty step runs no forward; it is charged as the decode loop's idle step.
 	if len(b.Reqs) == 0 || b.UniformDecode(k.uniformDecodeWidth) {
-		mode, ceiling = k.graphDecode, k.captureDecodeTokens
+		mode = k.graphDecode
 	}
-	if b.Tokens() > ceiling {
+	if b.Tokens() > k.captureTokens {
 		// Past every captured size: the engine runs this step with no graph.
 		mode = graphModeEager
 	}

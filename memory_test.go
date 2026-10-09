@@ -847,3 +847,34 @@ func TestAMixedStepIsOneAttentionLaunchOnFlashAttention(t *testing.T) {
 			"attention layer, %v", saved, want)
 	}
 }
+
+// UNDER DCP A MIXED STEP IS TWO LAUNCHES EVEN ON FLASHATTENTION. With decode-context
+// parallelism FlashAttention runs _forward_with_dcp instead of its one varlen kernel
+// (vllm/v1/attention/backends/flash_attn.py:1344-1357 at v0.31.0): a context pass and a
+// query pass over the whole step, then a merge (:1543-1717). So the one-launch rebate the
+// previous test asserts must not apply: at dcp=2 the same mixed step prices identically on
+// the h200 and on the h200 marked data-center Blackwell.
+func TestUnderDCPAMixedStepGetsNoOneLaunchRebate(t *testing.T) {
+	const fixture = "minimax-m25-h200-tp8.yaml"
+	build := func(blackwell bool) *Kernel {
+		t.Helper()
+		return mustDCPVariant(t, fixture, 8, 1, 2, func(in *Inputs) {
+			if blackwell {
+				chip := *in.Chip
+				chip.NVFP4Peak = 1
+				in.Chip = &chip
+			}
+		})
+	}
+	fa, fi := build(false), build(true)
+	busy := func(k *Kernel, b kernel.Batch) time.Duration {
+		p := k.StepTime(b).PerResource
+		return p[kernel.ResourceSM] + p[kernel.ResourceHBM]
+	}
+	mixed := kernel.Batch{DecodeThreshold: 8, Reqs: append(append([]kernel.ReqShape{},
+		decodeBatch(8, 1, 4096).Reqs...), decodeBatch(1, 256, 256).Reqs...)}
+	if a, c := busy(fa, mixed), busy(fi, mixed); a != c {
+		t.Errorf("at dcp=2 a mixed step priced %v on FlashAttention and %v on FlashInfer; "+
+			"_forward_with_dcp is two launches on both", a, c)
+	}
+}

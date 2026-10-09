@@ -252,12 +252,23 @@ type Emitter interface {
 // ActivationBytes is the width an activation crosses a collective or a normalization at:
 // the model's compute dtype, bf16, whatever format the weights are served in. vLLM's
 // quantized linears quantize their input transiently and return out_dtype=x.dtype
-// (vllm/model_executor/kernels/linear/scaled_mm/cutlass.py:147,153 at v0.31.0), so the
-// hidden state between projections, the reductions over it and the norms that read it are
-// 16-bit on an fp8, int8 or fp4 deployment as on a bf16 one. The MoE dispatch is priced at
-// the same width: the default allgather_reducescatter backend moves hidden states
-// unquantized (vllm/config/parallel.py:202); a backend that quantizes its dispatch moves
-// fewer bytes, which this does not see.
+// (vllm/model_executor/kernels/linear/scaled_mm/ScaledMMLinearKernel.py:142-157 and
+// cutlass.py:147,153 at v0.31.0), so the hidden state between projections, the reductions
+// over it and the norms that read it are 16-bit on an fp8, int8 or fp4 deployment as on a
+// bf16 one.
+//
+// The MoE combine is at this width too: the experts' output is bf16. The MoE DISPATCH is
+// priced at it as well, and on a quantized deployment that is an upper bound, not the
+// engine's width. The default allgather_reducescatter backend (vllm/config/parallel.py:202)
+// quantizes the hidden state before gathering it -- moe_kernel_quantize_input in
+// _quantize_and_setup_dispatch, vllm/model_executor/layers/fused_moe/prepare_finalize/
+// naive_dp_ep.py:16-51 -- and gathers the scales beside it, unless the experts kernel
+// quantizes its own input (expects_unquantized_inputs, modular_kernel.py:505-512). Which
+// experts kernel serves a layer is chosen per quantization method and platform, and this
+// kernel does not model that choice, so it cannot tell a 1-byte (fp8) or half-byte (fp4)
+// dispatch from a 2-byte one. COVERAGE LIMIT: an fp8 w8a8 deployment whose experts kernel
+// takes quantized input has its dispatch charged about twice its bytes; its combine is
+// charged right.
 //
 // An earlier form sized all three at the served weight width, so an fp8 deployment's
 // collectives and norms were charged half their bytes.

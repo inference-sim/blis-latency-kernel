@@ -491,15 +491,22 @@ func TestAFullAttentionDCPLayerCombinesEveryRowWhenContextIsRead(t *testing.T) {
 // workspace :2297-2320). deepseek-v3's fixture states max_model_len 32768, so a chunk is
 // min(max(8 x 32768, ...), 65536) = 65,536 context tokens.
 //
+// Chunks pack consecutive context-reading prefills (plan_mla_context_chunks, :1922-1990),
+// so the count follows each run's summed context, and a fresh prefill ends a run.
+//
 // Counted by inflating the 2-rank all-gather floor at tp=8, dcp=2, where the only 2-rank
 // all-gather a prefill-only step can run is this one: launches per layer are 0 with no
-// prefix, 1 for a 1,000-token prefix and 2 for a 70,000-token one.
+// prefix, 1 for a 1,000-token prefix and 2 for a 70,000-token one; 1 for two adjacent
+// 1,000-token prefixes, which share a chunk, and 2 when a fresh prefill separates them; and
+// 2 for two adjacent 40,000-token prefixes, whose 80,000 tokens overflow one chunk.
 func TestALatentPrefillGathersItsContextOnceAChunk(t *testing.T) {
-	launches := func(prefix int) float64 {
+	launches := func(prefixes ...int) float64 {
 		t.Helper()
-		b := kernel.Batch{DecodeThreshold: 8, Reqs: []kernel.ReqShape{
-			{Scheduled: 256, Computed: prefix, PromptLen: prefix + 256},
-		}}
+		b := kernel.Batch{DecodeThreshold: 8}
+		for _, prefix := range prefixes {
+			b.Reqs = append(b.Reqs, kernel.ReqShape{
+				Scheduled: 256, Computed: prefix, PromptLen: prefix + 256})
+		}
 		base := mustDCPVariant(t, dcpMLAFixture, 8, 1, 2, nil)
 		inflated := mustDCPVariant(t, dcpMLAFixture, 8, 1, 2, func(in *Inputs) {
 			in.Coefficients = scaleFloors(in.Coefficients, "all_gather_fp16_2rank", 10)
@@ -510,12 +517,19 @@ func TestALatentPrefillGathersItsContextOnceAChunk(t *testing.T) {
 		return moved / (9 * floor.Seconds() * float64(base.plan.TotalLayers))
 	}
 	for _, c := range []struct {
-		prefix int
-		want   float64
-	}{{0, 0}, {1000, 1}, {70000, 2}} {
-		if got := launches(c.prefix); math.Abs(got-c.want) > 1e-6 {
-			t.Errorf("a prefill on a %d-token prefix ran %.6f context gathers per layer, "+
-				"want %v", c.prefix, got, c.want)
+		prefixes []int
+		want     float64
+	}{
+		{[]int{0}, 0},
+		{[]int{1000}, 1},
+		{[]int{70000}, 2},
+		{[]int{1000, 1000}, 1},
+		{[]int{1000, 0, 1000}, 2},
+		{[]int{40000, 40000}, 2},
+	} {
+		if got := launches(c.prefixes...); math.Abs(got-c.want) > 1e-6 {
+			t.Errorf("prefills on prefixes %v ran %.6f context gathers per layer, want %v",
+				c.prefixes, got, c.want)
 		}
 	}
 }
