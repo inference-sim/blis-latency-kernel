@@ -161,6 +161,9 @@ type Kernel struct {
 	// the largest uniform decode batch; a step with more tokens runs with no graph. Zero
 	// when nothing is captured.
 	captureTokens, captureDecodeTokens int
+	// mlaContextChunk is how many context tokens one chunk of an MLA prefill's context
+	// gather covers (see dcpPrefillContextGathers).
+	mlaContextChunk int
 
 	// recurrentCacheMode is how a hybrid model's recurrent state is cached, as resolved.
 	recurrentCacheMode price.RecurrentCacheMode
@@ -384,6 +387,13 @@ func (k *Kernel) stepTime(b kernel.Batch,
 	// decode-context combine: one row per scheduled token, so a speculative decode
 	// verifying four tokens moves four rows, not one.
 	var decodeTokens int
+	// prefillPrefixes is each prefill request's already-computed context, which a
+	// decode-context-parallel latent layer gathers back before attending (see
+	// dcpPrefillContextGathers). anyContext is whether any request in the step reads cached
+	// context at all, which decides whether a full-attention DCP layer runs its context
+	// pass.
+	var prefillPrefixes []int
+	anyContext := false
 	// prefillTokens is the scheduled prefill tokens THIS RANK computes, which the KV
 	// gather's payload is sized from. withheldByPCP is how many of the batch's scheduled
 	// tokens the prefill split takes off this rank, which is what the step's token count
@@ -464,10 +474,15 @@ func (k *Kernel) stepTime(b kernel.Batch,
 			// wherever it sits -- which is why a long-context fixture cannot reveal it.
 			prefillChunks = k.appendPrefillRuns(prefillChunks,
 				r.Scheduled, r.Computed)
+			if r.Computed > 0 {
+				prefillPrefixes = append(prefillPrefixes, r.Computed)
+				anyContext = true
+			}
 			continue
 		}
 		decodeRequests++
 		decodeTokens += r.Scheduled
+		anyContext = anyContext || r.Computed > 0
 		decodeKVTokens += float64(ctx)
 		decodeContexts = append(decodeContexts, ctx)
 		// A decode row is REPLICATED across prefill-context-parallel ranks, not split:
@@ -954,11 +969,36 @@ func (k *Kernel) stepTime(b kernel.Batch,
 		// rows at all. It accumulates into the same onNode/crossNode totals the graph
 		// collectives use, so composition and the per-resource breakdown treat it
 		// identically.
-		if decodeTokens > 0 && k.layout.DCP > 1 && dcpShardsKV(l.AttnKind) &&
-			l.AttnQHeads > 0 {
-			on, cross := k.dcpDecodeCollectives(l, decodeTokens)
-			onNode += on
-			crossNode += cross
+		if k.layout.DCP > 1 && dcpShardsKV(l.AttnKind) && l.AttnQHeads > 0 {
+			// Which query rows take part in the combine depends on the attention.
+			//
+			// A latent layer runs its decode rows through the MQA path, where the combine
+			// happens, and its prefill rows through the MHA path over a gathered context
+			// (below), so only decode rows cross here.
+			//
+			// A full-attention layer runs ONE context pass over every query row -- decode
+			// and prefill alike -- whenever any request reads cached context: it gathers
+			// the whole step's query and combines the whole step's output
+			// (FlashAttentionImpl._forward_with_dcp, vllm/v1/attention/backends/
+			// flash_attn.py:1563-1691 at v0.31.0), and skips both when no request has
+			// context (max_dcp_context_kv_len == 0, :1565-1589).
+			rows := decodeTokens
+			if !latentAttention(l.AttnKind) {
+				rows = 0
+				if anyContext {
+					rows = b.Tokens()
+				}
+			}
+			if rows > 0 {
+				on, cross := k.dcpDecodeCollectives(l, rows)
+				onNode += on
+				crossNode += cross
+			}
+			if latentAttention(l.AttnKind) && len(prefillPrefixes) > 0 {
+				on, cross := k.dcpPrefillContextGathers(l, prefillPrefixes)
+				onNode += on
+				crossNode += cross
+			}
 		}
 
 		// Prefill-context parallelism's own collectives, which no model graph emits either.
@@ -1737,10 +1777,10 @@ func (k *Kernel) dcpDecodeTokens(l *price.PlannedLayer, kind model.AttentionKind
 	return total
 }
 
-// dcpDecodeCollectives prices one layer's decode-context-parallel collectives, returning
-// the on-node and cross-node seconds. rows is the decode tokens in the step: one query row
-// crosses per decode token (the MQA rows, num_mqa_tokens), and a prefill token takes no
-// part in a decode combine.
+// dcpDecodeCollectives prices one layer's decode-context-parallel query gather and combine,
+// returning the on-node and cross-node seconds. rows is the query rows that take part, one
+// per token: a latent layer's decode tokens (the MQA rows, num_mqa_tokens), or a
+// full-attention layer's whole step when any request reads context (see the call site).
 //
 // WHAT vLLM v0.31.0 LAUNCHES PER DECODE LAYER, by backend and by whether prefill-context
 // parallelism is on. Three collectives at most, which is the "3 NCCL calls" its own
@@ -1782,11 +1822,7 @@ func (k *Kernel) dcpDecodeTokens(l *price.PlannedLayer, kind model.AttentionKind
 // quantized cache (query_dtype, mla_attention.py:690-696), which would move the query at
 // one byte; this prices it at two, an overstatement of one of the three collectives.
 //
-// COVERAGE LIMITS, stated so they are not mistaken for completeness. A prefill row resuming
-// on a DCP-sharded prefix needs that prefix's KV gathered back (MLA's chunked-context
-// all-gather, mla_attention.py:3090-3104), and a full-attention DCP layer gathers the query
-// of its context-prefill rows as well as its decode rows (flash_attn.py:1591). Neither is
-// priced: this charges decode rows only.
+// A latent prefill's context is read by its own gather, dcpPrefillContextGathers.
 func (k *Kernel) dcpDecodeCollectives(l *price.PlannedLayer, rows int) (onNode, crossNode float64) {
 	const activationBytes = price.ActivationBytes
 	tp := float64(max(k.layout.TP, 1))
@@ -1886,6 +1922,39 @@ func (k *Kernel) pcpPrefillGathers(l *price.PlannedLayer, localTokens int) (onNo
 	for _, a := range l.Attentions {
 		if !a.HoldsKV() && a.KVHeads > 0 && a.HeadDim > 0 {
 			gather(float64(a.KVHeads * a.HeadDim)) // the indexer's key
+		}
+	}
+	return onNode, crossNode
+}
+
+// dcpPrefillContextGathers prices the all-gathers a decode-context-parallel latent layer
+// runs to read a prefill's cached context, returning on-node and cross-node seconds.
+//
+// The context is sharded across the DCP group like any cached sequence, but an MLA prefill
+// attends it with the MHA kernel over the WHOLE context, so each rank gathers its shard and
+// the group all-gathers the rest (MLACommonImpl chunked context:
+// vllm/model_executor/layers/attention/mla_attention.py:3090-3104 at v0.31.0). It runs in
+// workspace-sized chunks, one all-gather per chunk: the workspace holds
+// min(max(8 x max_model_len, 4 x max_num_seqs x block_size), 65536) rows
+// (determine_chunked_prefill_workspace_size, :2297-2320), and a chunk covers up to that many
+// context tokens (:2060-2080). The gathered rows are the latent width at the model dtype --
+// the cache is dequantized or upconverted into the workspace first (:3060-3089).
+//
+// Each prefill request is chunked on its own, which is how the plan packs them
+// ("workspace-sized per-request chunks", :2023-2024); requests sharing one chunk would pay
+// one floor where this charges two, a small over-charge at short contexts.
+func (k *Kernel) dcpPrefillContextGathers(l *price.PlannedLayer, prefixes []int) (onNode, crossNode float64) {
+	key := collKey{Op: model.OpAllGather, Group: price.GroupDCP}
+	width := float64(l.AttnHeadDim) * price.ActivationBytes
+	for _, prefix := range prefixes {
+		chunks := (prefix + k.mlaContextChunk - 1) / k.mlaContextChunk
+		bytes := float64(prefix) * width / float64(chunks)
+		for c := 0; c < chunks; c++ {
+			if k.crossesNodes(key) {
+				crossNode += k.collectiveSeconds(key, bytes*k.spanFor(key))
+			} else {
+				onNode += k.collectiveSeconds(key, bytes)
+			}
 		}
 	}
 	return onNode, crossNode

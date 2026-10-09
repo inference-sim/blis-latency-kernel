@@ -1,6 +1,9 @@
 package latencykernel
 
 import (
+	"github.com/inference-sim/blis-latency-kernel/internal/price"
+	"github.com/inference-sim/blis-schemas/spec/model"
+	"math"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -443,5 +446,74 @@ func TestUnderNIXLAnUnstatedInterleaveIsTheBlockSize(t *testing.T) {
 func TestTheFabricDCPLayoutsDeclareIsInTheCatalog(t *testing.T) {
 	if _, err := schemas.LoadFabric(filepath.Join(catalogRoot, "networks", "ib-400g.yaml")); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// A FULL-ATTENTION DCP LAYER COMBINES EVERY QUERY ROW WHEN ANY REQUEST READS CONTEXT.
+// FlashAttention runs one context pass over the whole step's queries -- gathering them all
+// and combining every row -- and skips it when no request has cached context
+// (vllm/v1/attention/backends/flash_attn.py:1563-1691 at v0.31.0). So beside decode rows a
+// prefill's tokens join the combine; on a step of fresh prefills nothing is combined at all.
+func TestAFullAttentionDCPLayerCombinesEveryRowWhenContextIsRead(t *testing.T) {
+	const fixture = "minimax-m25-h200-tp8.yaml" // gqa
+	added := func(b kernel.Batch) float64 {
+		t.Helper()
+		on := mustDCPVariant(t, fixture, 8, 1, 2, nil).StepTime(b).PerResource
+		off := mustDCPVariant(t, fixture, 8, 1, 1, nil).StepTime(b).PerResource
+		return (on[kernel.ResourceNVLink] + on[kernel.ResourceNIC] -
+			off[kernel.ResourceNVLink] - off[kernel.ResourceNIC]).Seconds()
+	}
+	decodes := kernel.Batch{DecodeThreshold: 8, Reqs: []kernel.ReqShape{
+		{Scheduled: 1, Computed: 4095, PromptLen: 4096},
+		{Scheduled: 1, Computed: 4095, PromptLen: 4096},
+	}}
+	mixed := kernel.Batch{DecodeThreshold: 8, Reqs: append(append([]kernel.ReqShape{},
+		decodes.Reqs...), kernel.ReqShape{Scheduled: 512, Computed: 0, PromptLen: 512})}
+	fresh := kernel.Batch{DecodeThreshold: 8, Reqs: []kernel.ReqShape{
+		{Scheduled: 512, Computed: 0, PromptLen: 512},
+	}}
+	if a, b := added(mixed), added(decodes); a <= b {
+		t.Errorf("a 512-token prefill beside two decodes added %.6f ms of DCP collective "+
+			"against %.6f ms for the decodes alone; its rows join the context pass",
+			a*1e3, b*1e3)
+	}
+	if a := added(fresh); math.Abs(a) > 2e-9 {
+		t.Errorf("a step of fresh prefills added %.6f ms of DCP collective; with no context "+
+			"read there is no context pass", a*1e3)
+	}
+}
+
+// A LATENT PREFILL READS ITS SHARDED CONTEXT BACK IN CHUNKS. The MHA prefill path attends
+// the whole context, so the group all-gathers each rank's shard of it, one all-gather per
+// workspace-sized chunk (vllm/model_executor/layers/attention/mla_attention.py:3090-3104,
+// workspace :2297-2320). deepseek-v3's fixture states max_model_len 32768, so a chunk is
+// min(max(8 x 32768, ...), 65536) = 65,536 context tokens.
+//
+// Counted by inflating the 2-rank all-gather floor at tp=8, dcp=2, where the only 2-rank
+// all-gather a prefill-only step can run is this one: launches per layer are 0 with no
+// prefix, 1 for a 1,000-token prefix and 2 for a 70,000-token one.
+func TestALatentPrefillGathersItsContextOnceAChunk(t *testing.T) {
+	launches := func(prefix int) float64 {
+		t.Helper()
+		b := kernel.Batch{DecodeThreshold: 8, Reqs: []kernel.ReqShape{
+			{Scheduled: 256, Computed: prefix, PromptLen: prefix + 256},
+		}}
+		base := mustDCPVariant(t, dcpMLAFixture, 8, 1, 2, nil)
+		inflated := mustDCPVariant(t, dcpMLAFixture, 8, 1, 2, func(in *Inputs) {
+			in.Coefficients = scaleFloors(in.Coefficients, "all_gather_fp16_2rank", 10)
+		})
+		floor := base.collectiveFloors[collKey{Op: model.OpAllGather, Group: price.GroupDCP}]
+		moved := (inflated.StepTime(b).PerResource[kernel.ResourceNVLink] -
+			base.StepTime(b).PerResource[kernel.ResourceNVLink]).Seconds()
+		return moved / (9 * floor.Seconds() * float64(base.plan.TotalLayers))
+	}
+	for _, c := range []struct {
+		prefix int
+		want   float64
+	}{{0, 0}, {1000, 1}, {70000, 2}} {
+		if got := launches(c.prefix); math.Abs(got-c.want) > 1e-6 {
+			t.Errorf("a prefill on a %d-token prefix ran %.6f context gathers per layer, "+
+				"want %v", c.prefix, got, c.want)
+		}
 	}
 }

@@ -586,18 +586,18 @@ func (k *Kernel) lift(c *resolve.Coefficients, g *model.Graph, cacheBytes float6
 	// The catalog records no compute capability, so a data-center Blackwell part is
 	// recognised by native NVFP4 support, which among the catalog's parts is exactly the
 	// SM100 family (b200, b300, gb200-nvl72, gb300).
+	seqs := k.pool.Engine.MaxNumSeqs
+	if seqs <= 0 {
+		seqs = defaultMaxNumSeqs(k.chip)
+		k.assume("max_num_seqs", strconv.Itoa(seqs),
+			"vLLM v0.31.0's OpenAI-API-server default for this part's memory "+
+				"(EngineArgs.get_batch_defaults, vllm/engine/arg_utils.py:2858-2887); it sets "+
+				"the cudagraph capture ceiling and the MLA context-gather chunk")
+	}
 	if k.graphDecode != graphModeEager || k.graphOther != graphModeEager {
 		platform := 512
 		if k.chip.NVFP4Peak > 0 {
 			platform = 1024
-		}
-		seqs := k.pool.Engine.MaxNumSeqs
-		if seqs <= 0 {
-			seqs = defaultMaxNumSeqs(k.chip)
-			k.assume("max_num_seqs", strconv.Itoa(seqs),
-				"vLLM v0.31.0's OpenAI-API-server default for this part's memory "+
-					"(EngineArgs.get_batch_defaults, vllm/engine/arg_utils.py:2858-2887); it "+
-					"sets the cudagraph capture ceiling")
 		}
 		k.captureTokens = min(seqs*k.uniformDecodeWidth*2, platform)
 		k.captureDecodeTokens = k.captureTokens
@@ -605,6 +605,18 @@ func (k *Kernel) lift(c *resolve.Coefficients, g *model.Graph, cacheBytes float6
 			k.captureDecodeTokens = platform
 		}
 	}
+
+	// The rows one chunk of an MLA prefill's context gather covers:
+	// min(max(8 x max_model_len, 4 x max_num_seqs x block_size), 65536)
+	// (determine_chunked_prefill_workspace_size, vllm/model_executor/layers/attention/
+	// mla_attention.py:2297-2320 at v0.31.0). An unstated max_model_len is the model's own
+	// window, which the graph does not carry, so it is taken at the 65,536 cap: exact for any
+	// window of 8,192 tokens or more, which every latent model in the catalog has.
+	chunk := 65536
+	if mml := k.pool.Engine.MaxModelLen; mml > 0 {
+		chunk = min(max(8*mml, 4*seqs*k.blockSize), 65536)
+	}
+	k.mlaContextChunk = max(chunk, 1)
 
 	// Expert geometry, derived once.
 	experts := 0
