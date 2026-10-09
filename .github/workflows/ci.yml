@@ -1,0 +1,71 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: vet and test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      # The upstream catalog and registry, at the commits testdata/upstream.lock pins. Keyed
+      # on the lock, so a bump fetches afresh; the script re-checks each stamp regardless.
+      - uses: actions/cache@v4
+        with:
+          path: |
+            testdata/catalog
+            testdata/registry
+          key: testdata-${{ hashFiles('testdata/upstream.lock') }}
+      - name: Fetch the pinned upstreams
+        run: scripts/fetch-testdata.sh
+      - name: gofmt
+        run: |
+          unformatted="$(gofmt -l .)"
+          if [ -n "$unformatted" ]; then
+            echo "not gofmt-formatted:"; echo "$unformatted"; exit 1
+          fi
+      - name: go vet
+        run: go vet ./...
+      # The scoring suite needs measurement corpora this repository does not distribute
+      # (testdata/README.md), so it is compiled and vetted here but not run.
+      - name: go vet (scoring suite)
+        run: go vet -tags scoring ./...
+      - name: go test
+        run: go test -count=1 -timeout 30m ./...
+      - name: Python script tests that need no corpus
+        run: python3 scripts/test_extract_inferencex_engine_settings.py
+
+  race:
+    name: race detector
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: actions/cache@v4
+        with:
+          path: |
+            testdata/catalog
+            testdata/registry
+          key: testdata-${{ hashFiles('testdata/upstream.lock') }}
+      - name: Fetch the pinned upstreams
+        run: scripts/fetch-testdata.sh
+      # The root package alone takes over ten minutes under -race, past go test's default
+      # timeout, hence the explicit one.
+      - name: go test -race
+        run: go test -race -count=1 -timeout 60m ./...
