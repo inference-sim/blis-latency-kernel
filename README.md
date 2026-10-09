@@ -105,7 +105,9 @@ refuses the deployment, or prices the engine's stock default and records that de
 `Evidence()` counts. Where v0.31.0's choice follows from the deployment, it is made as the
 engine makes it and recorded the same way: an unstated block size on a DSA sparse-MLA model,
 which is 64 rather than the stock 16 (`sparse_mla.go`). A deployment that states every setting carries no
-such entry, with three exceptions: the cudagraph capture ceiling, which blis-schemas has no
+such entry, with four exceptions: a scenario declaring an engine release other than
+0.31.0, whose behaviour the kernel still prices at 0.31.0 (the fixtures declare 0.29.0, the
+one release with a published rules pack); the cudagraph capture ceiling, which blis-schemas has no
 field to state, so a capturing deployment always runs vLLM's default; a stated DCP backend
 that could not be checked against the release, because the rules value carries no list of
 accepted names; and a DSA model on Hopper whose cache selects FlashInfer's SM90 sparse MLA,

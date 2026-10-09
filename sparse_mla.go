@@ -123,11 +123,12 @@ type sparseMLABackendRequest struct {
 //
 // COVERAGE LIMITS: an "auto" cache is taken as 16-bit, which it is unless the checkpoint
 // states a KV quantization -- a ModelOpt checkpoint's kv_cache_quant_algo turns "auto" into
-// fp8, fp8_e4m3 or nvfp4 before any backend is chosen (resolve_kv_cache_dtype_string,
-// vllm/utils/torch_utils.py:448-521, called from vllm/engine/arg_utils.py:2199-2202), and the
-// graph does not record it; FlashInfer's SM90 backend needs FlashInfer 0.6.18 or later
-// (flashinfer_mla_sparse_sm90.py:194-199), which this assumes is installed; FlashInfer
-// (SM100) checks the model's qk_nope_head_dim, which the DSA family satisfies (128 and 192, within its [128, 192]) and
+// fp8_e4m3 or nvfp4 before any backend is chosen (MODELOPT_TO_VLLM_KV_CACHE_DTYPE_MAP and
+// resolve_kv_cache_dtype_string, vllm/utils/torch_utils.py:67-70, :448-521, called from
+// vllm/engine/arg_utils.py:2199-2202), and the graph does not record it; FlashInfer's SM90
+// backend needs FlashInfer 0.6.18 or later (flashinfer_mla_sparse_sm90.py:194-199), which
+// this assumes is installed; FlashInfer (SM100) checks the model's qk_nope_head_dim, which
+// the DSA family satisfies (128 and 192, within its [128, 192]) and
 // the graph does not state; and the SM120 parts' backend, which repacks "auto" too, has no
 // part in the catalog.
 func sparseMLABackend(r sparseMLABackendRequest) (backend, layout string, err error) {

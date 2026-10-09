@@ -13,6 +13,7 @@
 package harness
 
 import (
+	"fmt"
 	"path/filepath"
 
 	"github.com/inference-sim/blis-schemas/kernel"
@@ -106,11 +107,19 @@ func Replicas(scenario string, r Repos) (int, error) {
 	if err != nil {
 		return 0, err
 	}
+	if len(dep.Pools) == 0 {
+		return 0, fmt.Errorf("%s: the deployment has no pools", scenario)
+	}
 	pool := dep.Pools[0]
 	pl := pool.Parallel
 	perRank := max(pl.PP, 1) * max(pl.TP, 1) * max(pl.PCP, 1)
-	if n := pool.Nodes * sc.Cluster.GPUsPerNode / perRank; n > 0 {
-		return n, nil
+	gpus := pool.Nodes * sc.Cluster.GPUsPerNode
+	// A count that is missing or does not divide is an error, not a fallback: a per-step
+	// figure divided by a wrong count is wrong by that factor, with nothing reporting it.
+	if gpus <= 0 || gpus%perRank != 0 {
+		return 0, fmt.Errorf("%s: pool 0 has %d GPUs (%d nodes x %d), which is not a "+
+			"positive multiple of the %d one data-parallel rank occupies (pp x tp x pcp)",
+			scenario, gpus, pool.Nodes, sc.Cluster.GPUsPerNode, perRank)
 	}
-	return 1, nil
+	return gpus / perRank, nil
 }

@@ -35,7 +35,8 @@ type Plan struct {
 	// Head is the final norm and language-model head, priced once per step rather than
 	// per layer.
 	Head PlannedLayer
-	// TotalLayers is the expanded layer count, kept for reporting rather than for pricing.
+	// TotalLayers is the expanded layer count: the divisor that turns a whole-model per-token
+	// KV figure into one layer's share, and the base of PiecewiseSegments.
 	TotalLayers int
 
 	// TotalKernels is the launch count for one step: every layer's kernels times its
@@ -244,11 +245,6 @@ type Emitter interface {
 	Recognizes(model.EmitCondition) bool
 }
 
-// BuildPlan flattens a graph under a layout.
-//
-// Any condition the emitter does not recognize is an error rather than a dropped node:
-// silently omitting a collective would remove a cost with nothing reporting it, and the
-// resulting step time would look plausible.
 // ActivationBytes is the width an activation crosses a collective or a normalization at:
 // the model's compute dtype, bf16, whatever format the weights are served in. vLLM's
 // quantized linears quantize their input transiently and return out_dtype=x.dtype
@@ -296,6 +292,11 @@ func (p *Plan) PiecewiseSegments() int {
 	return splits + 1
 }
 
+// BuildPlan flattens a graph under a layout.
+//
+// Any condition the emitter does not recognize is an error rather than a dropped node:
+// silently omitting a collective would remove a cost with nothing reporting it, and the
+// resulting step time would look plausible.
 func BuildPlan(g *model.Graph, em Emitter, dtypeBytes, stateDtypeBytes float64) (*Plan, error) {
 	if g == nil {
 		return nil, fmt.Errorf("no graph to plan")

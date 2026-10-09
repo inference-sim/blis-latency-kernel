@@ -369,7 +369,9 @@ func TestTheGraphModeIsChosenPerBatch(t *testing.T) {
 // now appear, from the registry set that supplied it; and an engine default the kernel
 // filled in must appear as a kernel assumption, which a fully stated deployment has none of
 // -- except the cudagraph capture ceiling, which blis-schemas has no field to state, so any
-// capturing deployment reports vLLM's default for it.
+// capturing deployment reports vLLM's default for it, and the engine release, which the
+// fixture declares as 0.29.0 (the one release with a rules pack) where the kernel encodes
+// 0.31.0.
 func TestProvenanceSeesEveryFigureFixedBytesReports(t *testing.T) {
 	k := fixture(t, memoryFixture)
 	sets := map[string]string{}
@@ -390,7 +392,8 @@ func TestProvenanceSeesEveryFigureFixedBytesReports(t *testing.T) {
 		}
 	}
 	for _, o := range k.Provenance() {
-		if o.Set == KernelAssumptionSet && o.Name != "max_cudagraph_capture_size" {
+		if o.Set == KernelAssumptionSet && o.Name != "max_cudagraph_capture_size" &&
+			o.Name != "engine_version" {
 			t.Errorf("a deployment stating every engine setting reported the kernel "+
 				"assumption %s", o.Name)
 		}
@@ -611,9 +614,9 @@ func TestServingFP8LeavesTheCollectivesWhereTheyWere(t *testing.T) {
 }
 
 // A DATA-PARALLEL MoE WITH EXPERT PARALLELISM OFF IS ONE SHARED MoE, NOT dp REPLICAS.
-// vLLM v0.31.0 shards every expert over the dp x tp ranks (flatten_tp_across_dp_and_pcp,
-// vllm/model_executor/layers/fused_moe/config.py:1090-1098) and gathers every rank's tokens
-// to it with an all-gather/reduce-scatter dispatch, whatever all2all backend is named
+// vLLM v0.31.0 shards every expert over the dp x pcp x tp ranks
+// (flatten_tp_across_dp_and_pcp, vllm/model_executor/layers/fused_moe/config.py:1090-1098;
+// pcp is 1 here, so dp x tp) and gathers every rank's tokens to it with an all-gather/reduce-scatter dispatch, whatever all2all backend is named
 // ("Detected DP deployment with no --enable-expert-parallel. Falling back to
 // AllGather+ReduceScatter", all2all_utils.py:202-214). Four consequences, each asserted on
 // minimax-m2.5 at tp=8 with dp 1, 2 and 4:

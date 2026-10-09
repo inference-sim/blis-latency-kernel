@@ -86,3 +86,28 @@ func TestADecodeReadsTheCacheItHolds(t *testing.T) {
 		}
 	}
 }
+
+// THE ENGINE RELEASE PRICED IS DISCLOSED WHEN IT IS NOT THE ONE DECLARED. The fixtures declare
+// 0.29.0, the one release with a rules pack, and the kernel encodes 0.31.0's behaviour; that
+// must show in Provenance, and must not when the scenario declares 0.31.0 itself.
+func TestTheEngineReleasePricedIsDisclosed(t *testing.T) {
+	in := fixtureInputs(t, dcpMLAFixture)
+	declared := func(v string) bool {
+		t.Helper()
+		sc := *in.Scenario
+		sc.EngineVersion = v
+		in2 := in
+		in2.Scenario = &sc
+		k, err := New(in2)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return hasAssumption(k, "engine_version")
+	}
+	if !declared("0.29.0") {
+		t.Error("a 0.29.0 scenario priced at 0.31.0's behaviour discloses nothing")
+	}
+	if declared(EngineBehaviourVersion) {
+		t.Errorf("a %s scenario discloses a version mismatch", EngineBehaviourVersion)
+	}
+}

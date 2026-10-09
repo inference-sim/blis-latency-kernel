@@ -994,8 +994,9 @@ func (k *Kernel) stepTime(b kernel.Batch,
 		// v0.31.0 launches for the resolved backend and layout.
 		//
 		// NOT planned as a PlannedCollective: the plan is per-layer-kind and
-		// shape-independent, while whether this fires depends on the batch holding decode
-		// rows at all. It accumulates into the same onNode/crossNode totals the graph
+		// shape-independent, while whether this fires depends on the batch: its decode rows
+		// on a latent layer, and on a full-attention layer whether any request reads
+		// context. It accumulates into the same onNode/crossNode totals the graph
 		// collectives use, so composition and the per-resource breakdown treat it
 		// identically.
 		if k.layout.DCP > 1 && dcpShardsKV(l.AttnKind) && l.AttnQHeads > 0 {
@@ -1197,8 +1198,8 @@ func (k *Kernel) crossesNodes(key collKey) bool {
 // with the tensor-parallel axis innermost (vllm/distributed/parallel_state.py:2045,
 // :2054-2060 at v0.31.0), and a node holds consecutive ranks. So a group's members sit
 // `stride` ranks apart, where the stride is the product of the axes inside the one the
-// group runs along. With pp = 1, which every layout this kernel prices has (no collective
-// spans the pipeline axis):
+// group runs along. With pp = 1, which every layout this kernel prices has (New refuses
+// pp > 1):
 //
 //	tensor-parallel     contiguous                                     stride 1
 //	expert-parallel     one contiguous DP x PCP x TP block (:2212-2220)   stride 1
@@ -1474,8 +1475,8 @@ func sparseTopK(l *price.PlannedLayer) int {
 // rank holds 2*ceil(sched/(2*pcp)) tokens and the shards sum to sched exactly; where it
 // does not, the ragged remainder lands unevenly and the maximum is taken over the ranks
 // rather than assumed. The overhead over a nominal sched/pcp is bounded and small at any
-// realistic chunk -- under 1.5% above 1,024 tokens and under 0.4% above 4,096, for pcp up to 8 -- and it is
-// an OVERSTATEMENT, which is the safe direction.
+// realistic chunk -- under 1.5% above 1,024 tokens and under 0.4% above 4,096, for pcp up
+// to 8 -- and it is an OVERSTATEMENT, which is the safe direction.
 //
 // A SHORT PREFILL IS REPLICATED RATHER THAN SPLIT, BUT ONLY ALONGSIDE DCP. That gate is
 // easy to miss and changes the answer, so it is taken from the engine verbatim:
@@ -1912,15 +1913,14 @@ func (k *Kernel) dcpDecodeCollectives(l *price.PlannedLayer,
 // launches one all_gather per tensor it is given (pcp.py:31-35), and the MLA cache write
 // gives it kv_c_normed and k_pe separately (maybe_gather_mla_latent_cache_inputs,
 // pcp.py:56-74; called before the cache update, mla_attention.py:781-800, and on a DSA layer
-// deepseek_v32/attention.py:511-529). A layer with a
-// sparse indexer gathers the indexer's key as well, in its own launch
+// deepseek_v32/attention.py:511-529). A layer with a sparse indexer gathers the indexer's
+// key as well, in its own launch
 // (maybe_gather_indexer_k, pcp.py:77-87, from sparse_attn_indexer.py:440). Each launch pays
 // its own floor, which at a prefill chunk's payload is most of the cost.
 //
 // AT THE MODEL DTYPE, NOT THE CACHE'S. The gather runs before do_kv_cache_update quantizes
 // into the cache (mla_attention.py:781-800; deepseek_v32/attention.py:511-529), so an fp8
-// cache does not halve it: these are
-// bf16 activations.
+// cache does not halve it: these are bf16 activations.
 //
 // SIZED AT THE GATHERED OUTPUT, pcp times what this rank contributes, which is the
 // convention every all-gather in this kernel prices against (an all-gather's payload is

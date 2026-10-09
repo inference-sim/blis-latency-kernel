@@ -195,6 +195,16 @@ func New(in Inputs) (*Kernel, error) {
 			k.tiers[d.Name] = *d
 		}
 	}
+	// The engine behaviour priced here is vLLM v0.31.0's, whatever release the scenario
+	// declares; the rules pack follows the declared release. Where they differ, a behaviour
+	// that changed between the two is priced at v0.31.0, and that is disclosed rather than
+	// left for a reader to infer from the version string.
+	if v := in.Scenario.EngineVersion; v != EngineBehaviourVersion {
+		k.assume("engine_version", EngineBehaviourVersion,
+			"the scenario declares vLLM "+v+" and its rules pack is that release's, but "+
+				"the engine behaviour this kernel encodes -- backend selection, defaults, "+
+				"refusals -- is v"+EngineBehaviourVersion+"'s (README, Sources of truth)")
+	}
 	k.buildProvenance(coeffs)
 	k.fixed = k.computeFixedBytes(in.Model)
 	return k, nil
@@ -320,8 +330,9 @@ func (k *Kernel) resolveContextParallel(in Inputs) error {
 				"otherwise -- GlmMoeDsaForCausalLM selects a2a with dcp_q_replicate "+
 				"(vllm/model_executor/models/config.py:43-50) -- and the kernel cannot see "+
 				"which model class serves this graph, so state both to price it exactly. On "+
-				"that model the difference decides whether it starts: FlashMLA-sparse runs "+
-				"DCP only with ag_rs (flashmla_sparse.py:416-422)")
+				"that model, where FlashMLA-sparse serves the layout, the difference "+
+				"decides whether it starts: that backend runs DCP only with ag_rs "+
+				"(flashmla_sparse.py:416-422)")
 	}
 	return nil
 }
@@ -736,11 +747,13 @@ func (k *Kernel) lift(c *resolve.Coefficients, g *model.Graph, cacheBytes float6
 	// by tp, which priced a dp > 1 deployment's experts as dp independent replicas, each rank
 	// holding dp times its true share.
 	//
-	// COVERAGE LIMIT: the flattening runs over pcp as well, and that half is not taken. A
-	// tensor-parallel MoE across the prefill-context ranks also widens the reduction after
-	// it and must gather those ranks' tokens, neither of which this kernel models; charging
-	// the narrower shard alone would make a PCP step's experts cheaper than the engine runs
-	// them.
+	// COVERAGE LIMIT: the flattening runs over pcp as well, and the shard here does not. With
+	// pcp > 1 vLLM gives a rank a 1/(dp x pcp x tp) slice of each expert, and this charges
+	// 1/(dp x tp). The token gather over those ranks is priced where it runs -- with dp > 1
+	// the dispatch spans dp x pcp x tp ranks (resolve.Layout.MoEGroupWidth); with dp = 1 there
+	// is no dispatch (all2all_utils.py:202-214) -- but the reduction a tensor-parallel MoE
+	// runs over the wider slice is not, so dividing by pcp alone would make a PCP step's
+	// experts cheaper than the engine runs them.
 	k.localExpertShare = 1
 	k.expertTensorShards = 1
 	if k.layout.ExpertWidth <= 1 {
@@ -860,7 +873,7 @@ func (k *Kernel) lift(c *resolve.Coefficients, g *model.Graph, cacheBytes float6
 //	                     * max_num_batched_tokens * h * 2,
 //	                 activation_scratch_floor_bytes)
 //
-// with N the tensor-parallel width clamped to 8 and snapped to a declared width. Each
+// with N the tensor-parallel width snapped to a declared width (snapDeclared). Each
 // magnitude is REQUIRED: the registry carries all of them for every catalog part, so an
 // absent one means the scenario did not list cost-model-memory, and charging zero for it
 // would overstate how many sequences fit by up to several gigabytes per rank.
@@ -1028,9 +1041,10 @@ func (k *Kernel) liftCollectiveFloors(c *resolve.Coefficients) error {
 	if k.layout.DCP > 1 {
 		// Exactly the collectives the resolved combine launches over the decode-context
 		// group (dcpDecodeCollectives has the table and the citations): an all-gather
-		// always -- the log-sum-exp, and the query too with PCP off -- then a
+		// always -- the query with PCP off, and the log-sum-exp under ag_rs -- then a
 		// reduce-scatter for ag_rs, an all-reduce for ag_rs under PCP, or one all-to-all
-		// for a2a. Resolving only those means a part missing an unused op is not refused.
+		// carrying output and log-sum-exp together for a2a. Resolving only those means a part
+		// missing an unused op is not refused.
 		combine := model.OpReduceScatter
 		switch {
 		case k.decodeContext.CommBackend == resolve.DCPAllToAll:
@@ -1095,8 +1109,9 @@ func (k *Kernel) liftCollectiveFloors(c *resolve.Coefficients) error {
 // NVIDIA's communicator sizes and activation multiples -- not measured collective sweeps,
 // and a slightly mis-sized memory allowance is not a mispriced latency term, so snapping is
 // right here where groupWidth refuses. NVIDIA's own model indexes its tables at
-// min(tp, 8) (AISimulate base_backend.py), which this reproduces for every width those
-// tables declare.
+// min(tp, 8) (AISimulate base_backend.py). The registry declares both families at widths
+// up to 8, so snapping a wider tp already lands on 8; the activation caller also clamps to
+// 8 explicitly, and the communicator caller would take a wider entry if one were declared.
 func snapDeclared(c *resolve.Coefficients, format string, width int) int {
 	var declared []int
 	for _, w := range []int{1, 2, 4, 8, 16} {
@@ -1593,6 +1608,9 @@ func (k *Kernel) buildProvenance(c *resolve.Coefficients) {
 // set can take this name, since registry sets are named for their coefficient family, so a
 // consumer can tell the two apart without parsing anything else.
 const KernelAssumptionSet = "blis-latency-kernel"
+
+// EngineBehaviourVersion is the vLLM release whose engine behaviour this kernel encodes.
+const EngineBehaviourVersion = "0.31.0"
 
 // assume records a value the kernel filled in on the deployment's behalf -- an engine
 // default for a setting the deployment left unstated, where the default is a judgement the
