@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	schemas "github.com/inference-sim/blis-schemas"
 	"github.com/inference-sim/blis-schemas/kernel"
@@ -329,7 +330,7 @@ func TestTheGraphModeIsChosenPerBatch(t *testing.T) {
 	decode := decodeBatch(32, 1, 4096)
 	mixed := kernel.Batch{DecodeThreshold: 8, Reqs: []kernel.ReqShape{
 		{Scheduled: 1, Computed: 4095, PromptLen: 4096},
-		{Scheduled: 512, Computed: 0, PromptLen: 512},
+		{Scheduled: 256, Computed: 0, PromptLen: 256}, // 257 tokens: inside the 512 capture
 	}}
 	for _, c := range []struct {
 		mode        string
@@ -679,5 +680,63 @@ func TestADataParallelMoEWithoutExpertParallelismIsShared(t *testing.T) {
 	if a, b := build(2, nil).StepTime(decode).NoOverlap, named.StepTime(decode).NoOverlap; a != b {
 		t.Errorf("naming deepep_low_latency with expert parallelism off priced %v against %v "+
 			"for the default; the engine falls back to all-gather/reduce-scatter", b, a)
+	}
+}
+
+// PAST THE CAPTURE CEILING NO GRAPH RUNS. vLLM v0.31.0 captures token counts up to
+// max_cudagraph_capture_size -- unstated, min(max_num_seqs x decode_query_len x 2, 512) off
+// data-center Blackwell (vllm/config/vllm.py:2442-2460) -- and dispatches a larger batch with
+// no graph whatever the mode (vllm/v1/worker/gpu/cudagraph_utils.py:499-529). The fixture
+// states max_num_seqs 256, so its ceiling is 512 tokens: a 512-token prefill runs piecewise,
+// a 513-token one runs eager, and under every capturing mode the two sides of the ceiling
+// must price like PIECEWISE and NONE respectively.
+func TestABatchPastTheCaptureCeilingRunsWithNoGraph(t *testing.T) {
+	host := func(mode string, tokens int) time.Duration {
+		t.Helper()
+		in := fixtureInputs(t, memoryFixture)
+		in.Deployment.Pools[0].Engine.CUDAGraphMode = mode
+		k, err := New(in)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return k.StepTime(decodeBatch(1, tokens, tokens)).PerResource[kernel.ResourceHost]
+	}
+	for _, mode := range []string{"PIECEWISE", "FULL_AND_PIECEWISE"} {
+		if a, b := host(mode, 512), host("PIECEWISE", 512); a != b {
+			t.Errorf("%s: a 512-token prefill priced %v of host time, want PIECEWISE's %v",
+				mode, a, b)
+		}
+		if a, b := host(mode, 513), host("NONE", 513); a != b {
+			t.Errorf("%s: a 513-token prefill priced %v of host time, want NONE's %v; it is "+
+				"past every captured size", mode, a, b)
+		}
+	}
+	if host("PIECEWISE", 512) == host("NONE", 512) {
+		t.Fatal("PIECEWISE and NONE price alike, so this test cannot discriminate")
+	}
+}
+
+// A SPARSE-MLA LAYER IS TWO SPLIT POINTS. PIECEWISE splits at every op in
+// CompilationConfig._attention_ops (vllm/config/compilation.py:764-782 at v0.31.0), and a DSA
+// layer runs two of them: its indexer (vllm::sparse_attn_indexer) and its attention. The
+// graph states the indexer as a second, cache-less attention node, so the segment count is
+// the layer count, plus one per indexed sparse-MLA layer, plus one -- on glm5, every layer
+// indexed; on deepseek-v3, none.
+func TestASparseMLALayersIndexerIsAPiecewiseSplitPoint(t *testing.T) {
+	for _, c := range []struct {
+		fixture string
+		indexed bool
+	}{
+		{dcpSparseFixture, true},
+		{dcpMLAFixture, false},
+	} {
+		k := fixture(t, c.fixture)
+		want := k.plan.TotalLayers + 1
+		if c.indexed {
+			want += k.plan.TotalLayers
+		}
+		if got := k.plan.PiecewiseSegments(); got != want {
+			t.Errorf("%s: %d piecewise segments, want %d", c.fixture, got, want)
+		}
 	}
 }

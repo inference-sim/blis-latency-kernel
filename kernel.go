@@ -157,6 +157,10 @@ type Kernel struct {
 	graphOther         graphMode
 	graphModeName      string
 	uniformDecodeWidth int
+	// captureTokens is the largest batch a captured graph covers, and captureDecodeTokens
+	// the largest uniform decode batch; a step with more tokens runs with no graph. Zero
+	// when nothing is captured.
+	captureTokens, captureDecodeTokens int
 
 	// recurrentCacheMode is how a hybrid model's recurrent state is cached, as resolved.
 	recurrentCacheMode price.RecurrentCacheMode
@@ -1916,31 +1920,29 @@ func (k *Kernel) moeDPFunnel() float64 {
 // millisecond against seven microseconds — which matters at decode, where the whole step
 // is a few milliseconds.
 //
-// The split points are vLLM's `_attention_ops` (vllm/config/compilation.py:764-782), and
-// this counts one per layer, so the segment count is the layer count plus one.
+// The split points are vLLM's `_attention_ops` (vllm/config/compilation.py:764-782): one
+// per attention or recurrent mixer, and a second on a sparse-MLA layer, whose indexer is
+// its own split op (vllm::sparse_attn_indexer). The segment count is the split points plus
+// one; see price.Plan.PiecewiseSegments.
 //
-// TWO KNOWN DIVERGENCES, kept because the host coefficients were fitted with this
-// structure and changing either is a refit rather than a correction:
-//
-//   - A sparse-MLA layer splits twice: at its indexer (vllm::sparse_attn_indexer) as well
-//     as its attention, so its stack has about twice the segments counted here.
-//   - A batch of more tokens than max_cudagraph_capture_size runs with no graph at all,
-//     whatever the mode: Model Runner V2 finds no captured candidate and dispatches NONE
-//     (vllm/v1/worker/gpu/cudagraph_utils.py:499-529), as V1 does
-//     (vllm/v1/cudagraph_dispatcher.py:270-279). A large prefill step is priced with
-//     replays it does not make.
+// And a batch of more tokens than the capture ceiling runs with no graph at all, whatever
+// the mode (captureTokens), so a large prefill step is charged eager launches rather than
+// replays it does not make.
 func (k *Kernel) hostPerStep(b kernel.Batch) time.Duration {
-	mode := k.graphOther
+	mode, ceiling := k.graphOther, k.captureTokens
 	// An empty step runs no forward; it is charged as the decode loop's idle step.
 	if len(b.Reqs) == 0 || b.UniformDecode(k.uniformDecodeWidth) {
-		mode = k.graphDecode
+		mode, ceiling = k.graphDecode, k.captureDecodeTokens
+	}
+	if b.Tokens() > ceiling {
+		// Past every captured size: the engine runs this step with no graph.
+		mode = graphModeEager
 	}
 	switch mode {
 	case graphModeFull:
 		return k.replayPerStep
 	case graphModePiecewise:
-		segments := float64(k.plan.TotalLayers + 1)
-		return time.Duration(float64(k.replayPerStep) * segments)
+		return time.Duration(float64(k.replayPerStep) * float64(k.plan.PiecewiseSegments()))
 	default:
 		return time.Duration(float64(k.launchPerLayer) * float64(k.plan.TotalLayers))
 	}

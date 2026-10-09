@@ -574,6 +574,38 @@ func (k *Kernel) lift(c *resolve.Coefficients, g *model.Graph, cacheBytes float6
 		k.uniformDecodeWidth = 1 + s.NumSpecTokens
 	}
 
+	// The largest batch a captured graph covers. vLLM v0.31.0 captures token counts up to
+	// max_cudagraph_capture_size and runs anything larger with no graph at all, whatever the
+	// mode (vllm/v1/worker/gpu/cudagraph_utils.py:499-529; V1's
+	// vllm/v1/cudagraph_dispatcher.py:270-279). Unstated, that ceiling is
+	// min(max_num_seqs x decode_query_len x 2, 512), or 1024 on a data-center Blackwell part
+	// (VllmConfig._set_cudagraph_sizes, vllm/config/vllm.py:2442-2460), and with speculation
+	// the uniform decode sizes are appended up to the platform figure as well. blis-schemas
+	// has no field for an explicit capture size, so this is always the default.
+	//
+	// The catalog records no compute capability, so a data-center Blackwell part is
+	// recognised by native NVFP4 support, which among the catalog's parts is exactly the
+	// SM100 family (b200, b300, gb200-nvl72, gb300).
+	if k.graphDecode != graphModeEager || k.graphOther != graphModeEager {
+		platform := 512
+		if k.chip.NVFP4Peak > 0 {
+			platform = 1024
+		}
+		seqs := k.pool.Engine.MaxNumSeqs
+		if seqs <= 0 {
+			seqs = defaultMaxNumSeqs(k.chip)
+			k.assume("max_num_seqs", strconv.Itoa(seqs),
+				"vLLM v0.31.0's OpenAI-API-server default for this part's memory "+
+					"(EngineArgs.get_batch_defaults, vllm/engine/arg_utils.py:2858-2887); it "+
+					"sets the cudagraph capture ceiling")
+		}
+		k.captureTokens = min(seqs*k.uniformDecodeWidth*2, platform)
+		k.captureDecodeTokens = k.captureTokens
+		if k.uniformDecodeWidth > 1 {
+			k.captureDecodeTokens = platform
+		}
+	}
+
 	// Expert geometry, derived once.
 	experts := 0
 	for _, l := range k.plan.Layers {
@@ -778,6 +810,16 @@ func activationWidth(p *price.Plan, g *model.Graph) float64 {
 		h = g.Global.HiddenSize
 	}
 	return float64(h)
+}
+
+// defaultMaxNumSeqs is vLLM v0.31.0's default sequence cap for a part in the
+// OpenAI-API-server context (EngineArgs.get_batch_defaults, vllm/engine/arg_utils.py:
+// 2858-2887): 1,024 on a part with at least 70 GiB that is not an A100, 256 otherwise.
+func defaultMaxNumSeqs(chip hardware.Chip) int {
+	if chip.MemoryGiB >= 70 && !strings.Contains(strings.ToLower(chip.Name), "a100") {
+		return 1024
+	}
+	return 256
 }
 
 // defaultMaxNumBatchedTokens is vLLM v0.31.0's default token budget for a part, in the

@@ -263,6 +263,27 @@ type Emitter interface {
 // collectives and norms were charged half their bytes.
 const ActivationBytes = 2.0
 
+// PiecewiseSegments is how many graph segments a PIECEWISE capture splits a step into: the
+// split points plus one. vLLM splits at every op in CompilationConfig._attention_ops
+// (vllm/config/compilation.py:764-782 at v0.31.0) -- each layer's attention or recurrent
+// mixer, and on a sparse-MLA layer its indexer as well (vllm::sparse_attn_indexer), which
+// the graph states as a second, cache-less attention node.
+func (p *Plan) PiecewiseSegments() int {
+	splits := p.TotalLayers
+	for _, l := range p.Layers {
+		if l.AttnKind != model.AttentionSparseMLA {
+			continue
+		}
+		for _, a := range l.Attentions {
+			if !a.HoldsKV() {
+				splits += l.Count
+				break
+			}
+		}
+	}
+	return splits + 1
+}
+
 func BuildPlan(g *model.Graph, em Emitter, dtypeBytes, stateDtypeBytes float64) (*Plan, error) {
 	if g == nil {
 		return nil, fmt.Errorf("no graph to plan")
