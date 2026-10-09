@@ -7,9 +7,6 @@ import (
 
 	schemas "github.com/inference-sim/blis-schemas"
 	"github.com/inference-sim/blis-schemas/kernel"
-	"github.com/inference-sim/blis-schemas/spec/model"
-
-	"github.com/inference-sim/blis-latency-kernel/internal/price"
 )
 
 // Prefill-context parallelism splits a prefill sequence across ranks, and these pin that
@@ -621,37 +618,22 @@ func TestThePCPGatherCrossesTheFabricExactlyWhenItsGroupDoes(t *testing.T) {
 	}
 }
 
-// The gather is charged on PREFILL tokens only, and on KV-HOLDING layers only.
+// The gather is charged on PREFILL tokens only. The engine gathers "partitioned prefills"
+// while keeping "replicated decode writes local" (vllm/v1/attention/ops/pcp.py:16 at
+// v0.31.0), so a 64-token prefill alone and the same prefill beside 64 decode rows must add
+// exactly the same gather.
 //
-// Two scoping facts the engine states and a looser implementation would blur. It gathers
-// "partitioned prefills" while keeping "replicated decode writes local" (pcp.py:16), and
-// what it gathers is cache input, so a layer with no cache contributes nothing.
-//
-// Both are asserted against a shape where the distinction is visible, because on a pure
-// prefill of an all-attention model neither is: the first needs decode rows present, and
-// the second needs a model whose layers are not all attention. Nemotron-3-Ultra is that
-// model -- 96 of its 108 layers hold no KV.
-func TestThePCPGatherIsScopedToPrefillTokensAndKVLayers(t *testing.T) {
-	// dp is cleared so the hybrid fixture's three replicas do not multiply the node count
-	// pcpInputs grows: the gather's scoping is a per-rank question, and a wider expert or
-	// data-parallel layout would only add collectives this comparison has to subtract.
-	build := func(fixture string, pcp int) *Kernel {
-		t.Helper()
-		in := pcpInputs(t, fixture, pcp)
-		in.Deployment.Pools[0].Parallel.DP = 1
-		k, err := New(in)
-		if err != nil {
-			t.Fatalf("%s at pcp=%d: %v", fixture, pcp, err)
-		}
-		return k
+// The gather is also scoped to KV-holding layers in the code (it divides the KV figure by
+// the KV-holding layer count and skips a layer with no attention). That half is not
+// exercised here because no admissible deployment can see it: at v0.31.0 every stack with a
+// cache-free layer has a recurrent mixer, and no recurrent backend supports PCP, so the
+// engine refuses those layouts and New refuses them too (see TestPCPRunsOnlyOnLatentStacks).
+// An earlier form of this test exercised it on Nemotron-3-Ultra, a Mamba hybrid, which
+// priced a layout the engine does not start.
+func TestThePCPGatherIsScopedToPrefillTokens(t *testing.T) {
+	coll := func(pcp int, b kernel.Batch) float64 {
+		return collectiveSeconds(pcpKernel(t, pcpFixture, pcp).StepTime(b))
 	}
-	link := func(fixture string, pcp int, b kernel.Batch) float64 {
-		return collectiveSeconds(build(fixture, pcp).StepTime(b))
-	}
-
-	// PREFILL TOKENS ONLY. A 64-token prefill alone, and the same prefill beside 64
-	// decode rows, must add exactly the same gather -- the decode rows are replicated, so
-	// their KV is already on every rank and is not gathered.
 	alone := kernel.Batch{DecodeThreshold: 8, Reqs: []kernel.ReqShape{
 		{Scheduled: 64, Computed: 0, PromptLen: 64},
 	}}
@@ -663,91 +645,44 @@ func TestThePCPGatherIsScopedToPrefillTokensAndKVLayers(t *testing.T) {
 			Scheduled: 1, Computed: 32767, PromptLen: 32768,
 		}
 	}
-	addedAlone := link(pcpFixture, 2, alone) - link(pcpFixture, 1, alone)
-	addedMixed := link(pcpFixture, 2, withDecodes) - link(pcpFixture, 1, withDecodes)
-	if math.Abs(addedMixed-addedAlone) > 1e-9 {
+	addedAlone := coll(2, alone) - coll(1, alone)
+	addedMixed := coll(2, withDecodes) - coll(1, withDecodes)
+	if addedAlone <= 0 {
+		t.Fatalf("the split added %.6f ms of collective on a 64-token prefill; the KV "+
+			"gather must appear", addedAlone*1e3)
+	}
+	if math.Abs(addedMixed-addedAlone) > 2e-9 {
 		t.Errorf("the gather added %.6f ms beside 64 decode rows against %.6f ms without "+
 			"them, on the same 64-token prefill; a replicated decode write is not "+
 			"gathered", addedMixed*1e3, addedAlone*1e3)
 	}
-
-	// KV-HOLDING LAYERS ONLY. On a model whose layers are mostly cache-free, the gather
-	// must cost at most what its KV-holding layers' floors come to -- charging every
-	// layer would be several times that.
-	const hybrid = "nemotron3-ultra-h100-agg.yaml"
-	k := build(hybrid, 2)
-	var kvLayers, allLayers int
-	for i := range k.plan.Layers {
-		l := &k.plan.Layers[i]
-		allLayers += l.Count
-		if l.AttnQHeads > 0 {
-			kvLayers += l.Count
-		}
-	}
-	if kvLayers == 0 || kvLayers >= allLayers {
-		t.Skipf("%s holds KV on %d of %d layers, so this cannot discriminate",
-			hybrid, kvLayers, allLayers)
-	}
-	floor := k.collectiveFloors[collKey{Op: model.OpAllGather, Group: price.GroupPCP}]
-	// Bounded against the KV-layer floors, not the all-layer ones: on this model the two
-	// differ ninefold (0.0617 ms against 0.5551 ms over 12 KV layers of 108), and a
-	// ceiling set at the larger figure is one a correct implementation clears so easily
-	// that charging every layer would pass it too.
-	//
-	// The NET change also includes whatever the split saves on the tensor-parallel
-	// collectives, so what is bounded is the gather's own contribution: it cannot exceed
-	// the floors of the layers that hold KV by more than the bytes those layers move,
-	// which at a 64-token prefill is far below one floor.
-	kvFloors := floor.Seconds() * float64(kvLayers)
-	allFloors := floor.Seconds() * float64(allLayers)
-	added := link(hybrid, 2, alone) - link(hybrid, 1, alone)
-
-	// Charging every layer rather than only the KV-holding ones would add
-	// (allFloors - kvFloors) of floor that does not belong -- 0.49 ms on this part, over
-	// 96 cache-free layers. The split SAVES on the tensor-parallel collectives, so the
-	// net change is negative either way; what separates the two readings is HOW negative.
-	// Measured: -0.522 ms scoped to KV layers against -0.028 ms charging all of them.
-	//
-	// Bounded at the midpoint, which is sound in both directions rather than fitted: the
-	// spurious floors are a known quantity, so the scoped reading must sit at least half
-	// of them below the unscoped one.
-	if added > -(allFloors-kvFloors)/2 {
-		t.Errorf("the split changed the collective term by %+.6f ms on a model holding KV "+
-			"on %d of %d layers; charging every layer would add %.6f ms of floor that "+
-			"no cache-free layer pays, and the change is not far enough below that to "+
-			"show the gather is scoped",
-			added*1e3, kvLayers, allLayers, (allFloors-kvFloors)*1e3)
-	}
 }
 
-// The PCP gather must resolve coefficients at ITS OWN width, not the tensor-parallel one or
-// the decode-context one. Same hazard the composite coefficient key exists to prevent, now
-// with three axes able to run an all-gather.
-func TestThePCPGatherIsPricedAtItsOwnWidth(t *testing.T) {
-	k := pcpKernel(t, pcpFixture, 2)
-	if k.layout.TP != 8 {
-		t.Fatalf("this fixture is expected to be tp=8, got %d: the test needs the two "+
-			"widths to differ", k.layout.TP)
-	}
-	if got, ok := k.groupSize(price.GroupPCP); !ok || got != 2 {
-		t.Errorf("the prefill-context group spans %d ranks, want 2", got)
-	}
-	pcpFloor, ok := k.collectiveFloors[collKey{Op: model.OpAllGather, Group: price.GroupPCP}]
-	if !ok {
-		t.Fatal("no all-gather floor resolved for the prefill-context group")
-	}
-	tpFloor := k.collectiveFloors[collKey{Op: model.OpAllGather, Group: price.GroupTP}]
-	if pcpFloor >= tpFloor {
-		t.Errorf("a 2-rank prefill-context all-gather floor of %v is not below the "+
-			"8-rank tensor-parallel %v; the group is not selecting the width",
-			pcpFloor, tpFloor)
-	}
-	// A deployment with PCP off must not demand the coefficient at all, so a part missing
-	// a narrow width is not newly refused. Asserted through construction, which is the
-	// observable consequence.
-	if _, ok := fixture(t, pcpFixture).collectiveFloors[collKey{
-		Op: model.OpAllGather, Group: price.GroupPCP}]; ok {
-		t.Error("a prefill-context all-gather was resolved at pcp=1")
+// PCP runs only on a stack whose every layer's backend supports it, which at v0.31.0 is a
+// stack of latent attention alone (vllm/v1/worker/cp_utils.py:35-38; backend.py:843, :1048,
+// :230-235). New refuses the rest rather than pricing a layout the engine does not start,
+// and admits the latent stacks.
+func TestPCPRunsOnlyOnLatentStacks(t *testing.T) {
+	for _, c := range []struct {
+		fixture string
+		runs    bool
+		why     string
+	}{
+		{dcpMLAFixture, true, "deepseek-v3: every layer is mla"},
+		{dcpSparseFixture, true, "glm5: every layer is sparse_mla"},
+		{dcpHybridFixture, false, "gpt-oss-120b: gqa and swa layers"},
+		{"nemotron3-ultra-h100-agg.yaml", false, "nemotron-3-ultra: mamba2 layers"},
+		{"kimi-k3-h100-nospec.yaml", false, "kimi-k3: kda layers beside its mla"},
+	} {
+		in := pcpInputs(t, c.fixture, 2)
+		in.Deployment.Pools[0].Parallel.DP = 1
+		_, err := New(in)
+		if c.runs && err != nil {
+			t.Errorf("%s: refused, but the engine runs it: %v", c.why, err)
+		}
+		if !c.runs && err == nil {
+			t.Errorf("%s: priced at pcp=2, but the engine refuses it at startup", c.why)
+		}
 	}
 }
 

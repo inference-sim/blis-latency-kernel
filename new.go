@@ -9,6 +9,7 @@ import (
 
 	schemas "github.com/inference-sim/blis-schemas"
 	"github.com/inference-sim/blis-schemas/kernel"
+	"github.com/inference-sim/blis-schemas/rules"
 	"github.com/inference-sim/blis-schemas/spec/coefficient"
 	"github.com/inference-sim/blis-schemas/spec/deployment"
 	"github.com/inference-sim/blis-schemas/spec/hardware"
@@ -118,6 +119,14 @@ func New(in Inputs) (*Kernel, error) {
 	}
 	k.plan = plan
 
+	k.blockSize = pool.Engine.BlockSize
+	if k.blockSize <= 0 {
+		k.blockSize = 16
+	}
+	if err := k.resolveContextParallel(in); err != nil {
+		return nil, err
+	}
+
 	if err := k.lift(coeffs, in.Model, cacheBytes); err != nil {
 		return nil, err
 	}
@@ -130,6 +139,97 @@ func New(in Inputs) (*Kernel, error) {
 	k.buildProvenance(coeffs)
 	k.fixed = k.computeFixedBytes(in.Model, cacheBytes)
 	return k, nil
+}
+
+// resolveContextParallel settles the decode-context knobs and refuses the context-parallel
+// layouts vLLM v0.31.0 cannot run for THIS model. blis-schemas refuses the layouts that are
+// inadmissible for every model (parallel.py:563-578 and the world size); what remains
+// depends on the model's attention, which only the graph knows.
+func (k *Kernel) resolveContextParallel(in Inputs) error {
+	pl := k.pool.Parallel
+
+	// PCP RUNS ONLY WHERE EVERY LAYER'S BACKEND SUPPORTS IT, which at v0.31.0 means a
+	// stack of latent attention and nothing else. The engine asserts it per layer at startup
+	// (vllm/v1/worker/cp_utils.py:35-38, "PCP requires attention backend support"), and a
+	// backend reports support through its implementation class:
+	//
+	//   - attention implementations default to no (AttentionImplBase.supports_pcp = False,
+	//     vllm/v1/attention/backend.py:843) and only MLAAttentionImpl says yes (:1048);
+	//   - recurrent backends -- Mamba1, Mamba2, GDN, linear attention, and Kimi-K3's KDA,
+	//     which subclasses GDN -- declare no implementation class at all, so the lookup
+	//     raises and support reads as no (:230-235).
+	//
+	// So a stack with any full-attention, sliding-window or recurrent layer does not start
+	// under pcp > 1, whichever backend is chosen, and pricing it would describe nothing the
+	// engine runs.
+	if pl.PCP > 1 {
+		for _, l := range k.plan.Layers {
+			var kind string
+			switch {
+			case l.AttnQHeads > 0 && !latentAttention(l.AttnKind):
+				kind = string(l.AttnKind) + " attention"
+			case l.RecurrentKind != "":
+				kind = "a " + string(l.RecurrentKind) + " recurrent mixer"
+			default:
+				continue
+			}
+			return fmt.Errorf(
+				"prefill-context parallelism (pcp %d) needs every layer's backend to support "+
+					"it, and layer kind %q has %s, whose backend does not: the engine "+
+					"refuses this layout at startup", pl.PCP, l.ID, kind)
+		}
+	}
+
+	// A REPLICATED QUERY PROJECTION IS NOT PRICED, so it is refused where it would take
+	// effect rather than priced half-way. dcp_q_replicate skips the decode query
+	// all-gather, and pays for it by building the MLA query projection over tp/dcp ranks
+	// instead of tp (DCPGroupColumnParallelLinear, vllm/model_executor/layers/linear.py:
+	// 632-659), so each rank holds and computes dcp times that projection. Crediting the
+	// skipped gather without the replicated GEMM would make the knob look free; charging
+	// the GEMM needs to know which projection is the query's, and the graph identifies
+	// GEMMs by shape, not purpose. It takes effect only with dcp > 1, pcp <= 1
+	// (vllm/model_executor/models/deepseek_v2.py:1072-1076) and on a latent layer, so
+	// everywhere else the request is inert and is accepted.
+	if q := k.pool.Engine.DCPQReplicate; q != nil && *q && pl.DCP > 1 && pl.PCP <= 1 {
+		for _, l := range k.plan.Layers {
+			if l.AttnQHeads > 0 && latentAttention(l.AttnKind) {
+				return fmt.Errorf(
+					"dcp_q_replicate is requested with dcp %d on a latent-attention model; "+
+						"the replicated query projection it costs is not priced by this "+
+						"kernel, so the knob is refused rather than credited for the "+
+						"collective it saves", pl.DCP)
+			}
+		}
+	}
+
+	var accepted map[string]bool
+	if pack, ok := in.Rules.(*rules.Pack); ok {
+		// The release's own list of names, where the rules value is a pack. A test double
+		// implementing only the resolver's interface has none, and gets the kernel's check.
+		accepted = pack.DCPCommBackends
+	}
+	dc, overrides, err := resolve.ResolveDecodeContext(
+		k.pool, in.Deployment, k.blockSize, accepted)
+	if err != nil {
+		return fmt.Errorf("resolving decode-context parallelism: %w", err)
+	}
+	k.decodeContext = dc
+	k.layout.Overrides = append(k.layout.Overrides, overrides...)
+	if pl.DCP > 1 && k.pool.Engine.DCPCommBackend == "" {
+		k.assume("dcp_comm_backend", dc.CommBackend,
+			"the engine's stock default (ParallelConfig.set_dcp_defaults, "+
+				"vllm/config/parallel.py:581-594 at v0.31.0); a model's configuration hook "+
+				"runs first and may choose otherwise -- GlmMoeDsaForCausalLM selects a2a "+
+				"(vllm/model_executor/models/config.py:43-50) -- and the kernel cannot see "+
+				"which model class serves this graph, so state the backend to price it exactly")
+	}
+	return nil
+}
+
+// latentAttention reports whether an attention kind keeps a latent (MLA) cache, which is
+// what the engine's MLA attention implementations serve.
+func latentAttention(kind model.AttentionKind) bool {
+	return kind == model.AttentionMLA || kind == model.AttentionSparseMLA
 }
 
 // emitter adapts a layout to the plan builder's interface.
@@ -430,10 +530,6 @@ func (k *Kernel) lift(c *resolve.Coefficients, g *model.Graph, cacheBytes float6
 			break
 		}
 	}
-	k.blockSize = k.pool.Engine.BlockSize
-	if k.blockSize <= 0 {
-		k.blockSize = 16
-	}
 	return nil
 }
 
@@ -474,11 +570,21 @@ func (k *Kernel) liftCollectiveFloors(c *resolve.Coefficients) error {
 		{Op: model.OpAll2All, Group: price.GroupExpert},
 	}
 	if k.layout.DCP > 1 {
-		// The ag_rs pair: a query all-gather and an output reduce-scatter per decode
-		// layer. See the DCP collectives in stepTime for the mechanism and the citation.
+		// Exactly the collectives the resolved combine launches over the decode-context
+		// group (dcpDecodeCollectives has the table and the citations): an all-gather
+		// always -- the log-sum-exp, and the query too with PCP off -- then a
+		// reduce-scatter for ag_rs, an all-reduce for ag_rs under PCP, or one all-to-all
+		// for a2a. Resolving only those means a part missing an unused op is not refused.
+		combine := model.OpReduceScatter
+		switch {
+		case k.decodeContext.CommBackend == resolve.DCPAllToAll:
+			combine = model.OpAll2All
+		case k.layout.PCP > 1:
+			combine = model.OpAllReduce
+		}
 		keys = append(keys,
 			collKey{Op: model.OpAllGather, Group: price.GroupDCP},
-			collKey{Op: model.OpReduceScatter, Group: price.GroupDCP})
+			collKey{Op: combine, Group: price.GroupDCP})
 	}
 	if k.layout.PCP > 1 {
 		// One KV all-gather per layer that holds KV, so every rank keeps a full cache
@@ -926,6 +1032,11 @@ func (k *Kernel) commBufferBytes() int64 {
 }
 
 // buildProvenance records every coefficient used, so a prediction can state its evidence.
+//
+// It records the kernel's own assumptions as well, after the registry's entries: see
+// assume. A figure the kernel supplied itself would otherwise be invisible to Provenance
+// and Evidence however its comment described it, which is how 1.3 GB of hardcoded memory
+// occupancy once went unreported beside "101 measured of 133".
 func (k *Kernel) buildProvenance(c *resolve.Coefficients) {
 	for _, name := range c.Names() {
 		r, ok := c.Entry(name)
@@ -937,6 +1048,7 @@ func (k *Kernel) buildProvenance(c *resolve.Coefficients) {
 			Scope: scopeString(r.Entry.Scope),
 		})
 	}
+	k.origins = append(k.origins, k.assumptions...)
 	var overrides []kernel.Override
 	for _, o := range k.layout.Overrides {
 		overrides = append(overrides, kernel.Override{
@@ -967,6 +1079,27 @@ func (k *Kernel) buildProvenance(c *resolve.Coefficients) {
 		SequenceParallelMoE: k.layout.SequenceParallelMoE,
 		Overrides:           overrides,
 	}
+}
+
+// KernelAssumptionSet is the Set a Provenance entry carries when the kernel supplied the
+// value itself rather than reading it from a registry set or the deployment. No registry
+// set can take this name, since registry sets are named for their coefficient family, so a
+// consumer can tell the two apart without parsing anything else.
+const KernelAssumptionSet = "blis-latency-kernel"
+
+// assume records a value the kernel filled in on the deployment's behalf -- an engine
+// default for a setting the deployment left unstated, where the default is a judgement the
+// kernel made rather than a fact it read. It reaches Provenance as an entry from
+// KernelAssumptionSet with method "assumed", so Evidence counts it in the total and lists
+// it among the assumptions instead of leaving the prediction's footing overstated.
+//
+// name is the setting; scope carries the value and the reason, since a reader of the
+// provenance trail needs both and CoefficientOrigin has no other free-text field.
+func (k *Kernel) assume(name, value, reason string) {
+	k.assumptions = append(k.assumptions, kernel.CoefficientOrigin{
+		Name: name, Set: KernelAssumptionSet, Method: string(vocab.MethodAssumed),
+		Scope: value + ": " + reason,
+	})
 }
 
 func scopeString(s coefficient.Scope) string {

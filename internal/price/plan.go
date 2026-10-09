@@ -125,6 +125,13 @@ type PlannedLayer struct {
 	AttnIndexTopK     int
 	AttnCompressRatio int
 
+	// AttnKVLoRARank is a latent layer's compressed KV width, zero for any other kind.
+	// It is carried for the decode-context combine, whose OUTPUT crosses at this width
+	// while its query crosses at the full head width: MLADCPManager is built with
+	// query_head_dim = kv_lora_rank + qk_rope_head_dim and output_head_dim = kv_lora_rank
+	// (vllm/model_executor/layers/attention/mla_attention.py:697-708 at v0.31.0).
+	AttnKVLoRARank int
+
 	// Attentions is every attention kernel this layer launches, in graph order.
 	//
 	// A layer with one attention has one entry and the singular fields repeat it. The
@@ -440,6 +447,7 @@ func planNodes(nodes []model.Node, em Emitter, dtypeBytes, stateBytes float64,
 					n.NumQHeads, n.NumKVHeads, n.HeadDim
 				pl.AttnKind, pl.AttnWindow = n.AttentionKind, n.Window
 				pl.AttnIndexTopK, pl.AttnCompressRatio = n.IndexTopK, n.CompressRatio
+				pl.AttnKVLoRARank = n.KVLoRARank
 			}
 		case model.OpRecurrentUpdate:
 			pl.RecurrentKind = n.RecurrentKind

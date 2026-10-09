@@ -143,12 +143,18 @@ type Kernel struct {
 	graphCaptured       bool
 	graphMode           graphMode
 
+	// decodeContext is how the decode-context-parallel combine runs: its backend and the
+	// stripe each rank holds. Meaningful only when the layout's DCP exceeds one.
+	decodeContext resolve.DecodeContext
+
 	// Fixed occupancy, computed once.
 	fixed kernel.MemoryBreakdown
 
-	// Provenance, assembled once.
-	origins    []kernel.CoefficientOrigin
-	resolution kernel.Resolution
+	// Provenance, assembled once. assumptions are the values the kernel supplied itself,
+	// appended to origins after the registry's entries.
+	origins     []kernel.CoefficientOrigin
+	assumptions []kernel.CoefficientOrigin
+	resolution  kernel.Resolution
 
 	// tiers maps a tier name to its device facts, for TierTime.
 	tiers map[string]hardware.StorageDevice
@@ -349,6 +355,10 @@ func (k *Kernel) stepTime(b kernel.Batch,
 	// which in a mixed batch is the normal case.
 	var decodeContexts []int
 	var prefillRequests, decodeRequests int
+	// decodeTokens is the query rows the decode regime runs, which is what crosses in a
+	// decode-context combine: one row per scheduled token, so a speculative decode
+	// verifying four tokens moves four rows, not one.
+	var decodeTokens int
 	// prefillTokens is the scheduled prefill tokens THIS RANK computes, which the KV
 	// gather's payload is sized from. withheldByPCP is how many of the batch's scheduled
 	// tokens the prefill split takes off this rank, which is what the step's token count
@@ -432,6 +442,7 @@ func (k *Kernel) stepTime(b kernel.Batch,
 			continue
 		}
 		decodeRequests++
+		decodeTokens += r.Scheduled
 		decodeKVTokens += float64(ctx)
 		decodeContexts = append(decodeContexts, ctx)
 		// A decode row is REPLICATED across prefill-context-parallel ranks, not split:
@@ -754,7 +765,8 @@ func (k *Kernel) stepTime(b kernel.Batch,
 				// primary read, where it is applied per request because that is where it
 				// can matter.
 				if k.layout.DCP > 1 && dcpShardsKV(a.Kind) {
-					tokens = dcpLocalTokens([]int{int(tokens + 0.5)}, k.layout.DCP, 1)
+					tokens = dcpLocalTokens([]int{int(tokens + 0.5)}, k.layout.DCP,
+						k.decodeContext.Interleave)
 				}
 				attnSeconds += floor.Seconds() + tokens*perToken/rate
 			}
@@ -891,56 +903,21 @@ func (k *Kernel) stepTime(b kernel.Batch,
 		// Decode-context parallelism's own collectives, which no model graph can emit.
 		//
 		// Sharding a sequence by token means no rank holds the whole context, so each
-		// computes a PARTIAL attention output and the group must combine them. That
-		// combine is the cost DCP trades for the capacity it buys, and omitting it would
-		// make DCP look free in both directions.
-		//
-		// vLLM's default backend is "ag_rs" (dcp_comm_backend, vllm/config/parallel.py:40
-		// and set_dcp_defaults at :581-592 of v0.31.0), which runs three collectives per
-		// decode layer:
-		//
-		//	query all-gather      self.group.all_gather(query, dim=1)   dcp.py:1593
-		//	LSE all-gather        cp_group.all_gather(lse, dim=0)       dcp.py:458
-		//	output reduce-scatter cp_group.reduce_scatter(out, dim=1)   dcp.py:493
-		//
-		// TWO OF THE THREE ARE PRICED. The LSE gather moves [batch, heads] of fp32 --
-		// about 8KB at 8 heads and a batch of 256, against megabytes for the query -- so
-		// it would be the only collective in this kernel charged below its own floor.
-		// Stated rather than silently dropped.
-		//
-		// THE PAYLOAD IS PER DECODE REQUEST, not per token in the step. One query row
-		// crosses per decoding sequence; a prefill token takes no part in a decode
-		// combine. Charging tokensF would scale this with prefill width, which the
-		// mechanism does not.
-		//
-		// The head dimension is the right width for the query and very nearly right for
-		// the output. The catalog declares an MLA node `n_kv: 1, d_h: 576`, and d_h IS
-		// kv_lora_rank + qk_rope_head_dim, which is exactly the latent-plus-rope query
-		// that crosses. The output reduce-scatter carries kv_lora_rank alone (512 of that
-		// 576, before the v up-projection), so pricing it at d_h overstates it by 12.5% --
-		// accepted rather than carrying another field through the plan for a fraction of
-		// one term, and recorded here so the choice is visible if it ever matters.
+		// computes a PARTIAL attention output and the group must combine them. That combine
+		// is the cost DCP trades for the capacity it buys, and omitting it would make DCP
+		// look free in both directions. dcpDecodeCollectives prices exactly the set vLLM
+		// v0.31.0 launches for the resolved backend and layout.
 		//
 		// NOT planned as a PlannedCollective: the plan is per-layer-kind and
 		// shape-independent, while whether this fires depends on the batch holding decode
-		// requests at all. It accumulates into the same onNode/crossNode totals the graph
+		// rows at all. It accumulates into the same onNode/crossNode totals the graph
 		// collectives use, so composition and the per-resource breakdown treat it
 		// identically.
-		if decodeRequests > 0 && k.layout.DCP > 1 && dcpShardsKV(l.AttnKind) &&
+		if decodeTokens > 0 && k.layout.DCP > 1 && dcpShardsKV(l.AttnKind) &&
 			l.AttnQHeads > 0 {
-			// At the SERVED width, not the cache dtype: a query and a partial attention
-			// output are activations, which is the basis every other collective in this
-			// kernel crosses at.
-			payload := float64(decodeRequests) *
-				float64(l.AttnQHeads) * float64(l.AttnHeadDim) * k.servedDType.Bytes()
-			for _, op := range [...]model.Op{model.OpAllGather, model.OpReduceScatter} {
-				key := collKey{Op: op, Group: price.GroupDCP}
-				if k.crossesNodes(key) {
-					crossNode += k.collectiveSeconds(key, payload*k.spanFor(key))
-				} else {
-					onNode += k.collectiveSeconds(key, payload)
-				}
-			}
+			on, cross := k.dcpDecodeCollectives(l, decodeTokens)
+			onNode += on
+			crossNode += cross
 		}
 
 		// Prefill-context parallelism's own collective, which no model graph emits either.
@@ -1188,7 +1165,10 @@ func (k *Kernel) spanFor(key collKey) float64 {
 	ratio := k.fabric.Ratio()
 	group, _ := k.groupSize(key.Group)
 	perNode := k.groupPerNode(key.Group)
-	if key.Op == model.OpAll2All && k.routedAll2All() {
+	// An all-to-all is point to point unless it is the MoE dispatch over a backend that
+	// moves ring-shaped volume. The decode-context a2a is all_to_all_single over its group
+	// (dcp.py:1000-1005), every rank sending a slice to every other.
+	if key.Op == model.OpAll2All && (key.Group != price.GroupExpert || k.routedAll2All()) {
 		return price.All2AllSpan(group, perNode, ratio)
 	}
 	return price.RingSpan(group, perNode, ratio)
@@ -1613,8 +1593,11 @@ func dcpShardsKV(kind model.AttentionKind) bool {
 // own per-rank form over 18,000 (dcp, interleave, L) combinations: this equals the maximum
 // across ranks exactly, and the shards sum to L exactly. So the interleave contributes a
 // BOUNDED ADDITIVE term of at most one run, not a multiplicative one -- at interleave 32,
-// dcp 8 and a 1,000-token context it is 128 against ceil(1000/8)=125, under 3%. At the
-// default interleave of 1 the form reduces to ceil(L/dcp).
+// dcp 8 and a 1,000-token context it is 128 against ceil(1000/8)=125, under 3%. Bounded is
+// not small on a context short against the run: at interleave 64 a 100-token context puts
+// 64 tokens on the slowest rank against ceil(100/8)=13, which is why the resolved interleave
+// is passed in rather than assumed. At the default interleave of 1 the form reduces to
+// ceil(L/dcp).
 //
 // PER REQUEST, not over the batch total, for the same reason selectedKVTokens is: the
 // remainder term is per sequence, so sum-then-shard and shard-then-sum disagree whenever
@@ -1627,8 +1610,7 @@ func dcpLocalTokens(contexts []int, dcp, interleave int) float64 {
 		return -1
 	}
 	if interleave < 1 {
-		// The engine's own default, and the only value this kernel can see: blis-schemas
-		// carries no field for it. Guarded rather than trusted, because a zero here would
+		// The engine's own default. Guarded rather than trusted, because a zero here would
 		// divide by zero below.
 		interleave = 1
 	}
@@ -1682,10 +1664,9 @@ func (k *Kernel) dcpDecodeTokens(l *price.PlannedLayer, kind model.AttentionKind
 	if topk <= 0 && !shards {
 		return -1
 	}
-	// The interleave is the engine's own default of 1: blis-schemas carries no field for
-	// cp_kv_cache_interleave_size, so a non-default stripe is not expressible. A larger
-	// run would add at most one run of tokens per request, which is bounded and small.
-	const interleave = 1
+	// The stripe as resolved: stated, pinned to the block size under NIXL, or the
+	// engine's default of 1 (resolve.ResolveDecodeContext).
+	interleave := k.decodeContext.Interleave
 	var total float64
 	for _, ctx := range contexts {
 		if ctx <= 0 {
@@ -1703,6 +1684,106 @@ func (k *Kernel) dcpDecodeTokens(l *price.PlannedLayer, kind model.AttentionKind
 		total += read
 	}
 	return total
+}
+
+// dcpDecodeCollectives prices one layer's decode-context-parallel collectives, returning
+// the on-node and cross-node seconds. rows is the decode tokens in the step: one query row
+// crosses per decode token (the MQA rows, num_mqa_tokens), and a prefill token takes no
+// part in a decode combine.
+//
+// WHAT vLLM v0.31.0 LAUNCHES PER DECODE LAYER, by backend and by whether prefill-context
+// parallelism is on. Three collectives at most, which is the "3 NCCL calls" its own
+// documentation counts for ag_rs (vllm/config/parallel.py:371-380):
+//
+//	                    query gather            log-sum-exp gather   output combine
+//	ag_rs, pcp off      all-gather over DCP     all-gather over DCP  reduce-scatter over DCP
+//	a2a,   pcp off      all-gather over DCP     -- packed into one all-to-all over DCP --
+//	ag_rs, pcp on       all-gather over TP,     all-gather over DCP  all-reduce over DCP
+//	(latent only)       only when dcp = tp*pcp
+//
+//	query gather, pcp off  MLADCPManager._gather_query, dcp.py:1592-1596; flash_attn.py:1591
+//	query gather, pcp on   mla_attention.py:1113-1118 (none when dcp == pcp)
+//	LSE gather             _cp_lse_common, dcp.py:458
+//	ag_rs combine          cp_lse_ag_out_rs :493, or cp_lse_ag_out_ar :526 under PCP,
+//	                       chosen by MLADCPManager._init_combine, dcp.py:1525-1531
+//	a2a combine            dcp_a2a_lse_reduce, dcp.py:939-1010
+//
+// a2a with pcp on is refused at construction (pcp_manager.py:188-194), and pcp on a
+// non-latent layer is refused there too, so neither reaches here.
+//
+// THE PAYLOAD IS THE TENSOR THE COLLECTIVE MOVES, which is the convention every collective
+// in this kernel prices against: an all-gather's output, a reduce-scatter's input, an
+// all-reduce's buffer, an all-to-all's send buffer. A rank's tensor-parallel shard holds
+// heads/tp query heads; the DCP query gather widens that to heads*dcp/tp, and under PCP the
+// attention runs over heads/tp heads (dcp == pcp) or all heads (dcp == tp*pcp, after the
+// tensor-parallel gather). The query crosses at the full head width -- for a latent layer
+// kv_lora_rank + qk_rope_head_dim, which the catalog's d_h is -- and the output at the value
+// width: kv_lora_rank for a latent layer (MLADCPManager's output_head_dim,
+// mla_attention.py:697-708) and the head dimension otherwise. The a2a packs the fp32 LSE
+// into two 16-bit lanes beside each output row (_dcp_a2a_lse_pack_dim, dcp.py:604-610).
+//
+// ACTIVATIONS CROSS AT 16 BITS. The query and the partial output are activations in the
+// model's compute dtype, which stays bf16 under an fp8 or fp4 weight format: vLLM's
+// quantized linears return out_dtype=x.dtype (vllm/model_executor/kernels/linear/scaled_mm/
+// cutlass.py). The one exception is a backend that takes a quantized query alongside a
+// quantized cache (query_dtype, mla_attention.py:690-696), which would move the query at
+// one byte; this prices it at two, an overstatement of one of the three collectives.
+//
+// COVERAGE LIMITS, stated so they are not mistaken for completeness. A prefill row resuming
+// on a DCP-sharded prefix needs that prefix's KV gathered back (MLA's chunked-context
+// all-gather, mla_attention.py:3090-3104), and a full-attention DCP layer gathers the query
+// of its context-prefill rows as well as its decode rows (flash_attn.py:1591). Neither is
+// priced: this charges decode rows only.
+func (k *Kernel) dcpDecodeCollectives(l *price.PlannedLayer, rows int) (onNode, crossNode float64) {
+	const activationBytes = 2
+	tp := float64(max(k.layout.TP, 1))
+	dcp := float64(k.layout.DCP)
+	pcpOn := k.layout.PCP > 1
+	heads := float64(l.AttnQHeads)
+	queryWidth := float64(l.AttnHeadDim)
+	outWidth := queryWidth
+	if latentAttention(l.AttnKind) && l.AttnKVLoRARank > 0 {
+		outWidth = float64(l.AttnKVLoRARank)
+	}
+	r := float64(rows)
+
+	charge := func(key collKey, bytes float64) {
+		if k.crossesNodes(key) {
+			crossNode += k.collectiveSeconds(key, bytes*k.spanFor(key))
+		} else {
+			onNode += k.collectiveSeconds(key, bytes)
+		}
+	}
+
+	// The heads each rank's attention runs over, after any query gather.
+	attnHeads := heads / tp * dcp
+	if pcpOn {
+		attnHeads = heads / tp
+		if k.layout.DCP > k.layout.PCP {
+			// dcp == tp*pcp: the query is gathered over the tensor-parallel group first.
+			attnHeads = heads
+			charge(collKey{Op: model.OpAllGather, Group: price.GroupTP},
+				r*attnHeads*queryWidth*activationBytes)
+		}
+	} else {
+		charge(collKey{Op: model.OpAllGather, Group: price.GroupDCP},
+			r*attnHeads*queryWidth*activationBytes)
+	}
+
+	if k.decodeContext.CommBackend == resolve.DCPAllToAll {
+		const lsePack = 2 // an fp32 LSE in two 16-bit lanes
+		charge(collKey{Op: model.OpAll2All, Group: price.GroupDCP},
+			r*attnHeads*(outWidth+lsePack)*activationBytes)
+		return onNode, crossNode
+	}
+	const lseBytes = 4 // fp32
+	charge(collKey{Op: model.OpAllGather, Group: price.GroupDCP}, dcp*r*attnHeads*lseBytes)
+	combine := model.OpReduceScatter
+	if pcpOn {
+		combine = model.OpAllReduce
+	}
+	charge(collKey{Op: combine, Group: price.GroupDCP}, r*attnHeads*outWidth*activationBytes)
+	return onNode, crossNode
 }
 
 // moeDPFunnel is how many replica groups' tokens reach one rank's experts.
