@@ -96,10 +96,7 @@ func New(in Inputs) (*Kernel, error) {
 		return nil, fmt.Errorf("resolving coefficients: %w", err)
 	}
 
-	k := &Kernel{
-		layout: layout, fabric: fab, pool: pool, chip: *in.Chip,
-		modelName: in.Model.Name,
-	}
+	k := &Kernel{layout: layout, fabric: fab, pool: pool, chip: *in.Chip}
 	k.tp = float64(max(layout.TP, 1))
 
 	// The served weight format, which the scenario may override. A bf16 checkpoint
@@ -412,14 +409,6 @@ func (k *Kernel) lift(c *resolve.Coefficients, g *model.Graph, cacheBytes float6
 		// actually holds.
 		k.localExpertShare = float64(base) / float64(experts+redundant)
 		k.totalExperts = experts + redundant
-	}
-	// The routing width, for a consumer that needs the model's expert geometry without
-	// re-walking the graph. Taken from the plan rather than the graph so it is the value the
-	// pricer used.
-	for _, l := range k.plan.Layers {
-		if l.TopK > k.topK {
-			k.topK = l.TopK
-		}
 	}
 
 	// KV geometry. Both the cache dtype and the tensor-parallel width divide it, and the
@@ -967,7 +956,11 @@ func (k *Kernel) buildProvenance(c *resolve.Coefficients) {
 		async = *k.pool.Engine.AsyncScheduling
 	}
 	k.resolution = kernel.Resolution{
-		ExpertParallelWidth: k.layout.ExpertWidth,
+		// The layout this kernel priced, each width floored at one as the schema requires:
+		// a consumer multiplies by these, so zero must never stand for "unset".
+		TensorParallelWidth: max(k.layout.TP, 1),
+		DataParallelWidth:   max(k.layout.DP, 1),
+		ExpertParallelWidth: max(k.layout.ExpertWidth, 1),
 		AllReduceBackend:    backend,
 		AsyncScheduling:     async,
 		CascadeAttention:    cascade,
