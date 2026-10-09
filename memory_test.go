@@ -483,3 +483,23 @@ func hasAssumption(k *Kernel, name string) bool {
 	}
 	return false
 }
+
+// AN MLA TOKEN IS ONE LATENT VECTOR, end to end. deepseek-v3 caches kv_lora_rank +
+// qk_rope_head_dim = 576 elements per token per layer, over 61 layers, at one byte under an
+// fp8 cache, with no value tensor (vllm/v1/kv_cache_interface.py:674-675 at v0.31.0) and no
+// tensor-parallel reduction of its single head. One 16-token page is therefore
+// 16 x 61 x 576 bytes on every rank, at tp=8 as at tp=1.
+func TestAnMLATokenCachesOneLatentVector(t *testing.T) {
+	for _, tp := range []int{1, 8} {
+		in := fixtureInputs(t, memoryFixture)
+		in.Deployment.Pools[0].Parallel.TP = tp
+		k, err := New(in)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got, want := k.SequenceVariableBytes(16), int64(16*61*576); got != want {
+			t.Errorf("tp=%d: a 16-token page holds %d bytes, want %d (one 576-wide latent "+
+				"vector per token per layer, fp8)", tp, got, want)
+		}
+	}
+}

@@ -376,11 +376,12 @@ func (k *Kernel) lift(c *resolve.Coefficients, g *model.Graph, cacheBytes float6
 	// no schema change is needed: coefficient.Scope has no kind axis and does not need one.
 	// MLA joins the map for the same reason SWA did: its kernel reads a different number
 	// of bytes per token and sustains a different fraction of peak, so pricing it with the
-	// full-attention rate is wrong by construction rather than by a little. The BYTE count
-	// is already right -- blis-catalog declares an MLA node as `n_kv: 1, d_h: 576`, so
-	// kvGeometry's NumKVHeads*HeadDim is the latent width kv_lora_rank + qk_rope_head_dim
-	// and needs no special case. What was missing is the RATE: an MLA decode sustains
-	// 0.61-0.80 of datasheet bandwidth against full attention's 0.52-0.88.
+	// full-attention rate is wrong by construction rather than by a little. The WIDTH comes
+	// from the graph -- blis-catalog declares an MLA node as `n_kv: 1, d_h: 576`, so
+	// kvGeometry's NumKVHeads*HeadDim is the latent width kv_lora_rank + qk_rope_head_dim --
+	// and KVBytesPerToken charges it ONCE per token, since a latent cache has no value
+	// tensor. The RATE is the other half: an MLA decode sustains 0.61-0.80 of datasheet
+	// bandwidth against full attention's 0.52-0.88.
 	//
 	// The FLOOR is not what distinguishes them, which an earlier version of this comment
 	// had backwards: it claimed an MLA floor "several times larger (51.5-89.5us against
@@ -562,8 +563,9 @@ func (k *Kernel) lift(c *resolve.Coefficients, g *model.Graph, cacheBytes float6
 
 	// KV geometry. Both the cache dtype and the tensor-parallel width divide it, and the
 	// head count floors at one because a head is never split across ranks.
-	nkv, headDim, layers := kvGeometry(g)
-	k.kvBytesPerToken = price.KVBytesPerToken(nkv, k.layout.TP, headDim, layers, cacheBytes)
+	nkv, headDim, layers, kind := kvGeometry(g)
+	k.kvBytesPerToken = price.KVBytesPerToken(nkv, k.layout.TP, headDim, layers, cacheBytes,
+		latentAttention(kind))
 	// The layer count kvBytesPerToken is spread over. kvGeometry counts only layers that
 	// HOLD KV, so this is the divisor that recovers one layer's share of the cache -- on a
 	// hybrid stack it is not the total layer count, and the two differ ninefold on
@@ -1116,7 +1118,11 @@ func cacheDTypeBytes(declared string, fallback model.DType) float64 {
 // (MiniMax-M3 scores with 4 heads over 128 where the layer reads 4 KV heads over 128),
 // so counting per node doubled that model's KV-holding layers to 117 of 60 and left the
 // geometry set by whichever node the loop saw last.
-func kvGeometry(g *model.Graph) (nkv, headDim, layers int) {
+//
+// The kind returned is the cache-holding attention's, taken from the same node as the
+// geometry, which decides whether a token holds a key and a value or one latent vector. The
+// catalog states no stack that mixes latent and non-latent caches.
+func kvGeometry(g *model.Graph) (nkv, headDim, layers int, kind model.AttentionKind) {
 	counts := map[string]int{}
 	for _, id := range g.Stack.Expand() {
 		counts[id]++
@@ -1128,7 +1134,7 @@ func kvGeometry(g *model.Graph) (nkv, headDim, layers int) {
 				continue
 			}
 			if !holds {
-				nkv, headDim = n.NumKVHeads, n.HeadDim
+				nkv, headDim, kind = n.NumKVHeads, n.HeadDim, n.AttentionKind
 				holds = true
 			}
 		}
@@ -1136,7 +1142,7 @@ func kvGeometry(g *model.Graph) (nkv, headDim, layers int) {
 			layers += counts[lk.ID]
 		}
 	}
-	return nkv, headDim, layers
+	return nkv, headDim, layers, kind
 }
 
 // computeFixedBytes sums occupancy independent of the request set.
