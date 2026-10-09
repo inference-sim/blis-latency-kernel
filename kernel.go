@@ -115,7 +115,9 @@ type Kernel struct {
 	totalExperts int
 	// expertTensorShards is how many ranks one expert's weights are split across: the
 	// tensor-parallel width when expert parallelism is off, and 1 when it is on, because
-	// an expert-parallel rank owns whole experts.
+	// an expert-parallel rank owns whole experts. With expert parallelism off and dp or
+	// pcp above one, vLLM v0.31.0 shards an expert over dp x pcp x tp ranks, not tp (see
+	// the KNOWN DIVERGENCE in lift).
 	expertTensorShards float64
 
 	// tp and localExpertShare are the per-rank divisors, held as floats so the hot path
@@ -156,6 +158,9 @@ type Kernel struct {
 	graphOther         graphMode
 	graphModeName      string
 	uniformDecodeWidth int
+
+	// recurrentCacheMode is how a hybrid model's recurrent state is cached, as resolved.
+	recurrentCacheMode price.RecurrentCacheMode
 
 	// decodeContext is how the decode-context-parallel combine runs: its backend and the
 	// stripe each rank holds. Meaningful only when the layout's DCP exceeds one.
@@ -205,10 +210,7 @@ func (k *Kernel) FixedBytes() kernel.MemoryBreakdown { return k.fixed }
 // recurrent state, where the model has it and the cache mode keeps it bounded.
 func (k *Kernel) SequenceFixedBytes() int64 {
 	var total float64
-	mode := price.RecurrentCacheMode(k.pool.Engine.MambaCacheMode)
-	if mode == "" {
-		mode = price.RecurrentCacheNone
-	}
+	mode := k.recurrentCacheMode
 	if mode.ProportionalToContext() {
 		// Under this mode the state scales with the context bound, so it belongs in the
 		// variable term and this one reports none of it.
@@ -254,11 +256,14 @@ func (k *Kernel) SequenceVariableBytes(tokens int) int64 {
 	// has no per-kind context to spend. So the shard applies only when every KV-holding
 	// layer is a kind DCP shards. A hybrid stack -- gpt-oss-120b alternates a 128-token
 	// swa layer with a full gqa one -- is left UNSHARDED, which overstates what it needs.
-	// That is the conservative direction, and it costs nothing real: the engine refuses
-	// the deployment outright, asserting dcp == 1 with "DCP not support sliding window"
-	// (kv_cache_interface.py:868-872). Expressing the hybrid case exactly would mean
-	// splitting kvBytesPerToken per kind -- a larger refactor, to price a configuration
-	// that does not start.
+	// That is the conservative direction, and under the engine's default hybrid KV-cache
+	// manager it costs nothing real: the engine refuses the deployment, asserting
+	// dcp == 1 with "DCP not support sliding window" (kv_cache_interface.py:868-872). With
+	// the hybrid manager disabled -- explicitly, or by a KV connector that does not support
+	// it (vllm/config/vllm.py) -- the windowed layers are promoted to full attention and
+	// sharded, which this overstates. Expressing the hybrid case exactly would mean
+	// splitting kvBytesPerToken per kind -- a larger refactor, for configurations that
+	// either do not start or run only with the hybrid manager off.
 	//
 	// AND THIS DISAGREES WITH THE DECODE READ ON THAT SAME STACK, deliberately. The read
 	// is applied per layer kind, so on a hybrid it shards the full-attention layers and
@@ -283,7 +288,7 @@ func (k *Kernel) SequenceVariableBytes(tokens int) int64 {
 	// replicated across DCP/PCP ranks, never sharded"
 	// (vllm/v1/kv_cache_interface.py:1097-1098 at v0.31.0). A context-parallel rank holds
 	// every position's recurrent state even while holding only its shard of the KV cache.
-	mode := price.RecurrentCacheMode(k.pool.Engine.MambaCacheMode)
+	mode := k.recurrentCacheMode
 	if mode.ProportionalToContext() {
 		spec := 0
 		if k.pool.Engine.Speculative != nil {
@@ -352,8 +357,11 @@ func (k *Kernel) stepTime(b kernel.Batch,
 	// Prefill and decode are separated because they are different regimes with their own
 	// measured constants: prefill is compute-bound and quadratic in prompt length, decode is
 	// bandwidth-bound in context. A request is in the prefill regime when it schedules more
-	// than the engine's decode threshold — the cost model's batch-region classifier — which
-	// is the same test vLLM's own kernel selection makes.
+	// than the batch's decode threshold -- the cost model's batch-region classifier. vLLM's
+	// MLA and FlashInfer backends make the same split (split_decodes_and_prefills,
+	// vllm/v1/attention/backends/utils.py:799-870 at v0.31.0), each at its own threshold;
+	// FlashAttention does not split, and runs one varlen kernel over the mixed batch
+	// (flash_attn.py:1450-1478).
 	//
 	// causalFLOPs halves the naive count because attention attends only to earlier
 	// positions. decodeKVTokens is the context those requests read.
@@ -584,11 +592,11 @@ func (k *Kernel) stepTime(b kernel.Batch,
 			// than an oversight. Under pure tensor parallelism localExpertShare is 1 --
 			// every rank does hold every expert -- and vLLM shards the intermediate
 			// dimension, `intermediate_size_per_partition = intermediate_size // tp_size`
-			// (vllm/model_executor/layers/fused_moe/config.py:1350), so a rank's routed
-			// work is its slice's. Charging the whole expert over-prices routed compute by
-			// the tensor-parallel width on the 400 of 591 InferenceX scenarios that are
-			// pure TP. The BYTES do divide by it, on the line below, so the two terms
-			// disagree about the same experts.
+			// (vllm/model_executor/layers/fused_moe/config.py:1321-1323), so a rank's
+			// routed work is its slice's. Charging the whole expert over-prices routed
+			// compute by the tensor-parallel width on the 400 of 591 InferenceX scenarios
+			// that are pure TP. The BYTES do divide by it (routedWeightBytes, below), so the
+			// two terms disagree about the same experts.
 			//
 			// Dividing it was implemented, tested and measured: it improves per-step
 			// accuracy against NVIDIA's FPM whole-forward set, mape 27.45% to 23.03% over
@@ -604,7 +612,9 @@ func (k *Kernel) stepTime(b kernel.Batch,
 			// the whole replica group's tokens rather than one rank's. vLLM states it
 			// for the naive dispatch -- "all DP ranks' tokens are concatenated before
 			// routing" (fused_moe/routed_experts_capturer.py) -- and
-			// allgather_reducescatter, the default (config/parallel.py), is that path.
+			// allgather_reducescatter, the default (config/parallel.py:202), gathers every
+			// DP rank's tokens before the expert GEMM whether it runs as that dispatch or
+			// inside the modular kernel.
 			// NVIDIA's own simulator applies the same factor exactly once before its
 			// perf lookup (crates/core/src/perfmodel/operators/moe.rs,
 			// `num_tokens.saturating_mul(self.attention_dp_size.max(1))`).
@@ -652,9 +662,12 @@ func (k *Kernel) stepTime(b kernel.Batch,
 		//	decode:  floor + kv_bytes / rate            (bandwidth-bound in context)
 		//	prefill: floor + causal_flops / (peak * eff * work_scale)
 		//
-		// A step holding both kinds of request pays both, because the engine launches a
-		// kernel for each. Decode is charged to HBM and prefill to SM, which is what each
-		// regime binds on.
+		// A step holding both kinds of request pays both floors. That is the engine's
+		// behaviour on the MLA and FlashInfer backends, which split a mixed batch and
+		// launch a kernel per regime. KNOWN DIVERGENCE: FlashAttention runs one varlen
+		// kernel over the whole batch (vllm/v1/attention/backends/flash_attn.py:1450-1478 at v0.31.0), so on it
+		// a mixed step pays one floor and this charges one too many. Decode is charged to
+		// HBM and prefill to SM, which is what each regime binds on.
 		if l.AttnQHeads > 0 {
 			// This layer kind's own decode terms, falling back to the part-wide pair.
 			floor, rate := k.attentionFloor, k.attentionRate
@@ -1081,10 +1094,12 @@ func (k *Kernel) crossesNodes(key collKey) bool {
 // groupPerNode is how many of one group's ranks share a node, which is what decides both
 // whether the group crosses a node boundary and how much of its traffic does.
 //
-// THE ENGINE'S RANK LAYOUT DECIDES IT. vLLM numbers ranks DP x PP x PCP x TP with the
-// tensor-parallel axis innermost (vllm/distributed/parallel_state.py:2054-2060 at v0.31.0),
-// and a node holds consecutive ranks. So a group's members sit `stride` ranks apart, where
-// the stride is the product of the axes inside the one the group runs along:
+// THE ENGINE'S RANK LAYOUT DECIDES IT. vLLM numbers ranks ExternalDP x DP x PP x PCP x TP
+// with the tensor-parallel axis innermost (vllm/distributed/parallel_state.py:2045,
+// :2054-2060 at v0.31.0), and a node holds consecutive ranks. So a group's members sit
+// `stride` ranks apart, where the stride is the product of the axes inside the one the
+// group runs along. With pp = 1, which every layout this kernel prices has (no collective
+// spans the pipeline axis):
 //
 //	tensor-parallel     contiguous                                     stride 1
 //	expert-parallel     one contiguous DP x PCP x TP block (:2212-2220)   stride 1
@@ -1693,14 +1708,16 @@ func (k *Kernel) dcpDecodeTokens(l *price.PlannedLayer, kind model.AttentionKind
 //	(latent only)       only when dcp = tp*pcp
 //
 //	query gather, pcp off  MLADCPManager._gather_query, dcp.py:1592-1596; flash_attn.py:1591
-//	query gather, pcp on   mla_attention.py:1113-1118 (none when dcp == pcp)
+//	query gather, pcp on   deepseek_v32/attention.py:560-563 (none when dcp == pcp)
 //	LSE gather             _cp_lse_common, dcp.py:458
 //	ag_rs combine          cp_lse_ag_out_rs :493, or cp_lse_ag_out_ar :526 under PCP,
 //	                       chosen by MLADCPManager._init_combine, dcp.py:1525-1531
 //	a2a combine            dcp_a2a_lse_reduce, dcp.py:939-1010
 //
-// a2a with pcp on is refused at construction (pcp_manager.py:188-194), and pcp on a
-// non-latent layer is refused there too, so neither reaches here.
+// a2a with pcp on is refused at construction (pcp_manager.py:188-194), and so is pcp on a
+// non-latent model ("MRV2 PCP currently supports MLA models only", pcp_manager.py:132-133)
+// and pcp with dcp on anything but a DSA sparse-MLA layer (mla_attention.py:684-687), so
+// none of those reaches here.
 //
 // THE PAYLOAD IS THE TENSOR THE COLLECTIVE MOVES, which is the convention every collective
 // in this kernel prices against: an all-gather's output, a reduce-scatter's input, an
@@ -1831,8 +1848,19 @@ func (k *Kernel) pcpPrefillGathers(l *price.PlannedLayer, localTokens int) (onNo
 //
 // Attention data parallelism replicates attention across DP ranks but SHARES the expert
 // pool: each rank routes its own tokens and then every rank's tokens are gathered before
-// the grouped GEMM, so the experts see dp times one rank's token count. Without expert
-// parallelism there is no shared pool to gather into and the factor is one.
+// the grouped GEMM, so the experts see dp times one rank's token count.
+//
+// KNOWN DIVERGENCE: this returns one without expert parallelism, and vLLM v0.31.0 shares
+// the MoE then too -- it shards the experts tensor-parallel over dp x pcp x tp ranks
+// (flatten_tp_across_dp_and_pcp, vllm/model_executor/layers/fused_moe/config.py:1090-1098,
+// 1186-1200; "MoE layers will be sharded according to the product of the tensor,
+// prefill-context, and data parallel sizes", vllm/config/parallel.py:134-136) and gathers
+// every rank's tokens before them (all2all_utils.py, the AllGather+ReduceScatter fallback).
+// The kernel prices such a layout as dp independent tensor-parallel replicas: the tokens
+// reaching an expert are understated by dp here, and the expert's per-rank weights
+// overstated by dp in expertTensorShards. Several scored fixtures are this layout
+// (nemotron3-ultra-h100-agg at dp 3, kimi-k3-h100-nospec at dp 4), so correcting it is a
+// re-scoring change, tracked separately rather than made here.
 //
 // Returns 1 rather than 0 when DP is unset, so a scenario that omits it prices as it did
 // before this term existed.
@@ -1848,7 +1876,9 @@ func (k *Kernel) moeDPFunnel() float64 {
 // The graph mode that runs decides how many launches a step makes, and it is chosen per
 // batch: under FULL_AND_PIECEWISE -- vLLM v0.31.0's default -- and FULL_DECODE_ONLY a uniform
 // decode batch replays one full graph, and every other batch runs piecewise or with no graph
-// respectively (see the mode table in lift).
+// respectively. Those are each mode's decode and mixed halves (CUDAGraphMode.decode_mode
+// and mixed_mode, vllm/config/compilation.py:62-69), which the default Model Runner V2
+// builds its graph candidates from (vllm/v1/worker/gpu/cudagraph_utils.py:250-330).
 //
 //	NONE       one launch per layer's kernels, all eager.
 //	PIECEWISE  the graph is split at every attention op, because attention takes a
@@ -1863,14 +1893,19 @@ func (k *Kernel) moeDPFunnel() float64 {
 // millisecond against seven microseconds — which matters at decode, where the whole step
 // is a few milliseconds.
 //
-// The split points are vLLM's `_attention_ops` (`vllm/config/compilation.py`), which fire
-// once per attention or recurrent-mixer layer, so the segment count is the layer count
-// plus one.
+// The split points are vLLM's `_attention_ops` (vllm/config/compilation.py:764-782), and
+// this counts one per layer, so the segment count is the layer count plus one.
 //
-// NOT MODELLED: the engine runs a batch of more tokens than max_cudagraph_capture_size
-// with no graph at all, whatever the mode (vllm/v1/cudagraph_dispatcher.py:270-279). A large
-// prefill step is therefore priced with replays it does not make. The host coefficients
-// were fitted with this structure, so changing it is a refit, not a correction to make here.
+// TWO KNOWN DIVERGENCES, kept because the host coefficients were fitted with this
+// structure and changing either is a refit rather than a correction:
+//
+//   - A sparse-MLA layer splits twice: at its indexer (vllm::sparse_attn_indexer) as well
+//     as its attention, so its stack has about twice the segments counted here.
+//   - A batch of more tokens than max_cudagraph_capture_size runs with no graph at all,
+//     whatever the mode: Model Runner V2 finds no captured candidate and dispatches NONE
+//     (vllm/v1/worker/gpu/cudagraph_utils.py:499-529), as V1 does
+//     (vllm/v1/cudagraph_dispatcher.py:270-279). A large prefill step is priced with
+//     replays it does not make.
 func (k *Kernel) hostPerStep(b kernel.Batch) time.Duration {
 	mode := k.graphOther
 	// An empty step runs no forward; it is charged as the decode loop's idle step.
@@ -2036,7 +2071,9 @@ func (k *Kernel) DecodeContextParallelWidth() int { return max(k.layout.DCP, 1) 
 //
 // The companion to DecodeContextParallelWidth, and the two are genuinely independent: PCP
 // splits prefill computation and expands the process world size while leaving the KV cache
-// replicated, where DCP shards the cache and reuses the tensor-parallel ranks. A consumer
+// replicated, where DCP shards the cache without expanding the world size -- it reuses the
+// tensor-parallel ranks when pcp is 1, and spans the PCP axis or the whole TP x PCP block
+// otherwise (vllm/config/parallel.py:359-362 at v0.31.0). A consumer
 // sizing a deployment needs both, and neither can be derived from the other.
 //
 // Interim for the same reason as DecodeContextParallelWidth.

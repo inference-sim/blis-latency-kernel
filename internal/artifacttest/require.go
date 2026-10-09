@@ -54,9 +54,9 @@ func Vendored(root string) bool {
 // testdata/minimax-m25-h200-ep16.yaml records a PRIOR occurrence of the same pathology, so
 // it is this repository's recurring failure mode rather than a one-off.
 //
-// In a _testing.go file rather than a _test.go one so other packages can call it; it is
-// still compiled into any binary that imports harness, which is why it takes a testing.TB
-// rather than reaching for os.Exit.
+// In an ordinary file of this leaf package rather than a _test.go one, so other packages'
+// tests can call it; it is compiled into any binary that imports artifacttest, which is
+// why it takes a testing.TB rather than reaching for os.Exit.
 //
 // Lives here, exported, rather than in each test package, because the first fix of this
 // applied the rule to one package of three and left cmd/shape and cmd/score masking the

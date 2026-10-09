@@ -120,14 +120,28 @@ func New(in Inputs) (*Kernel, error) {
 	}
 	k.plan = plan
 
+	// The recurrent cache mode as it runs. An unstated mode is "none" in the config
+	// (vllm/config/cache.py:190), but vLLM v0.31.0 turns it into "align" for a hybrid model
+	// whenever prefix caching is on (vllm/model_executor/models/config.py:640-642), and
+	// prefix caching is on unless disabled (vllm/config/cache.py:142). So an unstated mode is
+	// "align" unless the deployment turns prefix caching off.
+	k.recurrentCacheMode = price.RecurrentCacheMode(pool.Engine.MambaCacheMode)
+	if k.recurrentCacheMode == "" {
+		k.recurrentCacheMode = price.RecurrentCacheAlign
+		if pc := pool.Engine.EnablePrefixCaching; pc != nil && !*pc {
+			k.recurrentCacheMode = price.RecurrentCacheNone
+		}
+	}
+
 	k.blockSize = pool.Engine.BlockSize
 	if k.blockSize <= 0 {
 		k.blockSize = 16
 		k.assume("block_size", "16",
 			"CacheConfig.DEFAULT_BLOCK_SIZE (vllm/config/cache.py:71 at v0.31.0); the "+
 				"platform substitutes a size every attention backend supports where the "+
-				"default is not one (vllm/platforms/interface.py:683-697), which the "+
-				"kernel cannot see")
+				"default is not one, and aligns a hybrid model's block to its recurrent "+
+				"page even over a stated size (vllm/platforms/interface.py:683-702), "+
+				"neither of which the kernel can see")
 	}
 	if err := k.resolveContextParallel(in); err != nil {
 		return nil, err
@@ -167,7 +181,13 @@ func (k *Kernel) resolveContextParallel(in Inputs) error {
 	//
 	// So a stack with any full-attention, sliding-window or recurrent layer does not start
 	// under pcp > 1, whichever backend is chosen, and pricing it would describe nothing the
-	// engine runs.
+	// engine runs. Model Runner V2, which runs PCP, says the same in one line: "MRV2 PCP
+	// currently supports MLA models only" (vllm/v1/worker/gpu/pcp_manager.py:132-133).
+	//
+	// Admitting every latent stack is the other edge, and it is not exact: a latent layer
+	// served by a backend that declares no implementation class refuses PCP too, and
+	// DeepSeek-V4's sparse-MLA backends are such (vllm/models/deepseek_v4/sparse_mla.py).
+	// The graph cannot name the backend, so that refusal is the engine's to make.
 	if pl.PCP > 1 {
 		for _, l := range k.plan.Layers {
 			var kind string
@@ -455,9 +475,10 @@ func (k *Kernel) lift(c *resolve.Coefficients, g *model.Graph, cacheBytes float6
 		c.ValueOr("host_completion", 0) * float64(time.Microsecond))
 	k.launchPerLayer = time.Duration(
 		c.ValueOr("host_launch_eager_per_layer", 0) * float64(time.Microsecond))
-	// Per-kernel dispatch, which dominates a single-request decode step. Required rather
-	// than defaulted: a zero here silently removes the term that two published runs say is
-	// most of a small step's cost.
+	// Per-kernel dispatch, which dominates a single-request decode step. Defaulted to zero
+	// when the registry carries none, like the other host terms here -- which removes the
+	// term two published runs say is most of a small step's cost, so a registry that
+	// carries the host set is what a scored deployment needs.
 	k.launchPerKernel = time.Duration(
 		c.ValueOr("host_launch_per_kernel", 0) * float64(time.Microsecond))
 	k.replayPerStep = time.Duration(
@@ -530,9 +551,15 @@ func (k *Kernel) lift(c *resolve.Coefficients, g *model.Graph, cacheBytes float6
 		}
 	}
 	// How an expert's weights are divided, which depends on whether expert parallelism
-	// is on. vLLM sets ep_size = tp and tp_size = 1 when it is, and ep_size = 1 with
-	// tp_size = tp when it is not (fused_moe/config.py). So exactly one of the two axes
-	// divides an expert, never both.
+	// is on. vLLM gives a rank whole experts when it is (ep_size the group width, tp_size 1)
+	// and a tensor slice of every expert when it is not (ep_size 1)
+	// (FusedMoEParallelConfig.make, vllm/model_executor/layers/fused_moe/config.py:1186-1214
+	// at v0.31.0). So exactly one of the two axes divides an expert, never both.
+	//
+	// KNOWN DIVERGENCE: with expert parallelism off, vLLM's slice is over dp x pcp x tp
+	// ranks (flatten_tp_across_dp_and_pcp, config.py:1090-1098), and this divides by tp
+	// alone, so with dp or pcp above one a rank's expert weights are overstated by dp x pcp.
+	// See moeDPFunnel for the token-side half and why it is tracked separately.
 	k.localExpertShare = 1
 	k.expertTensorShards = 1
 	if k.layout.ExpertWidth <= 1 {
@@ -665,7 +692,8 @@ func (k *Kernel) liftMemory(c *resolve.Coefficients, g *model.Graph) error {
 		k.assume("max_num_batched_tokens", strconv.Itoa(k.batchedTokens),
 			"vLLM v0.31.0's OpenAI-API-server default for this part's memory "+
 				"(EngineArgs.get_batch_defaults, vllm/engine/arg_utils.py:2858-2887); "+
-				"the offline LLM class defaults higher on 70 GiB and larger parts")
+				"the offline LLM class defaults higher on parts from 70 GiB to below "+
+				"160 GiB")
 	}
 	return nil
 }
@@ -1076,24 +1104,30 @@ func servedDType(checkpoint model.DType, quantization string) (model.DType, erro
 
 // cacheDTypeBytes resolves the KV or state cache width.
 //
-// "auto" follows the model's COMPUTE dtype, which is what vLLM documents: "If auto,
-// will use model data type" (config/cache.py). That is not the weight storage width on
-// a quantized checkpoint, and the difference is not cosmetic. A W4A16 checkpoint --
-// Kimi-K2.5 is compressed-tensors int4 at group_size 32 -- stores weights at four bits
-// and computes in bf16, so following the weight width gave a half-byte KV element and,
-// once paged, a per-block figure of zero. A budget cannot be divided by that, and the
-// kernel refused twelve sweeps rather than guess.
+// "auto" follows the model's COMPUTE dtype: vLLM sizes an auto cache at
+// model_config.dtype (vllm/platforms/interface.py:861-862, vllm/utils/torch_utils.py:527-529
+// at v0.31.0), which is bf16 or fp16 whatever the weights are stored in. That is not the
+// weight storage width on a quantized checkpoint, and the difference is not cosmetic. A
+// W4A16 checkpoint -- Kimi-K2.5 is compressed-tensors int4 at group_size 32 -- stores
+// weights at four bits and computes in bf16, so following the weight width gave a
+// half-byte KV element and, once paged, a per-block figure of zero. An fp8-served model is
+// the same case: its linears return out_dtype=x.dtype, so its activations and an auto
+// cache stay bf16, and an earlier form that sized it at one byte halved its cache.
 //
-// vLLM does offer 4-bit KV (int4_per_token_head, turboquant_4bit_nc), but only when
-// named. "auto" never selects one, so neither does this.
+// WHAT THIS CANNOT SEE. "auto" is resolved against the checkpoint before it reaches the
+// cache: a quantization config declaring a KV algorithm (a ModelOpt checkpoint with
+// kv_cache_quant_algo) turns it into that dtype (resolve_kv_cache_dtype_string,
+// vllm/utils/torch_utils.py:503-518), and DeepSeek-V3.2- and V4-style sparse-MLA models
+// turn it into fp8_ds_mla (vllm/config/cache.py:127; vllm/models/deepseek_v4/attention.py).
+// The graph carries neither, so such a deployment should state its cache dtype; "auto"
+// here is the model dtype.
 func cacheDTypeBytes(declared string, fallback model.DType) float64 {
 	switch declared {
 	case "", "auto":
-		// A sub-byte weight format is a storage width, not a compute width. The cache
-		// follows what the kernel computes in, which for every such checkpoint in this
-		// catalog is bf16; a format that is already at least a byte wide is its own
-		// compute width and passes through.
-		if fallback.Bytes() < 1 {
+		// A weight format narrower than 16 bits is a storage width, not a compute width:
+		// the model computes in bf16 (or fp16) and the cache follows that. A 16- or 32-bit
+		// format is its own compute width and passes through.
+		if fallback.Bytes() < 2 {
 			return model.DTypeBF16.Bytes()
 		}
 		return fallback.Bytes()
@@ -1155,7 +1189,8 @@ func (k *Kernel) computeFixedBytes(g *model.Graph) kernel.MemoryBreakdown {
 			// Exactly one axis divides an expert's weights: expert parallelism gives a
 			// rank whole experts (expertTensorShards 1, expertsPerRank a fraction of the
 			// total), and without it every rank holds every expert as a tensor slice
-			// (expertTensorShards tp, expertsPerRank the full count). Dividing by
+			// (expertTensorShards tp, expertsPerRank the full count; see the KNOWN
+			// DIVERGENCE in lift for dp or pcp above one). Dividing by
 			// expertTensorShards is what makes this a PER-RANK figure in the second case;
 			// omitting it reported the whole model's expert weights on every rank, which
 			// on GLM-5 at tp=8 was 675 GiB against a 141 GiB part.

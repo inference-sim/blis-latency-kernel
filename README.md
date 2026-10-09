@@ -40,7 +40,7 @@ model's identity never reaches a branch. See
 | `kernel.go` | The interface methods and the step-time composition |
 | `new.go` | `New`: resolution, coefficient lifting, precomputation |
 | `internal/price` | The cost laws as pure functions: efficiency ramp, collective spans, KV bytes |
-| `internal/resolve` | Scenario to layout and fabric; which conditional collectives survive |
+| `internal/resolve` | Scenario to layout and fabric; which conditional collectives survive; how the decode-context knobs resolve |
 | `internal/harness` | What the scoring commands share |
 | `cmd/score` | Absolute inter-token latency against published benchmark runs |
 | `cmd/shape` | Concurrency-response shape against NVIDIA's AISimulate accuracy snapshot |
@@ -65,14 +65,77 @@ go test ./...
 go run ./cmd/shape -testdata testdata/aisimulate
 ```
 
-Both need `blis-catalog`, `blis-registry` and `blis-schemas` checked out alongside this
-repository; the commands take their paths as flags.
+Both run against the pinned copies under `testdata/` (see `testdata/VENDORED.md`), and
+blis-schemas is an ordinary module dependency. To score against a live upstream checkout
+instead, set `BLIS_CATALOG` / `BLIS_REGISTRY` for the tests, or pass `-catalog` / `-registry`
+to the commands.
+
+Where a law has an exact engine counterpart, the tests check it against that counterpart
+transcribed from vLLM v0.31.0 -- the decode-context per-rank length, the prefill-context zigzag,
+the KV page arithmetic, the rank layout every collective group is built from -- over grids or
+random draws rather than at one point. Where a quantity has no closed form, they assert
+metamorphic relations: inflate one primitive's coefficients and check which step times move,
+change one width and check which terms follow.
+
+## Sources of truth, pinned
+
+Every claim this code makes about what the engine does is stated against one release, and every
+pin is a commit, not a moving name:
+
+| what | source | pin |
+|---|---|---|
+| engine behaviour | vLLM `v0.31.0` | `db9527a46873454610df6dbedf79a36d6bf1a7f6` |
+| interface and document schemas | blis-schemas `v0.2.2` | `a0ba5d42ff753713f4dabc74a4ca38b374a91ef4` (`go.mod`) |
+| coefficients | blis-registry `v0.1.1` | `f7519b12b3393851a3ad416e26c819dd951d4c0d` (`testdata/VENDORED.md`) |
+| catalog | blis-catalog | `747a2213e13030ae675f9872c3e2a76b6b770d50` (`testdata/VENDORED.md`) |
+
+A comment citing `vllm/<path>:<lines>` means those lines at `v0.31.0`; read them with
+`git show v0.31.0:<path>` in a vLLM checkout. Engine behaviour this repository encodes itself
+-- how decode-context parallelism combines, which layouts start, how a graph mode is
+dispatched, what an unstated setting defaults to -- is v0.31.0's. Version-scoped facts the
+kernel reads from a blis-schemas rules pack instead (which widths the custom all-reduce
+supports, when sequence-parallel MoE engages, which DCP backend names a release accepts) are
+that pack's, and the pack is chosen by the scenario's `engine_version`; only the v0.29 pack is
+published today.
+
+Where the kernel cannot know what the engine would choose -- a model's own DCP defaults, a
+backend-preferred block size, a downgraded graph mode -- it does not guess silently. It either
+refuses the deployment, or prices the engine's stock default and records that default in
+`Provenance()` as an entry from set `blis-latency-kernel` with method `assumed`, which
+`Evidence()` counts. A deployment that states every setting carries no such entry.
+
+Where the kernel knowingly prices something differently from v0.31.0 -- because correcting it
+would move scored results fitted under the current structure, and is therefore a refit rather
+than a fix -- the code says so at the site, with the engine lines it diverges from. Those
+notes are headed KNOWN DIVERGENCE, KNOWN over-charge or COVERAGE LIMIT, so
+`grep -rnE "KNOWN DIVERGENCE|KNOWN over-charge|COVERAGE LIMIT" --include='*.go' .` lists
+them.
+
+## Using it from a simulator
+
+Everything a simulator needs is on `kernel.Kernel`:
+
+- `Deployment()` is the pool as stated: its role and its engine settings, including the
+  admission settings (`block_size`, `max_num_seqs`, `max_num_batched_tokens`) a scheduler
+  sizes itself from.
+- `Resolved()` is what resolution settled: the tensor-, data- and expert-parallel widths
+  (`TensorParallel()`, `DataParallel()`, `ExpertParallel()` apply the floor of one), the
+  all-reduce backend, and every request the layout overrode, with the reason.
+
+The two context-parallel widths are the one exception: `kernel.Resolution` does not carry them
+yet, so `DecodeContextParallelWidth()` and `PrefillContextParallelWidth()` sit on `*Kernel`
+until it does.
+
+Deployment identity -- the model, the chip, the expert geometry -- is not re-exported. A
+harness that configures another backend for the same deployment takes the documents from
+`OpenInputs` and builds the kernel with `New(in)`, so it holds the very chip and graph the
+kernel priced.
 
 ## Dependencies run one way
 
 This module depends on `blis-schemas` and nothing else of substance. It does NOT depend on the
 simulator: the simulator consumes this kernel, so an import in this direction would close a cycle
-between the two repositories. The command that compares this kernel against the simulator'''s
+between the two repositories. The command that compares this kernel against the simulator's
 earlier roofline and trained-physics models therefore lives in the simulator, as
 `cmd/blisbaseline`, where the dependency runs the correct way.
 

@@ -175,8 +175,9 @@ func (l Layout) Emits(c model.EmitCondition) bool {
 	case model.EmitTensorParallelUnlessSequenceParallelMoE:
 		return l.TP > 1 && !l.SequenceParallelMoE
 	}
-	// An unrecognized condition is not treated as false. Silently dropping a node would
-	// remove a cost with nothing reporting it; a caller sees the graph failed validation.
+	// An unrecognized condition answers false here, but it never reaches this line from
+	// the pricer: BuildPlan asks Recognizes first and rejects the graph, because silently
+	// dropping a node would remove a cost with nothing reporting it.
 	return false
 }
 

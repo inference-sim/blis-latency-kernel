@@ -335,9 +335,10 @@ func TestTheInterleaveSetsTheSlowestRanksShareOfTheRead(t *testing.T) {
 
 // UNDER NIXL AN UNSTATED STRIPE IS THE BLOCK SIZE. v0.31.0 pins an unstated
 // cp_kv_cache_interleave_size to the local block size when NixlConnector is configured, and
-// honours a stated one; any other connector leaves the default of 1; a MultiConnector hides
-// its children, so the answer is unknown and the kernel refuses rather than guess
-// (vllm/config/vllm.py:3333-3378, vllm/config/kv_transfer.py:156-163).
+// honours a stated one; any other connector leaves the default of 1. vLLM looks inside a
+// MultiConnector for a NIXL child (vllm/config/kv_transfer.py:156-163), but a deployment does
+// not name its children, so the answer is unknown and the kernel refuses rather than guess
+// (vllm/config/vllm.py:3333-3378).
 //
 // Priced on the decode pool of a disaggregated deployment, which is the case the pin exists
 // for: a decode pool sharding its cache while NIXL moves blocks in from prefill.

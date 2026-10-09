@@ -29,11 +29,12 @@ STATED, and written here: tp_size, pp_size, attention_dp_size, moe_ep_size, moe_
 framework, precision, serving, gpu, model.
 
 NOT stated, and therefore set here: max_num_seqs, max_model_len, block_size,
-gpu_memory_utilization, cudagraph_mode. They are NOT all vLLM's defaults, and the written
-header says which are: block_size 16 and gpu_memory_utilization 0.9 are; max_num_seqs 256 is
-only below 70 GiB or on an A100 (EngineArgs.get_batch_defaults, vllm/engine/arg_utils.py at
-v0.31.0); cudagraph_mode PIECEWISE is not -- FULL_AND_PIECEWISE is the default at v0.29.0 and
-v0.31.0 (vllm/config/compilation.py). They are held fixed so committed scores stay comparable,
+gpu_memory_utilization, cudagraph_mode. They are NOT vLLM's defaults, and the written header
+says how each differs: block_size 16 is only the nominal default, which a backend may raise
+(vllm/platforms/interface.py); gpu_memory_utilization's default is 0.92 (vllm/config/cache.py);
+max_num_seqs 256 is the default only below 70 GiB or on an A100
+(EngineArgs.get_batch_defaults, vllm/engine/arg_utils.py); cudagraph_mode's default is
+FULL_AND_PIECEWISE (vllm/config/compilation.py) -- all at v0.29.0 and v0.31.0. They are held fixed so committed scores stay comparable,
 and the comparison scores the RATIO of step times across concurrency at a fixed deployment,
 which is what a setting held constant affects least. Where a value could NOT be held it is
 derived from the workload instead -- max_model_len must admit the longest sequence the
@@ -41,9 +42,12 @@ workload runs, or the scenario would describe a deployment that cannot serve its
 
 # Expert parallelism
 
-vLLM's rule (fused_moe/config.py): with EP on, each rank holds whole experts and moe_tp_size
-is 1; with EP off, experts are sliced tensor-parallel and moe_tp_size equals tp_size. The
-corpus states both fields, so this asserts they agree with that rule rather than assuming it.
+The rule this asserts: with EP on, each rank holds whole experts and moe_tp_size is 1; with
+EP off, experts are sliced tensor-parallel and moe_tp_size equals tp_size. That is vLLM's
+rule only at attention_dp_size 1 -- with EP off and dp above one vLLM slices experts over
+dp x tp ranks (flatten_tp_across_dp_and_pcp, vllm/model_executor/layers/fused_moe/config.py at
+v0.31.0) -- and it is the corpus's own convention, which states both fields; this asserts
+the corpus is consistent with it rather than assuming it.
 
 Usage:
 
@@ -116,15 +120,15 @@ def emit(dep: dict, workloads: set[str], labels: set[str]) -> str:
         f"# deployment: {', '.join(sorted(labels))}.",
         "#",
         "# max_num_seqs, block_size, gpu_memory_utilization and cudagraph_mode are not in the",
-        "# corpus, so they are set here -- and not all to vLLM's defaults. block_size 16 and",
-        "# gpu_memory_utilization 0.9 are its defaults; max_num_seqs 256 is its default only",
-        "# below 70 GiB or on an A100, and cudagraph_mode PIECEWISE is not its default anywhere",
-        "# (FULL_AND_PIECEWISE is, at v0.29.0 and v0.31.0). They are held fixed so committed",
-        "# scores stay comparable; moving them to the engine's defaults is a re-scoring decision.",
-        "# The comparison scores a ratio across concurrency at a fixed deployment, which is what",
-        "# a setting held constant affects least. max_model_len is derived from the workload",
-        "# instead, since a window shorter than isl+osl would describe a deployment that cannot",
-        "# serve its own points.",
+        "# corpus, so they are set here -- and not to vLLM's defaults. block_size 16 is its nominal",
+        "# default, which a backend may raise; gpu_memory_utilization's default is 0.92, not 0.9;",
+        "# max_num_seqs 256 is its default only below 70 GiB or on an A100; and its cudagraph_mode",
+        "# default is FULL_AND_PIECEWISE, not PIECEWISE (all at v0.29.0 and v0.31.0). They are held",
+        "# fixed so committed scores stay comparable; moving them to the engine's defaults is a",
+        "# re-scoring decision. The comparison scores a ratio across concurrency at a fixed",
+        "# deployment, which is what a setting held constant affects least. max_model_len is",
+        "# derived from the workload instead, since a window shorter than isl+osl would describe a",
+        "# deployment that cannot serve its own points.",
         "kind: Scenario",
         f"name: {name}",
         'engine_version: "0.29.0"',

@@ -664,7 +664,8 @@ func TestThePCPGatherIsScopedToPrefillTokens(t *testing.T) {
 // PCP runs only on a stack whose every layer's backend supports it, which at v0.31.0 is a
 // stack of latent attention alone (vllm/v1/worker/cp_utils.py:35-38; backend.py:843, :1048,
 // :230-235). New refuses the rest rather than pricing a layout the engine does not start,
-// and admits the latent stacks.
+// and admits the latent stacks. PCP with DCP narrows it further, to DSA sparse-MLA layers;
+// TestNewRefusesTheContextParallelLayoutsTheEngineRefuses covers that.
 func TestPCPRunsOnlyOnLatentStacks(t *testing.T) {
 	for _, c := range []struct {
 		fixture string

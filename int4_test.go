@@ -52,7 +52,9 @@ func TestINT4StoresFourBitsOfPayload(t *testing.T) {
 // A W4A16 checkpoint stores weights at four bits and computes in bf16. Following the
 // storage width gave a half-byte KV element, which rounded to a per-block figure of
 // zero once paged, and the kernel refused twelve Kimi-K2.5 sweeps rather than divide a
-// budget by it. vLLM offers 4-bit KV, but only when named; "auto" never selects one.
+// budget by it. vLLM sizes an auto cache at the model dtype (vllm/platforms/interface.py:
+// 861-862 at v0.31.0) unless the checkpoint's quantization config declares a KV algorithm,
+// which the graph does not carry; see cacheDTypeBytes.
 func TestAnAutoCacheFollowsTheComputeWidthNotTheStorageWidth(t *testing.T) {
 	for _, tc := range []struct {
 		served model.DType
@@ -62,7 +64,7 @@ func TestAnAutoCacheFollowsTheComputeWidthNotTheStorageWidth(t *testing.T) {
 		{model.DTypeINT4, 2, "W4A16 computes in bf16"},
 		{model.DTypeNVFP4, 2, "a 4-bit float is a storage format too"},
 		{model.DTypeMXFP4, 2, "likewise"},
-		{model.DTypeFP8, 1, "fp8 is already a byte wide, so it is its own compute width"},
+		{model.DTypeFP8, 2, "fp8 linears return bf16 (out_dtype=x.dtype), so the model dtype is bf16"},
 		{model.DTypeBF16, 2, "unquantized passes through"},
 		{model.DTypeFP32, 4, "and so does fp32"},
 	} {

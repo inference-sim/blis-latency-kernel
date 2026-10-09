@@ -34,8 +34,11 @@ pools:
       enable_expert_parallel: false
     engine:
       cache_dtype: fp8
-      # KDA layers carry recurrent state. The mode is not stated; this is the default,
-      # which sizes state per sequence rather than per position.
+      # KDA layers carry recurrent state. The mode is not stated. "none" sizes state per
+      # sequence rather than per position; it is the config default, but the engine runs
+      # "align" for a hybrid model whenever prefix caching is on
+      # (vllm/model_executor/models/config.py:640-642 at v0.31.0), so this is a choice held
+      # fixed, not the engine's effective default.
       mamba_cache_mode: none
       block_size: 16
       max_num_batched_tokens: 8192

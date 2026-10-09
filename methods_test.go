@@ -1540,7 +1540,7 @@ func TestChunkedPrefillChargesTheWholePrefix(t *testing.T) {
 // test here pinning that division. The reasoning is at the call site in kernel.go and the
 // measurements are in docs/perf-model/hypothesis-log.md: the division is correct against
 // vLLM's own sharding (`intermediate_size_per_partition = intermediate_size // tp_size`,
-// vllm/model_executor/layers/fused_moe/config.py:1350), it improves per-step accuracy on
+// vllm/model_executor/layers/fused_moe/config.py:1321-1323), it improves per-step accuracy on
 // FPM from 27.45% to 23.03% mape over 9,161 held-out steps, and it costs 3.57 points of
 // TPOT mape and 12.29 of TTFT mape end to end because the over-charge offsets a term that
 // has not been identified.

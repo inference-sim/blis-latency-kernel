@@ -540,3 +540,36 @@ func TestEPLBReplicasAreCountedOnce(t *testing.T) {
 			"EPLBRedundant", off.Weights, on.Weights)
 	}
 }
+
+// AN UNSTATED RECURRENT CACHE MODE IS WHAT THE ENGINE RUNS. The config default is "none"
+// (vllm/config/cache.py:190 at v0.31.0), but vLLM sets a hybrid model's mode to "align"
+// whenever prefix caching is on (vllm/model_executor/models/config.py:640-642), and prefix
+// caching is on by default (cache.py:142). So on Nemotron-3-Ultra an unstated mode must hold
+// what "align" holds, and "none" only once prefix caching is turned off.
+func TestAnUnstatedRecurrentCacheModeIsTheEnginesEffectiveDefault(t *testing.T) {
+	build := func(mode string, prefixCaching *bool) int64 {
+		t.Helper()
+		in := fixtureInputs(t, "nemotron3-ultra-h100-agg.yaml")
+		e := &in.Deployment.Pools[0].Engine
+		e.MambaCacheMode, e.EnablePrefixCaching = mode, prefixCaching
+		k, err := New(in)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return k.SequenceFixedBytes()
+	}
+	off := false
+	align, none := build("align", nil), build("none", nil)
+	if align <= none {
+		t.Fatalf("align holds %d bytes per sequence against none's %d; the comparison needs "+
+			"them to differ", align, none)
+	}
+	if got := build("", nil); got != align {
+		t.Errorf("an unstated mode with prefix caching on holds %d bytes, want align's %d",
+			got, align)
+	}
+	if got := build("", &off); got != none {
+		t.Errorf("an unstated mode with prefix caching off holds %d bytes, want none's %d",
+			got, none)
+	}
+}
