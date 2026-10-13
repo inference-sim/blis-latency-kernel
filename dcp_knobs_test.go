@@ -9,6 +9,7 @@ import (
 	"github.com/inference-sim/blis-schemas/kernel"
 	"github.com/inference-sim/blis-schemas/rules/v0_29"
 	"github.com/inference-sim/blis-schemas/spec/coefficient"
+	"github.com/inference-sim/blis-schemas/spec/deployment"
 	"github.com/inference-sim/blis-schemas/vocab"
 
 	schemas "github.com/inference-sim/blis-schemas"
@@ -578,7 +579,7 @@ func TestALatentPrefillGathersItsContextOnceAChunk(t *testing.T) {
 		}
 		setLen := func(in *Inputs) {
 			if maxModelLen > 0 {
-				in.Deployment.Pools[0].Engine.MaxModelLen = maxModelLen
+				in.Deployment.Pools[0].Engine.MaxModelLen = deployment.MaxModelLen(maxModelLen)
 			}
 		}
 		base := mustDCPVariant(t, dcpMLAFixture, 8, 1, 2, setLen)

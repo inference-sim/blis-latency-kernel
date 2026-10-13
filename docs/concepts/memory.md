@@ -57,12 +57,12 @@ deployment on [Pricing a step](step.md):
 ```
 
 ```text
-weights       78.1 GiB
+weights       78.2 GiB
 activations    1.1 GiB
 CUDA graphs    0.8 GiB
 comm buffers   3.9 GiB
 EPLB           0.0 GiB
-total         83.9 GiB per rank
+total         84.0 GiB per rank
 a 4,096-token request: 137 MiB of KV cache per rank
 ```
 
@@ -95,11 +95,35 @@ change the answer by large factors:
 The example above is a latent cache: 576 one-byte elements per token in each of 61 layers is
 35,136 bytes per token, and a 4,096-token request holds 137 MiB on every rank.
 
+### When the graph states its caches
+
+A model graph can say, per attention layer, which caches the layer owns and how each is laid
+out: the bytes one stored record takes under each cache data type, how many context tokens a
+record covers, a page size and page alignment of its own, and whether a sliding window or a
+fixed entry count bounds it. A layer that states its caches is sized from them alone, and
+every other layer keeps the formula above, so a graph opts in layer by layer.
+
+- **Only an owner holds a cache.** A layer that reads another layer's cache adds read traffic
+  and nothing resident. DeepSeek-V4.1-Flash owns its compressed cache on four of its 40
+  layers, so it holds about 1,790 bytes per token on H200, where one width times every layer
+  gave 20,480.
+- **A compressed record covers several tokens.** A cache that stores one record per two
+  tokens grows at half its record size per token.
+- **A window cache is a bounded ring.** It is counted in `SequenceFixedBytes`, at the pages
+  vLLM lets one request hold: the window, the tokens in flight (one, plus the speculative
+  tokens), rounded up to pages, plus one page.
+- **The record follows the chip and the cache data type.** The graph is resolved for the
+  chip's GPU generation before it is sized, and a record is looked up under the cache data
+  type the attention backend actually runs: DeepSeek-V4.1 serves `fp8` as its packed
+  `fp8_ds_mla` record, 584 bytes on SM90 and 528 on SM100.
+- **The drafter's caches are held only while speculating.**
+
 ## What each request holds regardless of length
 
-`SequenceFixedBytes` is for models with recurrent layers (Mamba-2, gated delta networks, Kimi
-delta attention), whose per-request state does not grow with the context. How much of it a
-request holds depends on the engine's recurrent cache mode:
+`SequenceFixedBytes` holds the state that does not grow with the context: the window rings and
+fixed state caches a graph states (above), and the per-request state of recurrent layers
+(Mamba-2, gated delta networks, Kimi delta attention). How much recurrent state a request holds
+depends on the engine's recurrent cache mode:
 
 | Mode | State a request holds | Counted in |
 |---|---|---|
@@ -107,8 +131,8 @@ request holds depends on the engine's recurrent cache mode:
 | `align` | Two pages, plus one per speculative token | `SequenceFixedBytes` |
 | `all` | One page per block of its context, plus one per speculative token | `SequenceVariableBytes` |
 
-vLLM uses `align` whenever prefix caching is on. For a model with no recurrent layers,
-`SequenceFixedBytes` is zero.
+vLLM uses `align` whenever prefix caching is on. For a model with no recurrent layers and no
+stated bounded caches, `SequenceFixedBytes` is zero.
 
 ## In the source
 

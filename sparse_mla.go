@@ -53,13 +53,57 @@ const dsaHeadDim = 576
 // SM100), at select_common_block_size, which the indexer fails ("No common block size").
 const dsaBlockSize = 64
 
-// isDSA reports whether a graph's attention is the DSA family's sparse MLA.
+// isDSA reports whether a graph's attention is the DSA family's sparse MLA: some layer of
+// its target stack reads the engine's cache with a 576-wide sparse-MLA head.
 func isDSA(g *model.Graph) bool {
 	if g == nil {
 		return false
 	}
-	_, headDim, _, kind := kvGeometry(g)
-	return kind == model.AttentionSparseMLA && headDim == dsaHeadDim
+	byID := map[string]model.LayerKind{}
+	for _, lk := range g.LayerKinds {
+		byID[lk.ID] = lk
+	}
+	for _, id := range g.Stack.Expand() {
+		for _, n := range byID[id].Nodes {
+			if n.Op == model.OpAttention && n.Role == "" &&
+				n.AttentionKind == model.AttentionSparseMLA && n.HeadDim == dsaHeadDim {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// deepseekV4Family reports whether a graph is DeepSeek-V4 or V4.1, whose attention runs on
+// that family's own FlashMLA backends (vllm/models/deepseek_v4, deepseek_v41) rather than
+// the DSA ones: by the architecture it names, or, for a graph that names none, by its
+// 512-wide sparse-MLA head, which no other family in the catalog has.
+func deepseekV4Family(g *model.Graph) bool {
+	switch g.Global.Architecture {
+	case "DeepseekV4ForCausalLM", "DeepseekV41ForCausalLM":
+		return true
+	case "":
+		for _, lk := range g.LayerKinds {
+			for _, n := range lk.Nodes {
+				if n.Op == model.OpAttention && n.Role == "" &&
+					n.AttentionKind == model.AttentionSparseMLA && n.HeadDim == 512 {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+// v4BlockSize is the kernel block DeepSeek-V4's and V4.1's sparse backends run: 64 on SM90
+// and 128 elsewhere (DeepseekV4SparseMLABackend and DeepseekV41IndexerBackend
+// get_supported_kernel_block_sizes, vllm/models/deepseek_v41/sparse_mla.py:89-90 and
+// vllm/v1/attention/backends/mla/indexer.py:277-278 at v0.31.0).
+func v4BlockSize(family int, sm100 bool) int {
+	if family == 9 || (family == 0 && !sm100) {
+		return 64
+	}
+	return 128
 }
 
 // The sparse-MLA backends v0.31.0 ships for SM90 and SM100, by AttentionBackendEnum name.

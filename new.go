@@ -89,7 +89,21 @@ func New(in Inputs) (*Kernel, error) {
 	// only on parts whose fabric spans chassis.
 	fab.RackIsOneDomain = in.Chip.GPUsPerRack > 0 && in.Chip.IntraRackBwGBps > 0
 
-	layout, err := resolve.ResolveLayout(in.Scenario, pool, fab, in.Rules)
+	// The graph as served on this chip. A graph that states facts by GPU architecture --
+	// DeepSeek-V4.1's resident widths and KV records differ between SM90 and SM100 --
+	// resolves through blis-schemas' one overlay, and one that does not is the same graph on
+	// every chip. A chip that states no compute capability cannot run a graph that
+	// distinguishes architectures, and ForCapability refuses it rather than giving it the
+	// base's facts.
+	family, _ := in.Chip.CapabilityMajor()
+	g, err := in.Model.ForCapability(family)
+	if err != nil {
+		return nil, fmt.Errorf("resolving the model graph for %s: %w", in.Chip.Name, err)
+	}
+	in.Model = g
+
+	layout, err := resolve.ResolveLayoutFor(in.Scenario, pool, fab, in.Rules,
+		g.Global.Architecture)
 	if err != nil {
 		return nil, fmt.Errorf("resolving the layout: %w", err)
 	}
@@ -102,7 +116,8 @@ func New(in Inputs) (*Kernel, error) {
 		return nil, fmt.Errorf("resolving coefficients: %w", err)
 	}
 
-	k := &Kernel{layout: layout, fabric: fab, pool: pool, chip: *in.Chip}
+	k := &Kernel{layout: layout, fabric: fab, pool: pool, chip: *in.Chip, rules: in.Rules,
+		family: family, architecture: g.Global.Architecture}
 	k.tp = float64(max(layout.TP, 1))
 
 	// The served weight format, which the scenario may override. A bf16 checkpoint
@@ -115,12 +130,24 @@ func New(in Inputs) (*Kernel, error) {
 	}
 	k.servedDType = served
 
-	_, _, _, attnKind := kvGeometry(in.Model)
 	if err := checkCacheDTypes(pool.Engine.CacheDType, pool.Engine.MambaCacheDType,
-		attnKind); err != nil {
+		attentionKinds(in.Model)); err != nil {
 		return nil, err
 	}
 	cacheBytes := cacheDTypeBytes(pool.Engine.CacheDType, served)
+	// The cache dtype a stated cache record is looked up by: the requested one, as the
+	// architecture's attention backend resolves it. DeepSeek-V4.1 rewrites auto and fp8 to
+	// its packed record (fp8_ds_mla under FlashMLA, nvfp4_ds_mla under SM100's mega
+	// attention), which is what Cache.EntryBytes is keyed by.
+	k.cacheDType = in.Rules.ResolveCacheDType(k.architecture, family, layout.TP,
+		pool.Engine.CacheDType)
+	if stated := pool.Engine.CacheDType; stated != "" && k.cacheDType != stated {
+		k.layout.Overrides = append(k.layout.Overrides, resolve.Override{
+			Field: "cache_dtype", Requested: stated, Resolved: k.cacheDType,
+			Reason: "the attention backend of " + k.architecture + " serves this cache as " +
+				k.cacheDType + " (rules pack CacheDTypeResolutions)",
+		})
+	}
 	stateBytes := cacheDTypeBytes(pool.Engine.MambaCacheDType, model.DTypeFP32)
 
 	// PIPELINE PARALLELISM IS NOT PRICED. No collective here spans the pipeline axis, a
@@ -133,7 +160,14 @@ func New(in Inputs) (*Kernel, error) {
 			"model on one stage would misstate every term", pool.Parallel.PP)
 	}
 
-	plan, err := price.BuildPlan(in.Model, emitter{layout}, served.Bytes(), stateBytes)
+	plan, err := price.BuildPlanWith(in.Model, emitter{layout}, price.PlanOptions{
+		WeightBytesPerParam: func(n model.Node) float64 {
+			return weightBytesPerParam(in.Model, n, served)
+		},
+		Format:     func(n model.Node) price.Format { return weightFormat(in.Model, n, served) },
+		EntryBytes: func(c model.Cache) int { return c.EntryBytes(k.cacheDType) },
+		StateBytes: stateBytes,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("planning the model graph: %w", err)
 	}
@@ -178,10 +212,23 @@ func New(in Inputs) (*Kernel, error) {
 		}
 	}
 
+	k.resolveMaxModelLen(in.Model)
 	k.blockSize = pool.Engine.BlockSize
 	dsa := isDSA(in.Model)
-	k.blockSizeFinal = !hybrid && (k.blockSize > 0 || dsa)
+	v4 := deepseekV4Family(in.Model)
+	k.blockSizeFinal = !hybrid && (k.blockSize > 0 || dsa || v4)
 	switch {
+	case v4 && k.blockSize > 0 && k.blockSize%v4BlockSize(family, in.Chip.NVFP4Peak > 0) != 0:
+		return nil, fmt.Errorf("block_size %d on a DeepSeek-V4-family model: its sparse "+
+			"attention and indexer run %d-token kernel blocks on this part, so a stated size "+
+			"must be a multiple of it, and the engine refuses this layout at startup",
+			k.blockSize, v4BlockSize(family, in.Chip.NVFP4Peak > 0))
+	case v4 && k.blockSize <= 0:
+		k.blockSize = v4BlockSize(family, in.Chip.NVFP4Peak > 0)
+		k.assume("block_size", strconv.Itoa(k.blockSize),
+			"what vLLM v0.31.0 picks for a DeepSeek-V4-family model on this part, the only "+
+				"kernel block its sparse backends accept (vllm/models/deepseek_v41/"+
+				"sparse_mla.py:89-90)")
 	case dsa && k.blockSize > 0 && k.blockSize%dsaBlockSize != 0:
 		return nil, fmt.Errorf("block_size %d on a DSA sparse-MLA model: its indexer runs "+
 			"on %d-token kernel blocks, so a stated size must be a multiple of %d, and the "+
@@ -357,6 +404,100 @@ func (k *Kernel) resolveContextParallel(in Inputs) error {
 	return nil
 }
 
+// resolveMaxModelLen settles the context bound the engine runs with. blis-schemas v0.3.0
+// states it in three ways (deployment.MaxModelLen): a count, auto, or nothing.
+//
+//   - A count is the bound.
+//   - Unstated, vLLM v0.31.0 derives it from the model configuration, which the graph
+//     carries as global.context_window (its default_context_window where that differs).
+//   - auto fits the bound to the KV memory the engine finds at startup, capped at that
+//     same derived length (vllm/config/model.py _get_and_verify_max_len, then the KV
+//     cache sizing in vllm/v1/core/kv_cache_utils.py). The kernel cannot run the engine's
+//     memory profile, so auto is taken at the cap, the most it can resolve to, and that
+//     is recorded.
+//
+// Zero means neither the deployment nor the graph states one, and every consumer of the
+// bound then says what it does without it.
+func (k *Kernel) resolveMaxModelLen(g *model.Graph) {
+	mml := k.pool.Engine.MaxModelLen
+	if n, ok := mml.Stated(); ok {
+		k.maxModelLen = n
+		return
+	}
+	k.maxModelLen = g.Global.DefaultWindow()
+	switch {
+	case mml.Auto() && k.maxModelLen > 0:
+		k.assume("max_model_len", strconv.Itoa(k.maxModelLen),
+			"auto fits the bound to the KV memory the engine finds at startup, capped at the "+
+				"model's derived window (vllm/config/model.py _get_and_verify_max_len); the "+
+				"kernel cannot profile memory, so it takes the cap, which the engine lowers "+
+				"where the cache cannot hold one sequence of it")
+	case mml.Auto():
+		k.assume("max_model_len", "auto",
+			"auto, on a graph that states no context_window: the bound is unknown, and the "+
+				"terms that read it say what they take instead")
+	case k.maxModelLen > 0:
+		k.assume("max_model_len", strconv.Itoa(k.maxModelLen),
+			"unstated, so the engine derives it from the model configuration, which the "+
+				"graph states as its context window")
+	}
+}
+
+// weightBytesPerParam is the resident bytes of one parameter of a GEMM or GroupedGEMM
+// node, scales included (blis-schemas Graph.WeightBytesPerParam), as the deployment serves
+// it. A --quantization that serves the checkpoint in another format replaces the global
+// dtype for every node that does not state its own, and with it the global scale layout,
+// which belongs to the checkpoint's format; the served format's intrinsic scale, if it
+// has one, is counted instead (NVFP4's one FP8 byte per 16, MXFP4's one per 32).
+func weightBytesPerParam(g *model.Graph, n model.Node, served model.DType) float64 {
+	if n.Aliases == "" && n.WeightDType == "" && served != g.Global.WeightDType {
+		return model.StoredBytes(served, nil)
+	}
+	return g.WeightBytesPerParam(n)
+}
+
+// weightFormat is the format a GEMM or GroupedGEMM node computes from: its own dtype and
+// scale where it states them, the served one otherwise. The scale is what tells MXFP8
+// (one E8M0 byte per 32 elements) from block-scaled FP8.
+func weightFormat(g *model.Graph, n model.Node, served model.DType) price.Format {
+	d, s := n.WeightDType, n.WeightScale
+	if d == "" {
+		d = served
+		if served == g.Global.WeightDType && s == nil {
+			s = g.Global.WeightScale
+		}
+	}
+	if s == nil {
+		if is, ok := d.IntrinsicScale(); ok {
+			s = &is
+		}
+	}
+	f := price.Format{DType: d}
+	if s != nil {
+		f.ScaleElements = s.Elements
+	}
+	return f
+}
+
+// attentionKinds is every attention kind a layer of the target stack reads the engine's
+// cache with. A speculator's layers are not the target's, and a kind declared but not
+// stacked runs nowhere.
+func attentionKinds(g *model.Graph) map[model.AttentionKind]bool {
+	byID := map[string]model.LayerKind{}
+	for _, lk := range g.LayerKinds {
+		byID[lk.ID] = lk
+	}
+	kinds := map[model.AttentionKind]bool{}
+	for _, id := range g.Stack.Expand() {
+		for _, n := range byID[id].Nodes {
+			if n.Op == model.OpAttention && n.Role == "" {
+				kinds[n.AttentionKind] = true
+			}
+		}
+	}
+	return kinds
+}
+
 // dsMLAStateBytes is the packed page cell, in bytes per token per layer, of the cache
 // layouts that state their own size.
 var dsMLAStateBytes = map[string]float64{"fp8_ds_mla": 656, "nvfp4_ds_mla": 352}
@@ -416,31 +557,54 @@ func (k *Kernel) lift(c *resolve.Coefficients, g *model.Graph, cacheBytes float6
 	// Compute peak and the efficiency ramp are selected by the weight dtype: the three
 	// formats in the source data reach materially different asymptotes, so a single ramp
 	// would misprice two of them.
-	suffix, peak := dtypeFit(k.servedDType, k.chip)
-	if err := mustPositive("compute peak", peak); err != nil {
+	served, err := k.liftFit(c, dtypeFitSuffix(k.servedDType, k.chip))
+	if err != nil {
+		return fmt.Errorf("served dtype %s: %w", k.servedDType, err)
+	}
+	k.computeFLOPsPerSecond, k.epsMax, k.mHalf = served.peak, served.epsMax, served.mHalf
+	k.nHalf, k.kHalf, k.gemmShapeAware = served.nHalf, served.kHalf, served.shapeAware
+
+	// Every GEMM is priced at the rate of the format it computes from, not the served one
+	// alone. A model's GEMMs do not all run one kernel: DeepSeek-V4.1's mHC projections are
+	// FP32 parameters run at TF32, its router and wo_a are BF16, and on SM90 its MXFP8
+	// projections and MXFP4 experts run weight-only Marlin kernels on BF16 activations.
+	// Pricing all of them at the served format's peak priced each at a rate its kernel
+	// does not reach.
+	k.fits = map[fitKey]gemmFit{}
+	addFits := func(layers ...price.PlannedLayer) error {
+		for _, l := range layers {
+			for _, g := range l.DenseGEMMs {
+				if err := k.addFit(c, g.Format, false); err != nil {
+					return err
+				}
+			}
+			if l.ExpertFLOPsPerTokenPerExpert > 0 {
+				if err := k.addFit(c, l.RoutedFormat, true); err != nil {
+					return err
+				}
+			}
+			if l.SharedExpertFLOPsPerToken > 0 {
+				if err := k.addFit(c, l.SharedFormat, false); err != nil {
+					return err
+				}
+			}
+		}
+		return nil
+	}
+	all := append(append([]price.PlannedLayer{}, k.plan.Layers...), k.plan.Head,
+		k.plan.Embedding)
+	if d := k.plan.Draft; d != nil {
+		all = append(append(append(all, d.Layers...), d.Context...), d.Embedding, d.Head,
+			d.SequentialHead)
+	}
+	if err := addFits(all...); err != nil {
 		return err
 	}
-	k.computeFLOPsPerSecond = peak
-	if k.epsMax, err = c.Value("gemm_eps_max_" + suffix); err != nil {
-		return fmt.Errorf("no efficiency asymptote for served dtype %s: %w",
-			k.servedDType, err)
-	}
-	if k.mHalf, err = c.Value("gemm_m_half_" + suffix); err != nil {
-		return fmt.Errorf("no efficiency half-max for served dtype %s: %w",
-			k.servedDType, err)
-	}
-	// The shape-aware ramp is opt-in by the presence of its coefficients, and both are
-	// required together: a k factor without an n factor is a different law, not a partial
-	// one, and fitting one of the two leaves the other's work absorbed into epsMax.
-	nHalf, nErr := c.Value("gemm_n_half_" + suffix)
-	kHalf, kErr := c.Value("gemm_k_half_" + suffix)
-	switch {
-	case nErr == nil && kErr == nil:
-		k.nHalf, k.kHalf, k.gemmShapeAware = nHalf, kHalf, true
-	case nErr == nil || kErr == nil:
-		return fmt.Errorf(
-			"served dtype %s has one of gemm_n_half/gemm_k_half but not both; the "+
-				"shape-aware ramp needs both or neither", k.servedDType)
+	k.layerFits = make([][]gemmFit, len(k.plan.Layers))
+	for i, l := range k.plan.Layers {
+		for _, g := range l.DenseGEMMs {
+			k.layerFits[i] = append(k.layerFits[i], k.fits[fitKey{g.Format, false}])
+		}
 	}
 
 	k.nvlinkBytesPerSecond = k.chip.IntraNodeBwGBps * 1e9
@@ -533,7 +697,7 @@ func (k *Kernel) lift(c *resolve.Coefficients, g *model.Graph, cacheBytes float6
 	// full-attention rate is wrong by construction rather than by a little. The WIDTH comes
 	// from the graph -- blis-catalog declares an MLA node with `n_kv: 1` and d_h the latent
 	// width (576 = kv_lora_rank + qk_rope_head_dim for the DeepSeek-V3 family and Kimi, 512
-	// for DeepSeek-V4), so kvGeometry's NumKVHeads*HeadDim is that width --
+	// for DeepSeek-V4), so a layer's NumKVHeads*HeadDim is that width --
 	// and KVBytesPerToken charges it ONCE per token, since a latent cache has no value
 	// tensor. The RATE is the other half: an MLA decode sustains 0.61-0.80 of datasheet
 	// bandwidth against full attention's 0.52-0.88.
@@ -621,8 +785,13 @@ func (k *Kernel) lift(c *resolve.Coefficients, g *model.Graph, cacheBytes float6
 		hostWithout("per-output-token cost")) * float64(time.Microsecond))
 	k.completionCost = time.Duration(k.optional(c, "host_completion", true,
 		hostWithout("completion cost")) * float64(time.Microsecond))
-	k.launchPerLayer = time.Duration(k.optional(c, "host_launch_eager_per_layer", true,
-		hostWithout("eager launch cost per layer")) * float64(time.Microsecond))
+	// One eager kernel launch. The registry names it per layer and defines it as
+	// "multiplied by a layer's kernel count at the call site" (blis-registry
+	// cost-model-host-overheads.yaml, host_launch_eager_per_layer), so it is charged per
+	// kernel: an earlier form charged it once per layer, which made eager about four
+	// percent dearer than a full graph and cheaper than piecewise replay.
+	k.launchEager = time.Duration(k.optional(c, "host_launch_eager_per_layer", true,
+		hostWithout("eager launch cost")) * float64(time.Microsecond))
 	// Per-kernel dispatch, which dominates a single-request decode step. Charged at zero
 	// when the registry carries none, like the other host terms here -- which removes the
 	// term two published runs say is most of a small step's cost, so a registry that
@@ -725,7 +894,7 @@ func (k *Kernel) lift(c *resolve.Coefficients, g *model.Graph, cacheBytes float6
 	// window, which the graph does not carry, so it is taken at the 65,536 cap: exact for any
 	// window of 8,192 tokens or more, which every latent model in the catalog has.
 	chunk := 65536
-	if mml := k.pool.Engine.MaxModelLen; mml > 0 {
+	if mml := k.maxModelLen; mml > 0 {
 		chunk = min(max(8*mml, 4*seqs*k.blockSize), 65536)
 	} else if k.layout.DCP > 1 {
 		for _, l := range k.plan.Layers {
@@ -749,19 +918,11 @@ func (k *Kernel) lift(c *resolve.Coefficients, g *model.Graph, cacheBytes float6
 	k.mlaContextChunk = max(chunk, 1)
 
 	// Expert geometry, derived once.
+	// The routed experts' count: a shared expert stated as its own node is not one of them.
 	experts := 0
 	for _, l := range k.plan.Layers {
 		if l.TopK > 0 {
-			for _, lk := range g.LayerKinds {
-				if lk.ID != l.ID {
-					continue
-				}
-				for _, n := range lk.Nodes {
-					if n.Op == model.OpGroupedGEMM && n.Experts > experts {
-						experts = n.Experts
-					}
-				}
-			}
+			experts = max(experts, l.Experts)
 		}
 	}
 	// How an expert's weights are divided, which depends on whether expert parallelism
@@ -816,11 +977,19 @@ func (k *Kernel) lift(c *resolve.Coefficients, g *model.Graph, cacheBytes float6
 		k.totalExperts = experts + redundant
 	}
 
-	// KV geometry. Both the cache dtype and the tensor-parallel width divide it, and the
-	// head count floors at one because a head is never split across ranks.
-	nkv, headDim, layers, kind := kvGeometry(g)
-	k.kvBytesPerToken = price.KVBytesPerToken(nkv, k.layout.TP, headDim, layers, cacheBytes,
-		latentAttention(kind))
+	// KV, PER LAYER KIND of the target stack. Both the cache dtype and the tensor-parallel
+	// width divide it, and the head count floors at one because a head is never split
+	// across ranks.
+	//
+	// A layer whose attention states its caches (blis-schemas v0.3.0) is sized from them
+	// alone: which caches it owns, each one's record under the cache dtype that runs, how
+	// many tokens an entry covers, and whether a window or a fixed count bounds it
+	// (cacheTerms). Every other KV-holding layer keeps the inference it always had, one
+	// full-length cache of its primary attention's read width -- taken from ITS OWN
+	// primary, not from one geometry standing for the model. An earlier form took the
+	// geometry, and the attention kind, from the last-declared layer kind, so DeepSeek-
+	// V4.1-Flash was sized and gated by a DSpark draft layer outside its target stack.
+	//
 	// The packed DeepSeek sparse-MLA layouts state their own page cell: fp8_ds_mla packs the
 	// latent with its scales into 656 bytes a token and nvfp4_ds_mla into 352, against 576
 	// elements by the per-element formula (state_content_bytes,
@@ -864,24 +1033,48 @@ func (k *Kernel) lift(c *resolve.Coefficients, g *model.Graph, cacheBytes float6
 		}
 		layout = dsaLayout
 	}
-	if b, ok := dsMLAStateBytes[layout]; ok && latentAttention(kind) {
-		k.kvBytesPerToken = b * float64(layers)
+	inferred := func(l price.PlannedLayer) float64 {
+		latent := latentAttention(l.AttnKind)
+		if b, ok := dsMLAStateBytes[layout]; ok && latent {
+			return b
+		}
+		return price.KVBytesPerToken(l.AttnKVHeads, k.layout.TP, l.AttnHeadDim, 1, cacheBytes,
+			latent)
 	}
-	// The layer count kvBytesPerToken is spread over. kvGeometry counts only layers that
-	// HOLD KV, so this is the divisor that recovers one layer's share of the cache -- on a
-	// hybrid stack it is not the total layer count, and the two differ ninefold on
+	k.layerKV = make([]layerKV, len(k.plan.Layers))
+	layers := 0
+	for i, l := range k.plan.Layers {
+		if l.AttnQHeads <= 0 {
+			continue
+		}
+		if stated := layerCaches(l); len(stated) > 0 {
+			k.layerKV[i].stated = true
+			k.caches = append(k.caches, k.cacheTerms(stated, l.Count)...)
+			continue
+		}
+		per := inferred(l)
+		k.layerKV[i].perToken = per
+		k.kvBytesPerToken += per * float64(l.Count)
+		layers += l.Count
+	}
+	// The layer count kvBytesPerToken is spread over: only the layers whose cache it infers.
+	// On a hybrid stack it is not the total layer count, and the two differ ninefold on
 	// Nemotron-3-Ultra (12 KV layers of 108).
 	k.kvLayers = layers
-	// Whether EVERY KV-holding layer is a kind decode-context parallelism shards. A
+	// Whether EVERY inferred KV-holding layer is a kind decode-context parallelism shards. A
 	// whole-model verdict, because kvBytesPerToken is a whole-model figure: see
 	// SequenceVariableBytes for what that costs and why it costs nothing real.
 	k.dcpShardsAllKVLayers = true
-	for _, l := range k.plan.Layers {
-		if l.AttnQHeads > 0 && !dcpShardsKV(l.AttnKind) {
+	for i, l := range k.plan.Layers {
+		if l.AttnQHeads > 0 && !k.layerKV[i].stated && !dcpShardsKV(l.AttnKind) {
 			k.dcpShardsAllKVLayers = false
 			break
 		}
 	}
+	if err := k.liftDraft(c, inferred); err != nil {
+		return err
+	}
+	k.liftStepTerms(c, g)
 	return k.liftMemory(c, g)
 }
 
@@ -1325,6 +1518,132 @@ func dtypeFit(d model.DType, c hardware.Chip) (suffix string, peak float64) {
 	return "bf16", c.BF16Peak * 1e12
 }
 
+// gemmFit is one compute format's peak and efficiency ramp.
+type gemmFit struct {
+	peak, epsMax, mHalf float64
+	// nHalf and kHalf extend the ramp to the GEMM's own shape, where the registry carries
+	// both for the format; shapeAware says whether it does.
+	nHalf, kHalf float64
+	shapeAware   bool
+}
+
+// fitKey is a format and whether it is a grouped (MoE) GEMM, which can select a ramp of
+// its own.
+type fitKey struct {
+	f       price.Format
+	grouped bool
+}
+
+// fitSpec is how a format is priced: the ramp's coefficient suffix and the peak it is a
+// fraction of. fallback is the suffix to use when the registry carries no ramp under
+// suffix, and why is the assumption recorded if it is used, or if the rate itself is one.
+type fitSpec struct {
+	suffix, fallback string
+	peak             float64
+	why              string
+}
+
+// dtypeFitSuffix is the served dtype's fit, as dtypeFit has always chosen it.
+func dtypeFitSuffix(d model.DType, chip hardware.Chip) fitSpec {
+	suffix, peak := dtypeFit(d, chip)
+	return fitSpec{suffix: suffix, peak: peak}
+}
+
+// formatFit chooses the kernel a GEMM of this format runs on this chip, which is what its
+// rate is.
+//
+//   - FP32 parameters (DeepSeek-V4.1's mHC) run at the TF32 tensor-core rate. The catalog
+//     states no TF32 peak; NVIDIA's data-center datasheets put dense TF32 at half the dense
+//     BF16 figure on every part the catalog carries, which is what is taken.
+//   - MXFP8 on SM90: both FlashInfer MXFP8 kernels require SM100, so vLLM v0.31.0 serves it
+//     with MarlinMxfp8LinearKernel, "MXFP8 W8A16 GEMM via Marlin"
+//     (vllm/model_executor/kernels/linear/__init__.py:529-538, mxfp8/flashinfer.py:47-53,
+//     mxfp8/marlin.py:13-14): BF16 compute, on the registry's w8a16_mxfp8 ramp.
+//   - Four-bit weights on a part without a four-bit peak are weight-only too: Marlin
+//     W4A16 for the MXFP4 MoE backends on SM90 (fused_moe/oracle/mxfp4.py:381-390, the
+//     TRTLLM and DeepGEMM backends being SM100/SM120 only), at the BF16 rate. An earlier
+//     form priced them at the FP8 peak, a rate the dequantize-then-BF16 path never reaches.
+//   - Everything else is dtypeFit's choice.
+func formatFit(f price.Format, grouped bool, chip hardware.Chip, family int) fitSpec {
+	bf16 := chip.BF16Peak * 1e12
+	hopper := chip.NVFP4Peak <= 0 && !preHopperParts[chip.Name]
+	if family > 0 {
+		hopper = family == 9
+	}
+	switch {
+	case f.DType == model.DTypeFP32:
+		return fitSpec{suffix: "bf16", peak: bf16 / 2,
+			why: "FP32 weights run at the TF32 tensor-core rate, taken as half the dense BF16 " +
+				"peak as NVIDIA's datasheets state it for every catalog part; the catalog states " +
+				"no TF32 peak, and the ramp is BF16's"}
+	case f.DType == model.DTypeFP8 && f.MX() && hopper:
+		return fitSpec{suffix: "w8a16_mxfp8", fallback: "bf16", peak: bf16}
+	case (f.DType == model.DTypeMXFP4 || f.DType == model.DTypeNVFP4) && chip.NVFP4Peak <= 0:
+		if grouped {
+			return fitSpec{suffix: "w4a16_mxfp4_grouped", fallback: "bf16", peak: bf16}
+		}
+		return fitSpec{suffix: "bf16", peak: bf16}
+	}
+	return dtypeFitSuffix(f.DType, chip)
+}
+
+// addFit lifts the fit for a format, once.
+func (k *Kernel) addFit(c *resolve.Coefficients, f price.Format, grouped bool) error {
+	key := fitKey{f, grouped}
+	if _, ok := k.fits[key]; ok {
+		return nil
+	}
+	spec := formatFit(f, grouped, k.chip, k.family)
+	if spec.fallback != "" && !c.Has("gemm_eps_max_"+spec.suffix) {
+		k.assume("gemm_eps_max_"+spec.suffix, spec.fallback,
+			"no efficiency ramp for the "+spec.suffix+" kernel on "+k.chip.Name+", so it is "+
+				"priced on the "+spec.fallback+" ramp at the BF16 peak it computes at")
+		spec.suffix = spec.fallback
+	}
+	if spec.why != "" {
+		k.assume("compute_rate_"+string(f.DType), spec.suffix, spec.why)
+	}
+	fit, err := k.liftFit(c, spec)
+	if err != nil {
+		return fmt.Errorf("weights in %s: %w", f.DType, err)
+	}
+	k.fits[key] = fit
+	return nil
+}
+
+// liftFit reads one fit's ramp. The asymptote and half-max are required; the shape-aware
+// pair is opt-in by its presence, and both are required together: a k factor without an n
+// factor is a different law, not a partial one, and fitting one of the two leaves the
+// other's work absorbed into epsMax.
+func (k *Kernel) liftFit(c *resolve.Coefficients, spec fitSpec) (gemmFit, error) {
+	if err := mustPositive("compute peak", spec.peak); err != nil {
+		return gemmFit{}, err
+	}
+	fit := gemmFit{peak: spec.peak}
+	var err error
+	if fit.epsMax, err = c.Value("gemm_eps_max_" + spec.suffix); err != nil {
+		return gemmFit{}, fmt.Errorf("no efficiency asymptote: %w", err)
+	}
+	if fit.mHalf, err = c.Value("gemm_m_half_" + spec.suffix); err != nil {
+		return gemmFit{}, fmt.Errorf("no efficiency half-max: %w", err)
+	}
+	nHalf, nErr := c.Value("gemm_n_half_" + spec.suffix)
+	kHalf, kErr := c.Value("gemm_k_half_" + spec.suffix)
+	switch {
+	case nErr == nil && kErr == nil:
+		fit.nHalf, fit.kHalf, fit.shapeAware = nHalf, kHalf, true
+	case nErr == nil || kErr == nil:
+		return gemmFit{}, fmt.Errorf("%s has one of gemm_n_half/gemm_k_half but not both; "+
+			"the shape-aware ramp needs both or neither", spec.suffix)
+	}
+	return fit, nil
+}
+
+// fit returns the lifted fit for a format.
+func (k *Kernel) fit(f price.Format, grouped bool) gemmFit {
+	return k.fits[fitKey{f, grouped}]
+}
+
 // validateDocuments runs blis-schemas' FIELD validation over the documents New was given.
 //
 // Why here rather than in Open: both constructors end in New, so putting it here means a
@@ -1479,16 +1798,29 @@ var (
 //
 // An unchecked name used to fall through to the weight width, which on an nvfp4-served
 // model charged an unknown cache at half a byte.
-func checkCacheDTypes(cache, mamba string, kind model.AttentionKind) error {
+//
+// The question is asked of every kind the target stack holds, not of one kind standing for
+// the model: a dtype must be served for each of them. An earlier form took the kind from
+// the LAST-declared layer kind, so DeepSeek-V4.1-Flash, whose last declaration is a DSpark
+// draft layer outside the target stack, was refused fp8_ds_mla as if it were plain MLA.
+func checkCacheDTypes(cache, mamba string, kinds map[model.AttentionKind]bool) error {
+	latent := false
+	var notSparse model.AttentionKind
+	for _, kind := range sortedKinds(kinds) {
+		latent = latent || latentAttention(kind)
+		if kind != model.AttentionSparseMLA && notSparse == "" {
+			notSparse = kind
+		}
+	}
 	switch {
 	case cache == "fp8_inc":
 		return fmt.Errorf("cache_dtype fp8_inc is served by no CUDA attention backend in " +
 			"vLLM v0.31.0")
-	case strings.HasSuffix(cache, "_ds_mla") && kind != model.AttentionSparseMLA:
+	case strings.HasSuffix(cache, "_ds_mla") && (len(kinds) == 0 || notSparse != ""):
 		return fmt.Errorf("cache_dtype %q is served only by the sparse-MLA backends, and "+
-			"this model's attention is %s", cache, kind)
+			"this model's attention includes %s", cache, notSparse)
 	case strings.HasPrefix(cache, "nvfp4") && !strings.HasSuffix(cache, "_ds_mla") &&
-		latentAttention(kind):
+		latent:
 		return fmt.Errorf("cache_dtype %q on a latent-attention model: vLLM v0.31.0 "+
 			"refuses plain nvfp4 with MLA (vllm/config/vllm.py:3414-3430)", cache)
 	case unpricedCacheDTypes[cache]:
@@ -1504,71 +1836,56 @@ func checkCacheDTypes(cache, mamba string, kind model.AttentionKind) error {
 	return nil
 }
 
-// kvGeometry returns the KV head count, head dimension and layer count that hold KV. A
-// recurrent layer holds no KV, so it does not contribute.
-//
-// A layer is counted ONCE however many attention kernels it launches, and only the
-// attention that reads the engine's cache sets the geometry. Both matter on a
-// block-sparse layer: its indexer is a second Attention node with its own narrow cache
-// (MiniMax-M3 scores with 4 heads over 128 where the layer reads 4 KV heads over 128),
-// so counting per node doubled that model's KV-holding layers to 117 of 60 and left the
-// geometry set by whichever node the loop saw last.
-//
-// The kind returned is the cache-holding attention's, taken from the same node as the
-// geometry, which decides whether a token holds a key and a value or one latent vector. The
-// catalog states no stack that mixes latent and non-latent caches.
-func kvGeometry(g *model.Graph) (nkv, headDim, layers int, kind model.AttentionKind) {
-	counts := map[string]int{}
-	for _, id := range g.Stack.Expand() {
-		counts[id]++
+// sortedKinds returns a set's kinds in a fixed order, so a refusal names the same kind
+// every time.
+func sortedKinds(kinds map[model.AttentionKind]bool) []model.AttentionKind {
+	out := make([]model.AttentionKind, 0, len(kinds))
+	for kind := range kinds {
+		out = append(out, kind)
 	}
-	for _, lk := range g.LayerKinds {
-		holds := false
-		for _, n := range lk.Nodes {
-			if n.Op != model.OpAttention || n.Role != "" {
-				continue
-			}
-			if !holds {
-				nkv, headDim, kind = n.NumKVHeads, n.HeadDim, n.AttentionKind
-				holds = true
-			}
-		}
-		if holds {
-			layers += counts[lk.ID]
-		}
-	}
-	return nkv, headDim, layers, kind
+	sort.Slice(out, func(i, j int) bool { return out[i] < out[j] })
+	return out
 }
 
 // computeFixedBytes sums occupancy independent of the request set.
 func (k *Kernel) computeFixedBytes(g *model.Graph) kernel.MemoryBreakdown {
 	var weights float64
 	for _, l := range k.plan.Layers {
-		c := float64(l.Count)
-		weights += c * l.DenseWeightBytes / float64(max(k.layout.TP, 1))
-		if l.ExpertWeightBytesPerExpert > 0 {
-			// Exactly one axis divides an expert's weights: expert parallelism gives a
-			// rank whole experts (expertTensorShards 1, expertsPerRank a fraction of the
-			// total), and without it every rank holds every expert as a tensor slice
-			// (expertTensorShards tp x dp, expertsPerRank the full count). Dividing by
-			// expertTensorShards is what makes this a PER-RANK figure in the second case;
-			// omitting it reported the whole model's expert weights on every rank, which
-			// on GLM-5 at tp=8 was 675 GiB against a 141 GiB part.
-			//
-			// The step-time path applies the same division (kernel.go), and the two must
-			// agree: they are the same bytes, read once per step and resident throughout.
-			weights += c * l.ExpertWeightBytesPerExpert * k.expertsPerRank /
-				k.expertTensorShards
-			weights += c * l.SharedExpertWeightBytes / float64(max(k.layout.TP, 1))
+		weights += float64(l.Count) * k.residentBytes(l)
+	}
+	weights += k.residentBytes(k.plan.Head)
+	// The embedding. A graph that states it (blis-schemas v0.3.0 Graph.Embedding) is sized
+	// from its Gather's table; one that does not is inferred as a vocab x hidden table.
+	// Either is tensor-parallel sharded but not expert-parallel sharded.
+	//
+	// Embeddings are not quantized by --quantization in vLLM: the flag applies to the
+	// linear layers, and the embedding table stays at the checkpoint's width. Nor is an
+	// embedding quantized by a quantized CHECKPOINT: the FP8 quant config returns no method
+	// for one, and vLLM falls back to UnquantizedEmbeddingMethod
+	// (vllm/model_executor/layers/quantization/fp8.py:177-209,
+	// vocab_parallel_embedding.py:314-317 at v0.31.0), so an inferred table is sized at the
+	// checkpoint's width where that is a compute width and at BF16 where it is a storage
+	// one. Sizing DeepSeek-V4.1's at its FP8 global dtype halved a 1.32 GB table.
+	if k.plan.Embedding.Count > 0 {
+		weights += k.residentBytes(k.plan.Embedding)
+	} else {
+		width := g.Global.WeightDType.Bytes()
+		if width < model.DTypeBF16.Bytes() {
+			width = model.DTypeBF16.Bytes()
+		}
+		weights += float64(g.Global.VocabSize) * float64(g.Global.HiddenSize) * width /
+			float64(max(k.layout.TP, 1))
+	}
+	// The drafter's weights, while the deployment speculates. A node aliasing a target
+	// weight -- DSpark's LM head and embedding read the target's -- adds none.
+	if d := k.plan.Draft; d != nil && k.speculating {
+		for _, l := range append(append([]price.PlannedLayer{}, d.Layers...), d.Context...) {
+			weights += float64(l.Count) * k.residentBytes(l)
+		}
+		for _, l := range []price.PlannedLayer{d.Embedding, d.Head, d.SequentialHead} {
+			weights += k.residentBytes(l)
 		}
 	}
-	// Embeddings and the head are tensor-parallel sharded but not expert-parallel sharded.
-	// Embeddings are not quantized by --quantization in vLLM: the flag applies to the
-	// linear layers, and the embedding table stays at the checkpoint's width. Sizing it
-	// at the served width would understate a large-vocabulary model by the ratio.
-	weights += (k.plan.Head.DenseWeightBytes +
-		float64(g.Global.VocabSize)*float64(g.Global.HiddenSize)*
-			g.Global.WeightDType.Bytes()) / float64(max(k.layout.TP, 1))
 
 	// Activation scratch at the batched-token bound: NVIDIA's live-buffer multiple of one
 	// bf16 activation row per token, floored (see liftMemory).
@@ -1607,13 +1924,67 @@ func (k *Kernel) computeFixedBytes(g *model.Graph) kernel.MemoryBreakdown {
 		ActivationPeak: int64(act),
 		CUDAGraph:      k.captureBytes,
 		EPLBRedundant:  int64(eplb),
-		// The collective-buffer reservation AND the engine workspace. blis-schemas v0.2.2's
+		// The collective-buffer reservation AND the engine workspace. blis-schemas v0.3.0's
 		// MemoryBreakdown has no field for the workspace -- NVIDIA's misc.other_mem: CUDA
 		// context, cuBLAS workspace and allocator slack -- so it is reported here rather
 		// than left out of Total, which is what a capacity verdict reads. Provenance names
 		// both coefficients, so the split is recoverable.
 		CommBuffers: k.commBytes + k.workspaceBytes,
 	}
+}
+
+// residentBytes is one layer's weights resident on a rank, divided as each node is laid
+// out.
+//
+//   - A dense GEMM divides over tp, except a replicated one (tp: replicated), which every
+//     rank holds whole, and, under the model's own sequence parallelism, a token-sharded
+//     one, whose rank holds its whole weight to run its token shard.
+//   - Routed experts: exactly one axis divides an expert's weights. Expert parallelism gives
+//     a rank whole experts (expertTensorShards 1, expertsPerRank a fraction of the total),
+//     and without it every rank holds every expert as a tensor slice (expertTensorShards
+//     tp x dp, expertsPerRank the full count). Dividing by expertTensorShards is what makes
+//     this a PER-RANK figure in the second case; omitting it reported the whole model's
+//     expert weights on every rank, which on GLM-5 at tp=8 was 675 GiB against a 141 GiB
+//     part. The step-time path applies the same division (step.go), and the two must
+//     agree: they are the same bytes, read once per step and resident throughout.
+//   - Shared experts divide like a projection, or are whole under the model's sequence
+//     parallelism where they run on a token shard.
+//   - A table lookup holds its table where it is device-resident: split by row over tp, by
+//     hash head over its shards, or replicated. A host-resident table holds no HBM, and an
+//     aliased one holds its target's.
+func (k *Kernel) residentBytes(l price.PlannedLayer) float64 {
+	sp := k.layout.ModelSequenceParallel
+	var b float64
+	for _, g := range l.DenseGEMMs {
+		if g.Replicated || (g.TokenSharded && sp) {
+			b += g.WeightBytes
+		} else {
+			b += g.WeightBytes / k.tp
+		}
+	}
+	if l.ExpertWeightBytesPerExpert > 0 {
+		b += l.ExpertWeightBytesPerExpert * k.expertsPerRank / k.expertTensorShards *
+			k.expertPadding(&l)
+	}
+	if l.SharedTokenSharded && sp {
+		b += l.SharedExpertWeightBytes
+	} else {
+		b += l.SharedExpertWeightBytes / k.tp
+	}
+	for _, gt := range l.Gathers {
+		if gt.Aliased || k.gatherOnHost(gt) {
+			continue
+		}
+		table := float64(gt.Rows) * float64(gt.RowBytes)
+		switch gt.Shard {
+		case model.ShardRows:
+			table /= k.tp
+		case model.ShardHeads:
+			table /= float64(k.gatherShards(gt))
+		}
+		b += table
+	}
+	return b
 }
 
 // buildProvenance records every coefficient used, so a prediction can state its evidence.

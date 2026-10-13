@@ -5,5 +5,5 @@
 # The commit is what is fetched and verified; the tag is for the reader. Bump a line,
 # run the script, and run `go test ./...`: a renamed chip or coefficient is supposed to
 # break the fixtures that name it.
-catalog  https://github.com/inference-sim/blis-catalog  0.2.1   28e82d4c249893ee25b1412a63d2347c5165b004  hardware/*.yaml networks/*.yaml devices/storage.yaml models/*/graph.yaml
-registry https://github.com/inference-sim/blis-registry v0.1.1  f7519b12b3393851a3ad416e26c819dd951d4c0d  coefficients/*.yaml
+catalog  https://github.com/inference-sim/blis-catalog  pr-31   22658a5a6489ab536c5d5d521bc28ec3043703c6  hardware/*.yaml networks/*.yaml devices/storage.yaml models/*/graph.yaml
+registry https://github.com/inference-sim/blis-registry pr-40   7bb531c4cbd657b8191099de210ab175fa0b5e5e  coefficients/*.yaml

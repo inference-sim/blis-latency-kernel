@@ -27,7 +27,15 @@ func newStubRules() stubRules {
 func (r stubRules) SequenceParallelMoE(backend string, ep bool, tp, dp int) bool {
 	return ep && tp > 1 && dp > 1 && r.spBackends[backend]
 }
-func (r stubRules) CustomAllReduceSupportsWidth(tp int) bool { return r.customWidths[tp] }
+func (r stubRules) ModelSequenceParallel(string, deployment.Parallelism, string) bool {
+	return false
+}
+func (r stubRules) EffectiveAll2AllBackend(b string) string { return b }
+func (r stubRules) ResolveCacheDType(_ string, _, _ int, requested string) string {
+	return requested
+}
+func (r stubRules) WindowPagesPerRequest(model.Cache, int, int, int, int) int { return 0 }
+func (r stubRules) CustomAllReduceSupportsWidth(tp int) bool                  { return r.customWidths[tp] }
 func (r stubRules) TritonFetchWithholdsSMs(pageBytes int) int {
 	if pageBytes > 0 && pageBytes < 28*1024 {
 		return 12

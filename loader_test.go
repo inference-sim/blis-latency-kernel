@@ -8,6 +8,7 @@ import (
 	"github.com/inference-sim/blis-latency-kernel/internal/artifacttest"
 
 	schemas "github.com/inference-sim/blis-schemas"
+	"github.com/inference-sim/blis-schemas/rules"
 	"github.com/inference-sim/blis-schemas/rules/v0_29"
 	"github.com/inference-sim/blis-schemas/spec/coefficient"
 	"github.com/inference-sim/blis-schemas/spec/hardware"
@@ -80,8 +81,38 @@ func fixtureInputs(t testing.TB, scenario string) Inputs {
 	return Inputs{
 		Scenario: sc, Deployment: dep, PoolIndex: 0,
 		Model: graph, Chip: chip, Fabric: fabric,
-		Devices: devices, Coefficients: sets, Rules: v0_29.Pack(),
+		Devices: devices, Coefficients: sets, Rules: rulesFor(sc.EngineVersion),
 	}
+}
+
+// rulesFor is the rules pack a fixture's declared release registers, and the 0.29.0 pack
+// for a release blis-schemas does not register, as these fixtures were written against.
+func rulesFor(version string) *rules.Pack {
+	if p := rules.Lookup(version); p != nil {
+		return p
+	}
+	return v0_29.Pack()
+}
+
+// withModel replaces a fixture's model graph with the catalog's graph for name, so one
+// deployment can price several models.
+func withModel(t testing.TB, in *Inputs, name string) {
+	t.Helper()
+	graphPath := filepath.Join(catalogRoot, "models", name, "graph.yaml")
+	graph, err := schemas.LoadModelGraph(graphPath)
+	artifacttest.RequireArtifact(t, catalogRoot, graphPath, "catalog", err)
+	in.Scenario.Model = name
+	in.Model = graph
+}
+
+// build is New on inputs a test has edited, failing the test on a refusal.
+func build(t testing.TB, in Inputs) *Kernel {
+	t.Helper()
+	k, err := New(in)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	return k
 }
 
 // fixture builds a kernel from the Inputs a committed scenario implies.
@@ -96,4 +127,22 @@ func fixture(t testing.TB, scenario string) *Kernel {
 		t.Fatalf("New from committed artifacts: %v", err)
 	}
 	return k
+}
+
+// fixtureInputsFabric loads one catalog fabric.
+func fixtureInputsFabric(t testing.TB, name string) *hardware.Fabric {
+	t.Helper()
+	p := filepath.Join(catalogRoot, "networks", name+".yaml")
+	f, err := schemas.LoadFabric(p)
+	artifacttest.RequireArtifact(t, catalogRoot, p, "catalog", err)
+	return f
+}
+
+// chipInputs loads one catalog chip.
+func chipInputs(t testing.TB, name string) *hardware.Chip {
+	t.Helper()
+	p := filepath.Join(catalogRoot, "hardware", name+".yaml")
+	c, err := schemas.LoadChip(p)
+	artifacttest.RequireArtifact(t, catalogRoot, p, "catalog", err)
+	return c
 }

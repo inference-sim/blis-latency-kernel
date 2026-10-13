@@ -3,6 +3,6 @@
 | What | Version | Commit | Pinned in |
 |---|---|---|---|
 | Engine behavior: [vLLM](https://github.com/vllm-project/vllm/tree/v0.31.0) | `v0.31.0` | `db9527a46873` | `EngineBehaviourVersion`, `EngineBehaviourCommit` in `new.go` |
-| Interfaces and document types: [blis-schemas](https://github.com/inference-sim/blis-schemas/tree/v0.2.2) | `v0.2.2` | — | `go.mod` |
-| Declared facts: [blis-catalog](https://github.com/inference-sim/blis-catalog/tree/28e82d4c249893ee25b1412a63d2347c5165b004) | `0.2.1` | `28e82d4c2498` | `testdata/upstream.lock` |
-| Coefficients: [blis-registry](https://github.com/inference-sim/blis-registry/tree/f7519b12b3393851a3ad416e26c819dd951d4c0d) | `v0.1.1` | `f7519b12b339` | `testdata/upstream.lock` |
+| Interfaces and document types: [blis-schemas](https://github.com/inference-sim/blis-schemas/tree/v0.3.0) | `v0.3.0` | — | `go.mod` |
+| Declared facts: [blis-catalog](https://github.com/inference-sim/blis-catalog/tree/22658a5a6489ab536c5d5d521bc28ec3043703c6) | `pr-31` | `22658a5a6489` | `testdata/upstream.lock` |
+| Coefficients: [blis-registry](https://github.com/inference-sim/blis-registry/tree/7bb531c4cbd657b8191099de210ab175fa0b5e5e) | `pr-40` | `7bb531c4cbd6` | `testdata/upstream.lock` |

@@ -500,7 +500,7 @@ func TestDenseGEMMShardAxisComesFromTheGraph(t *testing.T) {
 		// shapes correctly and this one wrongly.
 		{Op: model.OpGEMM, Role: "index_qk_proj", N: 640, K: hidden},
 	}
-	pl, err := planNodes(nodes, emitAll{}, 1, 1, hidden)
+	pl, err := planNodes(nodes, emitAll{}, testOptions(1, 1), hidden)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -527,7 +527,7 @@ func TestDenseGEMMShardAxisComesFromTheGraph(t *testing.T) {
 func TestDenseGEMMShardAxisFallsBackWithoutHidden(t *testing.T) {
 	pl, err := planNodes([]model.Node{
 		{Op: model.OpGEMM, Role: "unknown", N: 4096, K: 4096},
-	}, emitAll{}, 1, 1, 0)
+	}, emitAll{}, testOptions(1, 1), 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -552,7 +552,7 @@ func TestConsecutiveColumnParallelGEMMsFuse(t *testing.T) {
 	const hidden = 6144
 	plan := func(nodes ...model.Node) PlannedLayer {
 		t.Helper()
-		pl, err := planNodes(nodes, emitAll{}, 1, 1, hidden)
+		pl, err := planNodes(nodes, emitAll{}, testOptions(1, 1), hidden)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -603,5 +603,16 @@ func TestConsecutiveColumnParallelGEMMsFuse(t *testing.T) {
 	if len(got.DenseGEMMs) != 2 {
 		t.Fatalf("a row-parallel GEMM on the same K fused into a column-parallel one: "+
 			"%d GEMMs, want 2", len(got.DenseGEMMs))
+	}
+}
+
+// testOptions plans every weight at dtypeBytes and every format as bf16, the shape the
+// planNodes tests below were written against.
+func testOptions(dtypeBytes, stateBytes float64) PlanOptions {
+	return PlanOptions{
+		WeightBytesPerParam: func(n model.Node) float64 { return weightBytes(n, dtypeBytes) },
+		Format:              func(model.Node) Format { return Format{DType: model.DTypeBF16} },
+		EntryBytes:          func(c model.Cache) int { return c.BytesPerEntry },
+		StateBytes:          stateBytes,
 	}
 }

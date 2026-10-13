@@ -34,9 +34,10 @@ its arguments and safe to call from many goroutines at once.
 | `StepTime(batch)` | Prices one forward pass. [Pricing a step](../concepts/step.md). |
 | `FixedBytes()` | Memory per rank before any request. [Memory](../concepts/memory.md). |
 | `SequenceVariableBytes(tokens)` | One request's KV cache at a length, in whole pages. |
-| `SequenceFixedBytes()` | One request's recurrent state, where it does not grow with length. |
+| `SequenceFixedBytes()` | What one request holds whatever its length: recurrent state where it does not grow with length, and the window rings and fixed state caches a graph states. |
 | `TierTime(tier, dir, bytes, depth)` | A transfer to or from an offload tier: the larger of the device's latency and the time to move the bytes at the slower of the device and the host link, that rate shared among the transfers queued. An unknown tier prices as the largest representable duration. |
-| `PDTransferTime(tokens, from, to)` | Moving one request's KV cache between pools: the whole request's cache, which decode-context parallelism does not divide, over NVLink within a node or an NVLink rack, and over the fabric otherwise. |
+| `PDTransferTime(tokens, from, to)` | Moving one request's KV cache between pools: the whole request's cache, which decode-context parallelism does not divide, over NVLink within a node or an NVLink rack, and over the fabric otherwise. A graph that states its caches moves only the caches the target owns, each window ring clipped to the pages its window spans. It is `PDTransferDemand(...).AloneTime()`. |
+| `PDTransferDemand(tokens, from, to)` | The same handoff separated into payload bytes, a fixed floor and the links it crosses, each with its rate, so a simulator running several handoffs can share the links between them. Link IDs come from the placement, so every kernel of a deployment names a link alike. |
 | `AdmissionOverhead(tokens)` | Host time before a request can be scheduled: a fixed part per request and a part per prompt token. |
 | `OutputTokenOverhead()` | Host time per emitted token. |
 | `CompletionOverhead()` | Host time when a request finishes. |

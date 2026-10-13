@@ -46,8 +46,16 @@ These are layouts vLLM v0.31.0 refuses at startup.
 
 - A cache data type vLLM does not accept, or a recurrent-state data type it does not accept.
 - `fp8_inc`, which no CUDA attention backend serves.
-- The packed `fp8_ds_mla` and `nvfp4_ds_mla` layouts on a model without sparse attention.
+- The packed `fp8_ds_mla` and `nvfp4_ds_mla` layouts on a model whose target stack holds any
+  attention that is not sparse.
 - Plain `nvfp4` on a model with latent attention.
+
+**Block size and architecture**
+
+- A block size a DeepSeek-V4-family model's sparse backends do not accept: they run 64-token
+  kernel blocks on SM90 and 128-token ones on SM100.
+- A model graph that states facts by GPU generation, on a chip whose compute capability the
+  catalog does not state or whose generation the graph does not describe.
 
 **Experts**
 

@@ -85,12 +85,12 @@ func ExampleKernel_FixedBytes() {
 	// --8<-- [end:memory]
 
 	// Output:
-	// weights       78.1 GiB
+	// weights       78.2 GiB
 	// activations    1.1 GiB
 	// CUDA graphs    0.8 GiB
 	// comm buffers   3.9 GiB
 	// EPLB           0.0 GiB
-	// total         83.9 GiB per rank
+	// total         84.0 GiB per rank
 	// a 4,096-token request: 137 MiB of KV cache per rank
 }
 
@@ -124,11 +124,11 @@ func ExampleKernel_Evidence() {
 	// --8<-- [end:evidence]
 
 	// Output:
-	// 110 of 149 values rest on evidence; 38 were assumed
-	//   assumed       38
-	//   measured      93
+	// 109 of 151 values rest on evidence; 41 were assumed
+	//   assumed       41
+	//   measured      94
 	//   not_charged    1
-	//   vendor_spec   17
+	//   vendor_spec   15
 	// the kernel assumed max_cudagraph_capture_size
 	// the kernel assumed engine_version
 }

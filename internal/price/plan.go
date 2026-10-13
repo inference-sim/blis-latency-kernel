@@ -44,6 +44,34 @@ type Plan struct {
 	// multiplicity, plus the head's. The per-kernel dispatch cost multiplies it, and that
 	// product dominates a single-request decode step.
 	TotalKernels int
+
+	// Embedding is the graph's embedding nodes -- the vocabulary lookup and the reduction
+	// that completes it -- planned as one entry run once per step. Its Count is zero when
+	// the graph states none, and the consumer then infers the table (see the kernel's
+	// computeFixedBytes).
+	Embedding PlannedLayer
+
+	// Draft is the speculator, planned the same way as the target, or nil when the graph
+	// states none.
+	Draft *DraftPlan
+}
+
+// DraftPlan is a speculator's work, planned per part. How often each part runs is the
+// drafting mode's to say, which the consumer reads from Drafting and NumSpec.
+type DraftPlan struct {
+	Method   string
+	NumSpec  int
+	Drafting model.Drafting
+	// Layers is the draft stack, one entry per distinct layer kind like a target plan.
+	Layers []PlannedLayer
+	// Context is the work that runs once per step over the target's scheduled tokens.
+	Context []PlannedLayer
+	// Embedding and Head run before and after each pass of Layers, over the same rows;
+	// SequentialHead once per draft position over one row per request.
+	Embedding, Head, SequentialHead PlannedLayer
+	// Kernels is one pass's launches through Embedding, Layers and Head; ContextKernels
+	// and SequentialKernels the other two parts'.
+	Kernels, ContextKernels, SequentialKernels int
 }
 
 // PlannedGEMM is one dense GEMM's shape and the per-token work it contributes, so a
@@ -65,6 +93,48 @@ type PlannedGEMM struct {
 	// Sharding the wrong axis is not a small error: mlp_gate_up is the widest GEMM in
 	// the layer, and dividing its K by tp would price a 6144-deep reduction as 768-deep.
 	ShardN bool
+	// Replicated is a GEMM every rank runs whole (tp: replicated): neither dimension
+	// splits, and each rank holds the whole weight. DeepSeek-V4.1's fused q/kv
+	// A-projection, compressor, indexer projections, router and mHC are such, and dividing
+	// them by tp priced a tp-th of the work.
+	Replicated bool
+	// TokenSharded is under_sequence_parallel: token_sharded. With the model's own
+	// sequence parallelism on, the GEMM runs on ceil(tokens / tp) rows with its whole
+	// weight; with it off, the layout above applies over every token.
+	TokenSharded bool
+	// WeightBytes is the whole GEMM's resident bytes, scales included, before any split:
+	// zero on an alias, whose weights are resident where they live. WeightReadBytes is
+	// what a step reads, which on an alias is its target's.
+	WeightBytes, WeightReadBytes float64
+	// Format is the weight format the GEMM computes from, which selects its compute rate.
+	Format Format
+}
+
+// Format is the weight format a GEMM computes from: the dtype and, for a block-scaled
+// format, how many elements share one scale. The two together decide which kernel the
+// engine selects: an FP8 weight with one E8M0 scale per 32 elements is MXFP8, which SM90
+// serves with a weight-only Marlin kernel at the BF16 rate, where an FP8 weight with
+// 128 x 128 block scales runs natively at the FP8 rate.
+type Format struct {
+	DType         model.DType
+	ScaleElements int
+}
+
+// MX reports whether the format carries an OCP microscaling scale, one per 32 elements.
+func (f Format) MX() bool { return f.ScaleElements == 32 }
+
+// PlanOptions is what planning needs beyond the graph and the layout's emit decisions.
+type PlanOptions struct {
+	// WeightBytesPerParam is the resident bytes of one parameter of a GEMM or GroupedGEMM
+	// node, scales included; an alias's is its target's.
+	WeightBytesPerParam func(model.Node) float64
+	// Format is the format a GEMM or GroupedGEMM node computes from.
+	Format func(model.Node) Format
+	// EntryBytes is a cache's record size under the cache dtype that runs. Nil means the
+	// stated bytes_per_entry.
+	EntryBytes func(model.Cache) int
+	// StateBytes is the recurrent state's element width.
+	StateBytes float64
 }
 
 // PlannedLayer is one layer kind with its multiplicity and its pre-summed work.
@@ -148,6 +218,9 @@ type PlannedLayer struct {
 	// Recurrent state, when the layer has it.
 	RecurrentKind       model.RecurrentKind
 	RecurrentStateBytes float64
+	// RecurrentHeads, RecurrentStateSize and RecurrentHeadDim are the mixer's geometry,
+	// which a prefill priced without a measured form is computed from.
+	RecurrentHeads, RecurrentStateSize, RecurrentHeadDim int
 
 	// ElementwiseBytesPerToken is normalization and activation traffic per token.
 	ElementwiseBytesPerToken float64
@@ -164,6 +237,76 @@ type PlannedLayer struct {
 	// the primitives imply. So the count is the primitive count, and the per-launch
 	// constant it multiplies is calibrated against measurement with that in mind.
 	Kernels int
+
+	// RoutedFormat is the routed experts' compute format, Experts their count, and
+	// RoutedTokenSharded whether they see a token shard under the model's sequence
+	// parallelism (only the rows divide; the experts stay as expert parallelism splits
+	// them).
+	RoutedFormat       Format
+	Experts            int
+	RoutedTokenSharded bool
+	// ExpertInner is the routed experts' inner width, n, which a kernel that pads each
+	// tensor-parallel slice of it pads.
+	ExpertInner int
+	// SharedFormat is the shared experts' compute format. SharedTokenSharded is whether
+	// the model's sequence parallelism runs them on a token shard with their whole weight,
+	// as DeepSeek-V4.1 does; otherwise they are tensor-parallel sharded like a projection.
+	SharedFormat       Format
+	SharedTokenSharded bool
+
+	// ElementwiseReplicatedBytesPerToken is the traffic of nodes every rank runs whole
+	// (tp: replicated), and ElementwiseTokenShardedBytesPerToken that of replicated nodes
+	// that see a token shard under the model's sequence parallelism. The rest, in
+	// ElementwiseBytesPerToken, divides by tp as it always did.
+	ElementwiseReplicatedBytesPerToken   float64
+	ElementwiseTokenShardedBytesPerToken float64
+
+	// Context is the context-proportional traffic of this layer's Elementwise nodes.
+	Context []PlannedContext
+	// Gathers are the table lookups this layer runs.
+	Gathers []PlannedGather
+
+	// AttnReplicated is a primary attention every rank runs over every head.
+	AttnReplicated bool
+	// AttnCaches are the caches the primary attention states, empty where the graph leaves
+	// them to inference.
+	AttnCaches []PlannedCache
+}
+
+// PlannedCache is one cache an attention node names, with its record resolved.
+type PlannedCache struct {
+	model.Cache
+	// EntryBytes is the record under the cache dtype that runs.
+	EntryBytes int
+}
+
+// PlannedContext is one Elementwise node's context-proportional traffic.
+type PlannedContext struct {
+	// BytesPerEntry is the traffic per context entry, the named cache's record included.
+	BytesPerEntry float64
+	// TokensPerEntry is how many context tokens one entry covers.
+	TokensPerEntry int
+	Per            model.ContextPer
+	PrefillOnly    bool
+	// MaxModelLenExtent is a decode step whose work spans max_model_len, not the context.
+	MaxModelLenExtent bool
+	// Replicated is work every rank does whole.
+	Replicated bool
+}
+
+// PlannedGather is one table lookup.
+type PlannedGather struct {
+	Rows             int64
+	RowBytes         int
+	RowsPerToken     int
+	OutBytesPerToken int
+	Residency        model.Residency
+	Control          model.ResidencyControl
+	Shard            model.GatherShard
+	// Aliased reads another node's table, so it adds traffic but no residency.
+	Aliased      bool
+	TokenSharded bool
+	Role         string
 }
 
 // PlannedAttention is one attention kernel a layer launches.
@@ -184,6 +327,32 @@ type PlannedAttention struct {
 	// Role is the graph's label for what this kernel does, e.g. "block_index_scores".
 	// Empty on a layer's primary attention.
 	Role string
+	// Replicated is a kernel every rank runs over every head (tp: replicated), as
+	// DeepSeek-V4.1's indexer is.
+	Replicated bool
+	// Caches are the caches this kernel states.
+	Caches []PlannedCache
+}
+
+// findCache returns the cache named name that one of these nodes states.
+func findCache(nodes []model.Node, name string) (model.Cache, bool) {
+	for _, n := range nodes {
+		for _, c := range n.Caches {
+			if c.Name == name {
+				return c, true
+			}
+		}
+	}
+	return model.Cache{}, false
+}
+
+// cacheRecord is the record size of the named cache under the cache dtype that runs, or
+// zero where no node of the layer names it (validation refuses that).
+func cacheRecord(nodes []model.Node, name string, o PlanOptions) int {
+	if c, ok := findCache(nodes, name); ok {
+		return o.EntryBytes(c)
+	}
+	return 0
 }
 
 // HoldsKV reports whether this attention reads the KV cache the engine sizes.
@@ -293,46 +462,51 @@ func (p *Plan) PiecewiseSegments() int {
 	return splits + 1
 }
 
-// BuildPlan flattens a graph under a layout.
-//
-// Any condition the emitter does not recognize is an error rather than a dropped node:
-// silently omitting a collective would remove a cost with nothing reporting it, and the
-// resulting step time would look plausible.
+// BuildPlan flattens a graph under a layout, with every weight at dtypeBytes unless a
+// node overrides its dtype, and recurrent state at stateDtypeBytes. It is BuildPlanWith
+// for a caller that needs nothing finer.
 func BuildPlan(g *model.Graph, em Emitter, dtypeBytes, stateDtypeBytes float64) (*Plan, error) {
 	if g == nil {
 		return nil, fmt.Errorf("no graph to plan")
 	}
-	counts := map[string]int{}
-	order := []string{}
-	for _, id := range g.Stack.Expand() {
-		if _, seen := counts[id]; !seen {
-			order = append(order, id)
-		}
-		counts[id]++
-	}
+	return BuildPlanWith(g, em, PlanOptions{
+		WeightBytesPerParam: func(n model.Node) float64 { return weightBytes(n, dtypeBytes) },
+		Format: func(n model.Node) Format {
+			if n.WeightDType != "" {
+				return Format{DType: n.WeightDType}
+			}
+			return Format{DType: g.Global.WeightDType}
+		},
+		StateBytes: stateDtypeBytes,
+	})
+}
 
+// BuildPlanWith flattens a graph under a layout.
+//
+// Any condition the emitter does not recognize is an error rather than a dropped node:
+// silently omitting a collective would remove a cost with nothing reporting it, and the
+// resulting step time would look plausible.
+func BuildPlanWith(g *model.Graph, em Emitter, o PlanOptions) (*Plan, error) {
+	if g == nil {
+		return nil, fmt.Errorf("no graph to plan")
+	}
+	if o.EntryBytes == nil {
+		o.EntryBytes = func(c model.Cache) int { return c.BytesPerEntry }
+	}
 	byID := make(map[string]model.LayerKind, len(g.LayerKinds))
 	for _, lk := range g.LayerKinds {
 		byID[lk.ID] = lk
 	}
+	hidden := g.Global.HiddenSize
 
 	p := &Plan{TotalLayers: g.Stack.Layers()}
-	for _, id := range order {
-		lk, ok := byID[id]
-		if !ok {
-			return nil, fmt.Errorf("the stack names layer kind %q, which the graph does not declare", id)
-		}
-		pl, err := planLayer(lk, em, dtypeBytes, stateDtypeBytes, g.Global.HiddenSize)
-		if err != nil {
-			return nil, fmt.Errorf("layer kind %q: %w", id, err)
-		}
-		pl.ID = id
-		pl.Count = counts[id]
-		p.TotalKernels += pl.Kernels * pl.Count
-		p.Layers = append(p.Layers, pl)
+	layers, kernels, err := planStack(g.Stack, byID, em, o, hidden)
+	if err != nil {
+		return nil, err
 	}
+	p.Layers, p.TotalKernels = layers, kernels
 
-	head, err := planNodes(g.Head, em, dtypeBytes, stateDtypeBytes, g.Global.HiddenSize)
+	head, err := planNodes(g.Head, em, o, hidden)
 	if err != nil {
 		return nil, fmt.Errorf("head: %w", err)
 	}
@@ -340,12 +514,83 @@ func BuildPlan(g *model.Graph, em Emitter, dtypeBytes, stateDtypeBytes float64) 
 	head.Count = 1
 	p.Head = head
 	p.TotalKernels += head.Kernels
+
+	if len(g.Embedding) > 0 {
+		emb, err := planNodes(g.Embedding, em, o, hidden)
+		if err != nil {
+			return nil, fmt.Errorf("embedding: %w", err)
+		}
+		emb.ID, emb.Count = "embedding", 1
+		p.Embedding = emb
+		p.TotalKernels += emb.Kernels
+	}
+
+	if sp := g.Speculator; sp != nil {
+		d := &DraftPlan{Method: sp.Method, NumSpec: sp.NumSpec, Drafting: sp.Drafting}
+		if d.Layers, d.Kernels, err = planStack(sp.Stack, byID, em, o, hidden); err != nil {
+			return nil, fmt.Errorf("speculator: %w", err)
+		}
+		if sp.ContextStack != nil {
+			if d.Context, d.ContextKernels, err = planStack(*sp.ContextStack, byID, em, o,
+				hidden); err != nil {
+				return nil, fmt.Errorf("speculator context stack: %w", err)
+			}
+		}
+		for _, part := range []struct {
+			nodes []model.Node
+			into  *PlannedLayer
+			id    string
+		}{
+			{sp.Embedding, &d.Embedding, "draft_embedding"},
+			{sp.Head, &d.Head, "draft_head"},
+			{sp.SequentialHead, &d.SequentialHead, "draft_sequential_head"},
+		} {
+			if len(part.nodes) == 0 {
+				continue
+			}
+			pl, err := planNodes(part.nodes, em, o, hidden)
+			if err != nil {
+				return nil, fmt.Errorf("speculator %s: %w", part.id, err)
+			}
+			pl.ID, pl.Count = part.id, 1
+			*part.into = pl
+		}
+		d.Kernels += d.Embedding.Kernels + d.Head.Kernels
+		d.SequentialKernels = d.SequentialHead.Kernels
+		p.Draft = d
+	}
 	return p, nil
 }
 
-func planLayer(lk model.LayerKind, em Emitter, dtypeBytes, stateBytes float64,
-	hidden int) (PlannedLayer, error) {
-	return planNodes(lk.Nodes, em, dtypeBytes, stateBytes, hidden)
+// planStack plans one stack, one entry per distinct layer kind in first-use order, and
+// returns its launch count over the expanded stack.
+func planStack(st model.Stack, byID map[string]model.LayerKind, em Emitter, o PlanOptions,
+	hidden int) ([]PlannedLayer, int, error) {
+	counts := map[string]int{}
+	order := []string{}
+	for _, id := range st.Expand() {
+		if _, seen := counts[id]; !seen {
+			order = append(order, id)
+		}
+		counts[id]++
+	}
+	var out []PlannedLayer
+	kernels := 0
+	for _, id := range order {
+		lk, ok := byID[id]
+		if !ok {
+			return nil, 0, fmt.Errorf("the stack names layer kind %q, which the graph does not declare", id)
+		}
+		pl, err := planNodes(lk.Nodes, em, o, hidden)
+		if err != nil {
+			return nil, 0, fmt.Errorf("layer kind %q: %w", id, err)
+		}
+		pl.ID = id
+		pl.Count = counts[id]
+		kernels += pl.Kernels * pl.Count
+		out = append(out, pl)
+	}
+	return out, kernels, nil
 }
 
 // kernelsPerPrimitive is how many launches one graph primitive implies.
@@ -384,7 +629,7 @@ func weightBytes(n model.Node, global float64) float64 {
 	return global
 }
 
-func planNodes(nodes []model.Node, em Emitter, dtypeBytes, stateBytes float64,
+func planNodes(nodes []model.Node, em Emitter, o PlanOptions,
 	hidden int) (PlannedLayer, error) {
 	var pl PlannedLayer
 	// fusable is the index in DenseGEMMs of the GEMM emitted by the IMMEDIATELY preceding
@@ -418,16 +663,33 @@ func planNodes(nodes []model.Node, em Emitter, dtypeBytes, stateBytes float64,
 		wasFusable := fusable
 		fusable = -1
 
+		tokenSharded := n.UnderSequenceParallel == model.SPTokenSharded
 		switch n.Op {
 		case model.OpGEMM:
 			// Two FLOPs per multiply-accumulate, per output element, per token.
 			f := 2 * float64(n.N) * float64(n.K)
 			pl.DenseFLOPsPerToken += f
-			// hidden == 0 means the caller did not supply it; then neither test fires and
-			// the consumer shards K, which is the pre-existing behaviour.
+			// The split is the graph's where it states one (tp, blis-schemas v0.3.0), and
+			// inferred otherwise. hidden == 0 means the caller did not supply it; then the
+			// inference does not fire and the consumer shards K, which is the
+			// pre-existing behaviour.
+			shardN := hidden > 0 && n.K == hidden && n.N != hidden
+			switch n.TP {
+			case model.TPColumn:
+				shardN = true
+			case model.TPRow, model.TPReplicated:
+				shardN = false
+			}
+			params := float64(n.N) * float64(n.K)
+			read := params * o.WeightBytesPerParam(n)
+			resident := read
+			if n.Aliases != "" {
+				resident = 0
+			}
 			g := PlannedGEMM{
-				N: n.N, K: n.K, FLOPsPerToken: f,
-				ShardN: hidden > 0 && n.K == hidden && n.N != hidden,
+				N: n.N, K: n.K, FLOPsPerToken: f, ShardN: shardN,
+				Replicated: n.TP == model.TPReplicated, TokenSharded: tokenSharded,
+				WeightBytes: resident, WeightReadBytes: read, Format: o.Format(n),
 			}
 			// Fuse into the previous GEMM when the engine would. vLLM concatenates
 			// column-parallel projections that share an input ALONG THE OUTPUT
@@ -440,7 +702,8 @@ func planNodes(nodes []model.Node, em Emitter, dtypeBytes, stateBytes float64,
 			// matters: minimax-m3's layer-1 has qkv_proj (n=9216) immediately followed by
 			// index_qk_proj (n=640) on the same k=6144, which vLLM fuses; its layer-0 has
 			// qkv_proj and mlp_gate_up both column-parallel on k=6144 but separated by
-			// the attention op, which it cannot.
+			// the attention op, which it cannot. A fused pair must also split alike and
+			// compute from one format, since one matmul has one layout and one kernel.
 			//
 			// This matters because efficiency is strongly non-linear in output width. On
 			// AISimulate's vLLM fp8 sweep for H200 at 256 rows, measured efficiency is
@@ -450,9 +713,12 @@ func planNodes(nodes []model.Node, em Emitter, dtypeBytes, stateBytes float64,
 			merged := false
 			if wasFusable >= 0 {
 				prev := &pl.DenseGEMMs[wasFusable]
-				if prev.ShardN && g.ShardN && prev.K == g.K {
+				if prev.ShardN && g.ShardN && prev.K == g.K && prev.Format == g.Format &&
+					prev.Replicated == g.Replicated && prev.TokenSharded == g.TokenSharded {
 					prev.N += g.N
 					prev.FLOPsPerToken += g.FLOPsPerToken
+					prev.WeightBytes += g.WeightBytes
+					prev.WeightReadBytes += g.WeightReadBytes
 					fusable = wasFusable
 					merged = true
 				}
@@ -463,16 +729,48 @@ func planNodes(nodes []model.Node, em Emitter, dtypeBytes, stateBytes float64,
 			}
 			// Weight bytes are per node whether or not the launches fuse: fusing changes
 			// how many kernels read the parameters, not how many parameters there are.
-			pl.DenseWeightBytes += float64(n.N) * float64(n.K) * weightBytes(n, dtypeBytes)
+			pl.DenseWeightBytes += resident
 		case model.OpGroupedGEMM:
-			// A gated expert holds three matrices; the node's N is the inner width.
-			perExpert := 3 * float64(n.N) * float64(n.K)
+			ew := o.WeightBytesPerParam(n)
+			if n.Role == "shared_experts" || n.Experts == 1 {
+				// A shared expert stated as its own node -- the only way the schema can give
+				// it a dtype of its own, as DeepSeek-V4.1's MXFP8 shared expert beside its
+				// MXFP4 routed ones and Nemotron-3-Ultra's FP8 one beside NVFP4 need. It is
+				// dense: every token pays it once. It neither scales with nor sets top_k,
+				// and it is not one of the routed experts a rank holds. Its input is the
+				// hidden state: a latent projection runs before the ROUTED experts only
+				// (Nemotron-H passes it as routed_input_transform, vllm/model_executor/
+				// models/nemotron_h.py), so latent_size does not narrow it.
+				shared := 3 * float64(n.N) * float64(n.K) * float64(max(n.Experts, 1))
+				pl.SharedExpertFLOPsPerToken += 2 * shared
+				pl.SharedExpertWeightBytes += shared * ew
+				pl.SharedFormat = o.Format(n)
+				pl.SharedTokenSharded = tokenSharded
+				break
+			}
+			// A gated expert holds three matrices; the node's N is the inner width. The
+			// reduction is latent_size where the graph states one: a projection to that
+			// narrower space runs before the routed experts, so K for their matmuls is the
+			// latent width, not the hidden size (blis-schemas Node.LatentSize).
+			//
+			// COVERAGE LIMIT: every expert is priced as gated. A non-gated expert (relu2,
+			// as Nemotron-H's are) holds two matrices, and blis-schemas v0.3.0 has no field
+			// that says which an expert is, so such a model's experts are over-stated by
+			// half.
+			k := n.K
+			if n.LatentSize > 0 {
+				k = n.LatentSize
+			}
+			perExpert := 3 * float64(n.N) * float64(k)
 			pl.ExpertFLOPsPerTokenPerExpert += 2 * perExpert
 			// Only the WEIGHT terms take a node's dtype override: activations and
 			// collectives cross at the served width whatever the weights are stored as.
-			ew := weightBytes(n, dtypeBytes)
 			pl.ExpertWeightBytesPerExpert += perExpert * ew
-			pl.TopK = n.TopK
+			pl.TopK = max(pl.TopK, n.TopK)
+			pl.Experts = max(pl.Experts, n.Experts)
+			pl.ExpertInner = max(pl.ExpertInner, n.N)
+			pl.RoutedFormat = o.Format(n)
+			pl.RoutedTokenSharded = tokenSharded
 			if n.SharedExperts > 0 {
 				inner := n.N
 				if n.SharedIntermediateSize > 0 {
@@ -481,12 +779,19 @@ func planNodes(nodes []model.Node, em Emitter, dtypeBytes, stateBytes float64,
 				shared := 3 * float64(inner) * float64(n.K) * float64(n.SharedExperts)
 				pl.SharedExpertFLOPsPerToken += 2 * shared
 				pl.SharedExpertWeightBytes += shared * ew
+				pl.SharedFormat = o.Format(n)
+				pl.SharedTokenSharded = tokenSharded
 			}
 		case model.OpAttention:
+			caches := make([]PlannedCache, 0, len(n.Caches))
+			for _, c := range n.Caches {
+				caches = append(caches, PlannedCache{Cache: c, EntryBytes: o.EntryBytes(c)})
+			}
 			pl.Attentions = append(pl.Attentions, PlannedAttention{
 				QHeads: n.NumQHeads, KVHeads: n.NumKVHeads, HeadDim: n.HeadDim,
 				Kind: n.AttentionKind, Window: n.Window, Role: n.Role,
-				CompressRatio: n.CompressRatio,
+				CompressRatio: n.CompressRatio, Replicated: n.TP == model.TPReplicated,
+				Caches: caches,
 			})
 			// The primary is the first attention that reads the engine's KV cache, not
 			// the last node seen. An earlier assignment here overwrote, so on a layer
@@ -497,22 +802,74 @@ func planNodes(nodes []model.Node, em Emitter, dtypeBytes, stateBytes float64,
 				pl.AttnKind, pl.AttnWindow = n.AttentionKind, n.Window
 				pl.AttnIndexTopK, pl.AttnCompressRatio = n.IndexTopK, n.CompressRatio
 				pl.AttnKVLoRARank = n.KVLoRARank
+				pl.AttnReplicated = n.TP == model.TPReplicated
+				pl.AttnCaches = caches
 			}
 		case model.OpRecurrentUpdate:
 			pl.RecurrentKind = n.RecurrentKind
-			pl.RecurrentStateBytes += recurrentBytes(n, stateBytes)
+			pl.RecurrentStateBytes += recurrentBytes(n, o.StateBytes)
+			pl.RecurrentHeads = max(pl.RecurrentHeads, n.NumHeads)
+			pl.RecurrentStateSize = max(pl.RecurrentStateSize, n.StateSize)
+			pl.RecurrentHeadDim = max(pl.RecurrentHeadDim, n.HeadDim)
 		case model.OpElementwise:
 			b := float64(n.BytesPerToken)
-			if b == 0 {
+			if b == 0 && n.Context == nil {
 				// A normalization reads and writes the hidden state, at the activation
 				// width.
 				b = 2 * float64(hidden) * ActivationBytes
 			}
-			pl.ElementwiseBytesPerToken += b
+			// A cache insert writes one record each time it runs, which the node names
+			// rather than restates (writes_cache): its BytesPerToken is the traffic beyond
+			// the record.
+			if n.WritesCache != "" {
+				b += float64(cacheRecord(nodes, n.WritesCache, o))
+			}
+			// A node that runs once per compressed entry runs once every PerTokens tokens.
+			if n.PerTokens > 1 {
+				b /= float64(n.PerTokens)
+			}
+			switch {
+			case n.TP == model.TPReplicated && tokenSharded:
+				pl.ElementwiseTokenShardedBytesPerToken += b
+			case n.TP == model.TPReplicated:
+				pl.ElementwiseReplicatedBytesPerToken += b
+			default:
+				pl.ElementwiseBytesPerToken += b
+			}
+			if c := n.Context; c != nil {
+				pc := PlannedContext{
+					BytesPerEntry: float64(c.BytesPerEntry), TokensPerEntry: c.TokensPerEntry,
+					Per: c.Per, PrefillOnly: c.Phase == model.PhasePrefill,
+					MaxModelLenExtent: c.DecodeExtent == model.ExtentMaxModelLen,
+					Replicated:        n.TP == model.TPReplicated,
+				}
+				if c.ReadsCache != "" {
+					if rc, ok := findCache(nodes, c.ReadsCache); ok {
+						pc.BytesPerEntry += float64(o.EntryBytes(rc))
+						pc.TokensPerEntry = rc.EntryTokens()
+					}
+				}
+				pc.TokensPerEntry = max(pc.TokensPerEntry, 1)
+				pl.Context = append(pl.Context, pc)
+			}
+		case model.OpGather:
+			pl.Gathers = append(pl.Gathers, PlannedGather{
+				Rows: n.Rows, RowBytes: n.RowBytes, RowsPerToken: n.RowsPerToken,
+				OutBytesPerToken: n.OutBytesPerToken, Residency: n.Residency.Effective(),
+				Control: n.ResidencyControl, Shard: n.Shard.Effective(),
+				Aliased: n.Aliases != "", TokenSharded: tokenSharded, Role: n.Role,
+			})
 		case model.OpAllReduce, model.OpAllGather, model.OpReduceScatter:
-			// The hidden state a projection produced, at the activation width.
+			// The collective's full tensor per token: what the graph states where it is
+			// not one hidden-width activation (bytes_per_token, blis-schemas v0.3.0) --
+			// DeepSeek-V4.1's engram row all-gather moves 12,288 B a token against a
+			// 10,240 B hidden state -- and that activation otherwise.
+			b := float64(hidden) * ActivationBytes
+			if n.BytesPerToken > 0 {
+				b = float64(n.BytesPerToken)
+			}
 			pl.Collectives = append(pl.Collectives, PlannedCollective{
-				Op: n.Op, Group: GroupTP, BytesPerToken: float64(hidden) * ActivationBytes,
+				Op: n.Op, Group: GroupTP, BytesPerToken: b,
 			})
 		case model.OpAll2All:
 			pl.Collectives = append(pl.Collectives, PlannedCollective{
