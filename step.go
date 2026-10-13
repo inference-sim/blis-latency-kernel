@@ -621,8 +621,16 @@ func (k *Kernel) priceLayers(layers []price.PlannedLayer, fits [][]gemmFit, kv [
 				// An earlier form skipped every secondary kernel in a step with no decode,
 				// which made the scan free in prefill.
 				if s.prefillRequests > 0 {
-					pairs := sparseCausalFLOPs(s.prefillChunks, a.Window, 0,
-						max(a.CompressRatio, 1)) / 2
+					// The window bounds the span scored and the ratio how many states that
+					// span holds, as in decode below: min(p, window) / ratio a query.
+					var pairs float64
+					if a.Window > 0 {
+						pairs = windowedCausalFLOPs(s.prefillChunks, a.Window) / 2 /
+							float64(max(a.CompressRatio, 1))
+					} else {
+						pairs = sparseCausalFLOPs(s.prefillChunks, 0, 0,
+							max(a.CompressRatio, 1)) / 2
+					}
 					h := k.attentionHeads(a.QHeads, a.Replicated, a.Kind)
 					sm, fl := k.prefillAttention(pairs*h*float64(a.HeadDim), s)
 					attnSMSeconds += sm
@@ -663,7 +671,7 @@ func (k *Kernel) priceLayers(layers []price.PlannedLayer, fits [][]gemmFit, kv [
 					continue
 				}
 				ratio := float64(a.KVHeads) * float64(a.HeadDim) / primary
-				perToken := kv[i].perToken * ratio
+				perToken := kv[i].inferred * ratio
 				tokens := s.decodeKVTokens
 				if a.Window > 0 {
 					tokens = math.Min(tokens, float64(a.Window)*float64(s.decodeRequests))

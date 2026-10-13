@@ -25,11 +25,18 @@ import (
 // so a graph opts in per node and no other graph moves.
 
 // layerKV is one planned layer's KV, as the pricer reads it.
+//
+// The opt-in is per NODE, as blis-schemas defines it ("a node that states caches is sized
+// from them alone"): a layer's primary attention may state its caches while its scorer
+// does not, or the reverse, and each is sized its own way.
 type layerKV struct {
-	// stated is a layer whose attention states its caches; perToken is otherwise its
-	// inferred cache's bytes per context token, per rank.
+	// stated is a layer whose PRIMARY attention states its caches; perToken is otherwise
+	// that primary's inferred cache, in bytes per context token, per rank.
 	stated   bool
 	perToken float64
+	// inferred is the primary's inferred width whether or not it states its caches: the
+	// width a scorer that states none is scaled from.
+	inferred float64
 }
 
 // cacheTerm is one cache some layers own, with its paging resolved.
@@ -172,7 +179,7 @@ func (k *Kernel) cacheTransferBytes(tokens int) float64 {
 // indexer reads the index cache, attention the others.
 //
 // The shard of decode-context parallelism applies to the growing part only, the part
-// stored by token position.
+// stored by token position -- the same caches cacheVariableBytes shards.
 func (k *Kernel) statedReadBytes(caches []price.PlannedCache, topk, ctx int) float64 {
 	var total float64
 	for _, c := range caches {
@@ -188,7 +195,7 @@ func (k *Kernel) statedReadBytes(caches []price.PlannedCache, topk, ctx int) flo
 			if topk > 0 {
 				entries = min(entries, topk)
 			}
-			if k.layout.DCP > 1 && c.Kind == model.CacheKV {
+			if k.layout.DCP > 1 {
 				entries = int(dcpLocalTokens([]int{entries}, k.layout.DCP,
 					k.decodeContext.Interleave))
 			}

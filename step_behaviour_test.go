@@ -165,8 +165,29 @@ func TestTheDrafterIsPriced(t *testing.T) {
 			in.Model.Speculator.Head[i].WeightDType = model.DTypeBF16
 		}
 	}
-	if own := build(t, in).FixedBytes().Weights; own <= spec.FixedBytes().Weights {
+	own := build(t, in)
+	if own.FixedBytes().Weights <= spec.FixedBytes().Weights {
 		t.Error("an LM head of the drafter's own holds no more than one aliasing the target's")
+	}
+	// And computes alike: an alias runs at its target's format, here BF16, exactly as a
+	// BF16 copy of its own would, on every chip.
+	for _, chip := range []string{"h200", "b200"} {
+		a, o := fixtureInputs(t, v41), in
+		if chip != "h200" {
+			a.Chip, a.Scenario.Cluster.Hardware = chipInputs(t, chip), chip
+			o = fixtureInputs(t, v41)
+			for i := range o.Model.Speculator.Head {
+				o.Model.Speculator.Head[i].Aliases = ""
+				if o.Model.Speculator.Head[i].Op == model.OpGEMM {
+					o.Model.Speculator.Head[i].WeightDType = model.DTypeBF16
+				}
+			}
+			o.Chip, o.Scenario.Cluster.Hardware = a.Chip, chip
+		}
+		if x, y := build(t, a).StepTime(b).NoOverlap, build(t, o).StepTime(b).NoOverlap; x != y {
+			t.Errorf("%s: a drafter aliasing the BF16 LM head steps in %v, its own BF16 copy in %v",
+				chip, x, y)
+		}
 	}
 }
 

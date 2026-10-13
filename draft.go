@@ -57,15 +57,16 @@ func (k *Kernel) liftDraft(c *resolve.Coefficients, inferred func(price.PlannedL
 		if l.AttnQHeads <= 0 {
 			continue
 		}
-		if stated := layerCaches(l); len(stated) > 0 {
+		per := inferred(l)
+		k.draftLayerKV[i].inferred = per
+		for _, t := range k.cacheTerms(layerCaches(l), l.Count) {
+			t.draft = true
+			k.caches = append(k.caches, t)
+		}
+		if len(l.AttnCaches) > 0 {
 			k.draftLayerKV[i].stated = true
-			for _, t := range k.cacheTerms(stated, l.Count) {
-				t.draft = true
-				k.caches = append(k.caches, t)
-			}
 			continue
 		}
-		per := inferred(l)
 		k.draftLayerKV[i].perToken = per
 		k.draftKVBytesPerToken += per * float64(l.Count)
 	}

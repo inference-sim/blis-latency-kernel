@@ -268,10 +268,21 @@ func sparseCausalFLOPs(chunks []chunk, window, topk, ratio int) float64 {
 }
 
 // priceHead prices the head once per step, sharded over the vocabulary: its GEMMs on their
-// formats' token ramps, and their weight reads. It returns the stage time.
+// formats' token ramps and their weight reads, the traffic of the elementwise nodes the
+// graph states a width for, and its collectives. It returns the stage time.
+//
+// A head norm the graph states no width for is not charged, as it never was: it is one
+// hidden-width read and write a step, small beside the LM head. A node that states one --
+// DeepSeek-V4.1's mHC collapse, tens of kilobytes a token -- is.
 func (k *Kernel) priceHead(head price.PlannedLayer, s *stepShape,
 	perResource *[numResources]float64) float64 {
 	var headSM, weightBytes float64
+	elementwise := s.tokensF * head.ElementwiseReplicatedBytesPerToken
+	if k.layout.ModelSequenceParallel {
+		elementwise += s.spRows * head.ElementwiseTokenShardedBytesPerToken
+	} else {
+		elementwise += s.tokensF * head.ElementwiseTokenShardedBytesPerToken
+	}
 	for _, g := range head.DenseGEMMs {
 		div := k.tp
 		if g.Replicated {
@@ -283,8 +294,19 @@ func (k *Kernel) priceHead(head price.PlannedLayer, s *stepShape,
 			headSM += s.tokensF * g.FLOPsPerToken / div / (fit.peak * eff) * s.smDerate
 		}
 	}
-	headHBM := weightBytes / k.hbmBytesPerSecond
+	headHBM := (weightBytes + elementwise) / k.hbmBytesPerSecond
+	var onNode, crossNode float64
+	for _, c := range head.Collectives {
+		key := collKey{Op: c.Op, Group: c.Group}
+		if k.crossesNodes(key) {
+			crossNode += k.collectiveSeconds(key, s.tokensF*c.BytesPerToken*k.spanFor(key))
+		} else {
+			onNode += k.collectiveSeconds(key, s.tokensF*c.BytesPerToken)
+		}
+	}
 	perResource[idxSM] += headSM
 	perResource[idxHBM] += headHBM
-	return math.Max(headSM, headHBM)
+	perResource[idxNVLink] += onNode
+	perResource[idxNIC] += crossNode
+	return math.Max(math.Max(headSM, headHBM), math.Max(onNode, crossNode))
 }

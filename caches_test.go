@@ -87,6 +87,58 @@ func stripCaches(g *model.Graph) {
 	}
 }
 
+// Stating caches is a per-NODE opt-in. A layer whose scorer states its index cache while its
+// primary attention states none keeps the primary's inferred cache: it is resident, and its
+// decode read grows with context.
+func TestCacheStatementsArePerNode(t *testing.T) {
+	full := build(t, fixtureInputs(t, v41))
+	in := fixtureInputs(t, v41)
+	for i := range in.Model.LayerKinds {
+		for j := range in.Model.LayerKinds[i].Nodes {
+			n := &in.Model.LayerKinds[i].Nodes[j]
+			switch {
+			case n.Op == model.OpAttention && n.Role == "":
+				n.Caches = nil
+			case n.WritesCache != "" && n.WritesCache != "index":
+				n.WritesCache, n.PerTokens = "", 0
+			case n.Context != nil && n.Context.ReadsCache != "":
+				n.Context.ReadsCache = ""
+			}
+		}
+	}
+	for i := range in.Model.ArchOverrides {
+		var kept []model.CacheOverride
+		for _, c := range in.Model.ArchOverrides[i].Caches {
+			if c.Name == "index" {
+				kept = append(kept, c)
+			}
+		}
+		in.Model.ArchOverrides[i].Caches = kept
+	}
+	in.Deployment.Pools[0].Engine.Speculative = nil
+	partial := build(t, in)
+	if p, f := growth(partial), growth(full); p <= f {
+		t.Errorf("with its primaries' caches inferred a sequence grows %.1f B a token, no "+
+			"more than the %.1f the stated records hold", p, f)
+	}
+	// Against the graph that states nothing: the primaries are inferred alike in both, and
+	// the scorers' stated index caches only add to them. A layer whose scorer's statement
+	// silenced its primary's inferred cache would grow less.
+	none := fixtureInputs(t, v41)
+	stripCaches(none.Model)
+	none.Deployment.Pools[0].Engine.Speculative = nil
+	if p, n := growth(partial), growth(build(t, none)); p <= n {
+		t.Errorf("stating only the scorers' caches grows %.1f B a token, no more than "+
+			"stating none (%.1f): a scorer's statement dropped its primary's cache", p, n)
+	}
+	short := partial.StepTime(decodeBatch(64, 1, 8192)).PerResource[kernel.ResourceHBM]
+	long := partial.StepTime(decodeBatch(64, 1, 131072)).PerResource[kernel.ResourceHBM]
+	if long <= short {
+		t.Errorf("an inferred primary's decode read is flat in context: %v at 8K, %v at 128K",
+			short, long)
+	}
+}
+
 // A window ring is bounded per sequence: it is in SequenceFixedBytes, and a longer window
 // grows that term and leaves the per-token growth alone.
 func TestWindowRingsAreFixedPerSequence(t *testing.T) {

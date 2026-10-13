@@ -459,7 +459,20 @@ func weightBytesPerParam(g *model.Graph, n model.Node, served model.DType) float
 // weightFormat is the format a GEMM or GroupedGEMM node computes from: its own dtype and
 // scale where it states them, the served one otherwise. The scale is what tells MXFP8
 // (one E8M0 byte per 32 elements) from block-scaled FP8.
+//
+// An alias computes from the weights it reads, so it takes its target's format: DSpark's
+// LM head reads the target's BF16 one, and a tied LM head reads an unquantized embedding
+// table, which vLLM keeps at BF16 whatever the checkpoint (see computeFixedBytes).
 func weightFormat(g *model.Graph, n model.Node, served model.DType) price.Format {
+	if n.Aliases != "" {
+		target, ok := aliasTarget(g, n.Aliases)
+		switch {
+		case ok && target.Op == model.OpGather:
+			return price.Format{DType: model.DTypeBF16}
+		case ok && target.Aliases == "":
+			return weightFormat(g, target, served)
+		}
+	}
 	d, s := n.WeightDType, n.WeightScale
 	if d == "" {
 		d = served
@@ -477,6 +490,36 @@ func weightFormat(g *model.Graph, n model.Node, served model.DType) price.Format
 		f.ScaleElements = s.Elements
 	}
 	return f
+}
+
+// aliasTarget resolves "<layer kind id>.<role>", "head.<role>" or "embedding.<role>" to the
+// node it names, splitting at the last dot as blis-schemas does (a layer-kind id may hold
+// dots; a role may not).
+func aliasTarget(g *model.Graph, ref string) (model.Node, bool) {
+	i := strings.LastIndex(ref, ".")
+	if i < 0 {
+		return model.Node{}, false
+	}
+	scope, r := ref[:i], ref[i+1:]
+	var nodes []model.Node
+	switch scope {
+	case "head":
+		nodes = g.Head
+	case "embedding":
+		nodes = g.Embedding
+	default:
+		for _, lk := range g.LayerKinds {
+			if lk.ID == scope {
+				nodes = lk.Nodes
+			}
+		}
+	}
+	for _, n := range nodes {
+		if n.Role == r {
+			return n, true
+		}
+	}
+	return model.Node{}, false
 }
 
 // attentionKinds is every attention kind a layer of the target stack reads the engine's
@@ -1047,12 +1090,13 @@ func (k *Kernel) lift(c *resolve.Coefficients, g *model.Graph, cacheBytes float6
 		if l.AttnQHeads <= 0 {
 			continue
 		}
-		if stated := layerCaches(l); len(stated) > 0 {
+		per := inferred(l)
+		k.layerKV[i].inferred = per
+		k.caches = append(k.caches, k.cacheTerms(layerCaches(l), l.Count)...)
+		if len(l.AttnCaches) > 0 {
 			k.layerKV[i].stated = true
-			k.caches = append(k.caches, k.cacheTerms(stated, l.Count)...)
 			continue
 		}
-		per := inferred(l)
 		k.layerKV[i].perToken = per
 		k.kvBytesPerToken += per * float64(l.Count)
 		layers += l.Count
