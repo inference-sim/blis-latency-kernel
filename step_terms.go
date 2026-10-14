@@ -84,7 +84,7 @@ func (k *Kernel) prefillAttention(work float64, s *stepShape) (smSeconds, flops 
 // attentionHeads is the query heads one rank's attention kernel runs over: its share of
 // the heads under tensor parallelism, or all of them for a kernel every rank runs whole.
 //
-// DeepSeek-V4-family FlashMLA on SM90 pads them. Its FP8 kernels take only 64 or 128 query
+// DeepSeek-V4-family FlashMLA pads them, on SM90 and SM100 alike. Its FP8 kernels take only 64 or 128 query
 // heads, so each rank pads its local heads up -- "return 64 if num_heads <= 64 else 128"
 // (vllm/models/deepseek_v41/nvidia/flashmla.py:66-74 at v0.31.0) -- and computes the
 // padded ones. That happens only where tensor parallelism splits the heads

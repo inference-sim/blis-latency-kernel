@@ -46,7 +46,7 @@ func (k *Kernel) shapeOf(b kernel.Batch) stepShape {
 	// MLA and FlashInfer backends make the same split (split_decodes_and_prefills,
 	// vllm/v1/attention/backends/utils.py:799-870 at v0.31.0), each at its own threshold;
 	// FlashAttention does not split, and runs one varlen kernel over the mixed batch
-	// (flash_attn.py:1450-1478).
+	// (flash_attn.py:1450-1476).
 	//
 	// causalFLOPs halves the naive count because attention attends only to earlier
 	// positions. decodeKVTokens is the context those requests read.
@@ -595,7 +595,7 @@ func (k *Kernel) priceLayers(layers []price.PlannedLayer, fits [][]gemmFit, kv [
 			// launch, not one per regime: the smaller of the two floors is taken back out.
 			// FlashAttention is v0.31.0's default for causal non-MLA attention everywhere
 			// but data-center Blackwell, where FlashInfer, which splits the batch, is
-			// (vllm/platforms/cuda.py:157-180); the catalog marks that family by native NVFP4.
+			// (vllm/platforms/cuda.py:154-179); the catalog marks that family by native NVFP4.
 			//
 			// Not under decode-context parallelism: there FlashAttention runs
 			// _forward_with_dcp instead (flash_attn.py:1344-1357), a context pass and a query
@@ -631,7 +631,7 @@ func (k *Kernel) priceLayers(layers []price.PlannedLayer, fits [][]gemmFit, kv [
 				}
 				// The scorer's prefill: every prefill query scores every compressed
 				// position it can see, over the scorer's own heads (fp8_fp4_mqa_logits,
-				// vllm/model_executor/layers/sparse_attn_indexer.py:585-626 at v0.31.0).
+				// vllm/model_executor/layers/sparse_attn_indexer.py:583-625 at v0.31.0).
 				// One matmul, not attention's two, so it is half attention's FLOPs a pair.
 				// An earlier form skipped every secondary kernel in a step with no decode,
 				// which made the scan free in prefill.
@@ -860,6 +860,13 @@ func (k *Kernel) priceLayers(layers []price.PlannedLayer, fits [][]gemmFit, kv [
 		var onNode, crossNode float64
 		for _, c := range l.Collectives {
 			bytes := tokensF * c.BytesPerToken
+			// The MoE dispatch carries the tokens a rank holds: under the model's own
+			// sequence parallelism (vllm/models/deepseek_v41/nvidia/model.py:898-904,
+			// sp_shard) or sequence-parallel MoE, that is its ceil(tokens / tp) shard, not
+			// the whole step.
+			if c.Group == price.GroupExpert && (sp || k.layout.SequenceParallelMoE) {
+				bytes = s.spRows * c.BytesPerToken
+			}
 			if c.RoutedByTopK && l.TopK > 0 && k.routedAll2All() {
 				bytes *= float64(l.TopK)
 			}
@@ -902,7 +909,7 @@ func (k *Kernel) priceLayers(layers []price.PlannedLayer, fits [][]gemmFit, kv [
 			// and prefill alike -- whenever any request reads cached context: it gathers
 			// the whole step's query and combines the whole step's output
 			// (FlashAttentionImpl._forward_with_dcp, vllm/v1/attention/backends/
-			// flash_attn.py:1563-1691 at v0.31.0), and skips both when no request has
+			// flash_attn.py:1591-1686 at v0.31.0), and skips both when no request has
 			// context (max_dcp_context_kv_len == 0, :1565-1589).
 			rows := s.decodeTokens
 			if !latentAttention(l.AttnKind) {
@@ -931,7 +938,7 @@ func (k *Kernel) priceLayers(layers []price.PlannedLayer, fits [][]gemmFit, kv [
 		// -- that is what distinguishes it from DCP. So the ranks all-gather the cache
 		// inputs they just computed, on the token dimension, carrying PREFILL tokens only:
 		// "Keep replicated decode writes local and gather partitioned prefills"
-		// (vllm/v1/attention/ops/pcp.py:16-50), since a replicated decode row is already
+		// (vllm/v1/attention/ops/pcp.py:11-52), since a replicated decode row is already
 		// on every rank. See pcpPrefillGathers for what crosses.
 		if s.prefillTokens > 0 && k.layout.PCP > 1 && l.AttnQHeads > 0 {
 			on, cross := k.pcpPrefillGathers(l, s.prefillTokens)

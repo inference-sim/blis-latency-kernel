@@ -1399,9 +1399,9 @@ func (k *Kernel) modeHost(mode graphMode, draftKernels int) time.Duration {
 		// A model on vLLM's breakable CUDA graphs is captured whole with eager regions cut
 		// out of it, rather than split at every attention op: piecewise dispatch replays
 		// one piece per region between breaks (BreakableCUDAGraphWrapper, "Scoped to
-		// PIECEWISE dispatch; FULL cudagraphs are unaffected",
-		// vllm/v1/worker/gpu_model_runner.py:5395-5405 at v0.31.0; the default
-		// architectures, vllm/config/vllm.py:78-92). The break regions' own launches are
+		// PIECEWISE dispatch; FULL cudagraphs (below) are unaffected",
+		// vllm/v1/worker/gpu_model_runner.py:5396-5407 at v0.31.0; the default
+		// architectures, vllm/config/vllm.py:79-106). The break regions' own launches are
 		// dispatch, which launchSeconds charges per kernel in every mode.
 		if k.captureBreaks > 0 {
 			return time.Duration(float64(k.replayPerStep) * float64(1+k.captureBreaks))
@@ -1532,11 +1532,16 @@ func (k *Kernel) PDTransferDemand(tokens int, from, to kernel.Placement) kernel.
 		}}
 	case k.fabric.RackIsOneDomain && from.Rack == to.Rack:
 		// Multi-node NVLink makes a rack one domain, so an in-rack transfer moves at near
-		// on-node speed and shares the rack's fabric rather than either node's NIC.
-		d.Links = []kernel.LinkUse{{
-			Link:           kernel.LinkID(fmt.Sprintf("nvlink/rack/%d", from.Rack)),
-			BytesPerSecond: k.nvlinkBytesPerSecond,
-		}}
+		// on-node speed over the NVSwitch fabric rather than either node's NIC. That fabric
+		// is non-blocking across the rack: what two handoffs share is a tray's own NVLink
+		// ports, not one rack-wide link, so the links are the sender tray's egress and the
+		// receiver tray's ingress.
+		d.Links = []kernel.LinkUse{
+			{Link: kernel.LinkID(fmt.Sprintf("nvlink/egress/node/%d", from.Node)),
+				BytesPerSecond: k.nvlinkBytesPerSecond},
+			{Link: kernel.LinkID(fmt.Sprintf("nvlink/ingress/node/%d", to.Node)),
+				BytesPerSecond: k.nvlinkBytesPerSecond},
+		}
 	default:
 		d.Links = []kernel.LinkUse{
 			{Link: kernel.LinkID(fmt.Sprintf("nic/egress/node/%d", from.Node)),
@@ -1554,7 +1559,13 @@ func (k *Kernel) PDTransferDemand(tokens int, from, to kernel.Placement) kernel.
 // shard, and for a latent cache, which tensor parallelism does not divide, each decode rank
 // pulls a whole copy ("since cache is duplicated", vllm/distributed/kv_transfer/
 // kv_connector/v1/nixl/tp_mapping.py:88-97 at v0.31.0), so the fabric carries this payload
-// once per decode rank, each over that rank's own link.
+// once per decode rank.
+//
+// COVERAGE LIMIT: each pull is priced as one rank's demand at one rank's link rate. That is
+// exact when the pools' tensor-parallel widths match. Where the decode pool is wider, several
+// decode ranks pull from one prefill rank (tp_mapping.py:97), whose link then carries
+// decode_tp / prefill_tp payloads, which a placement that names a node and not a rank
+// cannot express.
 func (k *Kernel) pdTransferBytes(tokens int) float64 {
 	return float64(tokens)*k.kvBytesPerToken + k.cacheTransferBytes(tokens)
 }

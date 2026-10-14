@@ -116,3 +116,32 @@ func TestPDTransferDemandLaws(t *testing.T) {
 			minRate(slow), minRate(cross))
 	}
 }
+
+// In a rack that is one NVLink domain, the fabric is non-blocking: two in-rack handoffs
+// between disjoint trays share no link, and two out of one tray share its egress.
+func TestRackHandoffsShareOnlyTheirTrays(t *testing.T) {
+	prefill, _ := pdKernels(t, "minimax-m25-gb300-tp4.yaml", "ib-400g")
+	at := func(node int) kernel.Placement { return kernel.Placement{Node: node, Rack: 0} }
+	ids := func(d kernel.TransferDemand) map[kernel.LinkID]bool {
+		m := map[kernel.LinkID]bool{}
+		for _, l := range d.Links {
+			m[l.Link] = true
+		}
+		return m
+	}
+	share := func(a, b kernel.TransferDemand) bool {
+		ia := ids(a)
+		for id := range ids(b) {
+			if ia[id] {
+				return true
+			}
+		}
+		return false
+	}
+	if share(prefill.PDTransferDemand(4096, at(0), at(1)), prefill.PDTransferDemand(4096, at(2), at(3))) {
+		t.Error("two in-rack handoffs between disjoint trays share a link")
+	}
+	if !share(prefill.PDTransferDemand(4096, at(0), at(1)), prefill.PDTransferDemand(4096, at(0), at(2))) {
+		t.Error("two in-rack handoffs out of one tray share no link")
+	}
+}

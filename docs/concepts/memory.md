@@ -115,8 +115,9 @@ every other layer keeps the formula above, so a graph opts in node by node.
 - **The record follows the chip and the cache data type.** The graph is resolved for the
   chip's GPU generation before it is sized, and a record is looked up under the cache data
   type the attention backend actually runs: DeepSeek-V4.1 serves `fp8` as `fp8_ds_mla` on
-  SM90 (584-byte records) and as `nvfp4_ds_mla` on SM100 (528-byte window records,
-  288-byte compressed ones).
+  SM90 (584-byte records), and on SM100 as `nvfp4_ds_mla` (528-byte window records,
+  288-byte compressed ones) where its mega attention serves the tensor-parallel width, or
+  as `fp8_ds_mla` (528-byte records) where it does not.
 - **The drafter's caches are held only while speculating.**
 
 ## What each request holds regardless of length

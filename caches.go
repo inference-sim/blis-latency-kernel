@@ -165,7 +165,8 @@ func (k *Kernel) cacheVariableBytes(tokens int) float64 {
 // cacheFixedBytes is what the bounded caches hold per sequence: each window ring at the
 // pages the engine lets a request hold, and each state cache's fixed entries.
 //
-// vLLM caps a request at cdiv(window - 1 + extra_retained + max_in_flight_tokens, block) + 1
+// vLLM caps a request at cdiv(min(window - 1 + extra_retained + max_in_flight_tokens,
+// max_model_len), block) + 1
 // pages (max_admission_blocks_per_request, vllm/v1/kv_cache_interface.py:840-866 at
 // v0.31.0), its in-flight term being the startup sizing's concurrent batches x
 // max_num_batched_tokens. The kernel takes a request's steady-state decode hold instead:
@@ -199,7 +200,7 @@ func (k *Kernel) cacheFixedBytes() float64 {
 // A reader's cache is its owner's and crosses once; a speculator's caches cross with the
 // target's while the deployment speculates -- they share its KV cache groups, and every
 // group is transferable unless marked otherwise (KVCacheGroupSpec.enable_kv_transfer,
-// vllm/v1/kv_cache_interface.py:1460-1464, 1498-1508).
+// vllm/v1/kv_cache_interface.py:1461-1464, 1500-1507).
 func (k *Kernel) cacheTransferBytes(tokens int) float64 {
 	var total float64
 	for _, t := range k.caches {

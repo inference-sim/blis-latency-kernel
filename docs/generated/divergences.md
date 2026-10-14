@@ -88,6 +88,19 @@ The tokens reaching a rank's experts are multiplied by the data-parallel width, 
     are its own share while its decode rows are replicated across the group, and how the MoE
     gathers that mixture is not modelled.
 
+### P/D handoffs between pools of different widths
+
+*Coverage limit, in `(*Kernel).pdTransferBytes` in [`kernel.go`](https://github.com/inference-sim/blis-latency-kernel/blob/main/kernel.go).*
+
+Each decode rank's pull is priced as one rank's transfer at one rank's link rate. That is exact when the prefill and decode pools have the same tensor-parallel width. Where the decode pool is wider, several decode ranks pull from one prefill rank, whose link then carries several payloads, and a placement that names a node rather than a rank cannot express that.
+
+??? quote "The note in the source"
+    COVERAGE LIMIT: each pull is priced as one rank's demand at one rank's link rate. That is
+    exact when the pools' tensor-parallel widths match. Where the decode pool is wider, several
+    decode ranks pull from one prefill rank (tp\_mapping.py:97), whose link then carries
+    decode\_tp / prefill\_tp payloads, which a placement that names a node and not a rank
+    cannot express.
+
 ### Expert weights under prefill-context parallelism
 
 *Coverage limit, in `(*Kernel).lift` in [`new.go`](https://github.com/inference-sim/blis-latency-kernel/blob/main/new.go).*
@@ -138,4 +151,4 @@ Under tensor parallelism each rank is charged the arithmetic of whole routed exp
     that are pure TP. The BYTES do divide by it (routedWeightBytes, below), so the
     two terms disagree about the same experts.
 
-*8 notes: 1 known over-charge, 7 coverage limits.*
+*9 notes: 1 known over-charge, 8 coverage limits.*

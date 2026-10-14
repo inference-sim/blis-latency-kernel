@@ -149,34 +149,28 @@ func TestTheDrafterIsPriced(t *testing.T) {
 	}
 }
 
-// FlashMLA on SM90 pads each rank's query heads to 64: at TP8 a 64-head V4.1 rank computes
-// 64 heads whether the model has 64 or 32, so halving the attention's heads leaves the
-// prefill unchanged there -- and on SM100, which does not pad, lowers it.
-func TestFlashMLAPadsQueryHeadsOnSM90(t *testing.T) {
+// DeepSeek-V4-family FlashMLA pads each rank's query heads to 64, on SM90 and SM100 alike
+// (V4.1's SM100 mega attention subclasses it): at TP8 a 64-head V4.1 rank computes 64 heads
+// whether the model has 64 or 32, so halving the attention's heads leaves the prefill
+// unchanged on both parts.
+func TestFlashMLAPadsQueryHeads(t *testing.T) {
 	halve := func(in *Inputs) {
 		editNodes(in.Model, func(n model.Node) bool {
 			return n.Op == model.OpAttention && n.Role == "" && n.NumQHeads == 64
 		}, func(n *model.Node) { n.NumQHeads = 32 })
 	}
 	b := prefillOf(8192, 0)
-	for _, c := range []struct {
-		chip string
-		pads bool
-	}{{"h200", true}, {"b200", false}} {
+	for _, chip := range []string{"h200", "b200"} {
 		in := fixtureInputs(t, v41)
 		half := fixtureInputs(t, v41)
-		if c.chip != "h200" {
-			in.Chip, in.Scenario.Cluster.Hardware = chipInputs(t, c.chip), c.chip
-			half.Chip, half.Scenario.Cluster.Hardware = chipInputs(t, c.chip), c.chip
+		if chip != "h200" {
+			in.Chip, in.Scenario.Cluster.Hardware = chipInputs(t, chip), chip
+			half.Chip, half.Scenario.Cluster.Hardware = chipInputs(t, chip), chip
 		}
 		halve(&half)
-		full, h := build(t, in).StepTime(b).NoOverlap, build(t, half).StepTime(b).NoOverlap
-		if c.pads && full != h {
+		if full, h := build(t, in).StepTime(b).NoOverlap, build(t, half).StepTime(b).NoOverlap; full != h {
 			t.Errorf("%s: 64 heads prefill in %v and 32 in %v; both pad to 64 a rank",
-				c.chip, full, h)
-		}
-		if !c.pads && h >= full {
-			t.Errorf("%s: 32 heads prefill in %v, no faster than 64's %v", c.chip, h, full)
+				chip, full, h)
 		}
 	}
 }

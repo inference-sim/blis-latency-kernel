@@ -514,7 +514,7 @@ func TestTheFabricDCPLayoutsDeclareIsInTheCatalog(t *testing.T) {
 // A FULL-ATTENTION DCP LAYER COMBINES EVERY QUERY ROW WHEN ANY REQUEST READS CONTEXT.
 // FlashAttention runs one context pass over the whole step's queries -- gathering them all
 // and combining every row -- and skips it when no request has cached context
-// (vllm/v1/attention/backends/flash_attn.py:1563-1691 at v0.31.0). So beside decode rows a
+// (vllm/v1/attention/backends/flash_attn.py:1591-1686 at v0.31.0). So beside decode rows a
 // prefill's tokens join the combine; on a step of fresh prefills nothing is combined at all.
 func TestAFullAttentionDCPLayerCombinesEveryRowWhenContextIsRead(t *testing.T) {
 	const fixture = "minimax-m25-h200-tp8.yaml" // gqa

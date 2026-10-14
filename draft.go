@@ -285,7 +285,12 @@ func (k *Kernel) liftStepTerms(c *resolve.Coefficients, g *model.Graph) error {
 		}
 	}
 
-	k.padFlashMLA = deepseekV4Family(g) && k.layout.TP > 1 && k.hopper()
+	// FlashMLA serves the family on SM90 and SM100 alike -- V4's FlashMLA class everywhere
+	// but SM120 (vllm/models/deepseek_v4/nvidia/model.py:1170-1177), and V4.1's SM100 mega
+	// attention subclasses it, its cost scaling "with *padded* heads -- always 64"
+	// (deepseek_v41/nvidia/flash_mla_mega_attn.py:76-80, 143) -- so both pad. SM120 runs
+	// FlashInfer instead.
+	k.padFlashMLA = deepseekV4Family(g) && k.layout.TP > 1 && k.family != 12
 
 	// The eager regions of a breakable capture: one per attention layer -- each layer's
 	// indexer and attention are one @eager_break_during_capture region
@@ -293,7 +298,7 @@ func (k *Kernel) liftStepTerms(c *resolve.Coefficients, g *model.Graph) error {
 	// 733 at v0.31.0) -- and, on V4.1 with its tables in host memory, the Engram prefetch's
 	// start and finish (nvidia/engram.py:464-492).
 	// Not under dual-batch overlap: vLLM leaves the breakable wrapper off when it micro-batches
-	// (vllm/v1/worker/gpu_model_runner.py:5395-5405).
+	// (vllm/v1/worker/gpu_model_runner.py:5396-5407).
 	dbo := k.pool.Engine.DBO != nil && k.pool.Engine.DBO.Enabled
 	if a := g.Global.Architecture; !dbo && (a == rules.ArchDeepseekV41 || a == rules.ArchDeepseekV4) {
 		for _, l := range k.plan.Layers {
@@ -327,7 +332,8 @@ func (k *Kernel) assumeEngram() {
 	if (ec == nil || ec.DPSharedMemory == nil) && k.layout.DP > 1 {
 		k.assume("engram_dp_shared_memory", strconv.Itoa(k.engramShards)+" shards",
 			"unstated, so it resolves as the engine resolves it: on when cpu_offload is on, "+
-				"use_thp off and dp above one (resolve_dp_shared_memory); the kernel cannot see "+
+				"use_thp off, dp above one and elastic EP off (resolve_dp_shared_memory, "+
+				"vllm/config/engram.py:92-97); the kernel cannot see "+
 				"whether /dev/shm holds the tables, where the engine falls back to splitting them")
 	}
 }

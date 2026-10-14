@@ -29,6 +29,14 @@ var summaries = map[string]struct{ title, summary string }{
 			"Nemotron-H's relu2 experts, holds two, and blis-schemas has no field saying which an " +
 			"expert is, so such a model's expert weights and arithmetic are over-stated by half.",
 	},
+	"kernel.go|(*Kernel).pdTransferBytes|Coverage limit": {
+		"P/D handoffs between pools of different widths",
+		"Each decode rank's pull is priced as one rank's transfer at one rank's link rate. That " +
+			"is exact when the prefill and decode pools have the same tensor-parallel width. Where " +
+			"the decode pool is wider, several decode ranks pull from one prefill rank, whose link " +
+			"then carries several payloads, and a placement that names a node rather than a rank " +
+			"cannot express that.",
+	},
 	"kernel.go|(*Kernel).SequenceVariableBytes|Coverage limit": {
 		"Hybrid attention under decode-context parallelism",
 		"For a model that mixes sliding-window and full-attention layers, decode-context " +

@@ -129,3 +129,46 @@ func TestSparseReadsArePerQueryToken(t *testing.T) {
 			"%.3g; six queries each gather their own selection", six, one)
 	}
 }
+
+// nvfp4_ds_mla is the SM100 record: vLLM v0.31.0 refuses it on SM90.
+func TestNVFP4CacheIsRefusedOnSM90(t *testing.T) {
+	in := fixtureInputs(t, v41)
+	in.Deployment.Pools[0].Engine.CacheDType = "nvfp4_ds_mla"
+	if _, err := New(in); err == nil {
+		t.Error("nvfp4_ds_mla on H200 was priced; FlashMLA decodes it only on SM100")
+	}
+	in = fixtureInputs(t, v41)
+	in.Chip, in.Scenario.Cluster.Hardware = chipInputs(t, "b200"), "b200"
+	in.Deployment.Pools[0].Engine.CacheDType = "nvfp4_ds_mla"
+	if _, err := New(in); err != nil {
+		t.Errorf("nvfp4_ds_mla on B200 was refused: %v", err)
+	}
+}
+
+// DeepEP high-throughput with dp above one cannot be captured, so the engine runs it with
+// no graphs whatever mode was stated: it prices as the same layout stated NONE, and the
+// override is reported.
+func TestUncapturableDispatchRunsEager(t *testing.T) {
+	layout := func(mode string) *Kernel {
+		in := fixtureInputs(t, v41)
+		pl := &in.Deployment.Pools[0].Parallel
+		pl.TP, pl.DP, pl.EnableExpertParallel = 4, 2, true
+		in.Deployment.Pools[0].Engine.All2AllBackend = "deepep_high_throughput"
+		in.Deployment.Pools[0].Engine.CUDAGraphMode = mode
+		return build(t, in)
+	}
+	full, none := layout("FULL_AND_PIECEWISE"), layout("NONE")
+	b := decodeBatch(16, 6, 8192)
+	if f, n := full.StepTime(b).PerResource[kernel.ResourceHost],
+		none.StepTime(b).PerResource[kernel.ResourceHost]; f != n {
+		t.Errorf("a captured mode prices %v of host time and NONE %v; DeepEP "+
+			"high-throughput at dp 2 runs eager either way", f, n)
+	}
+	overridden := false
+	for _, o := range full.Resolved().Overrides {
+		overridden = overridden || (o.Field == "cudagraph_mode" && o.Resolved == "NONE")
+	}
+	if !overridden {
+		t.Error("the engine's switch to eager is not reported as an override")
+	}
+}

@@ -486,6 +486,11 @@ func refuseV4Layouts(in Inputs, cacheDType string) error {
 	// The packed records are SM90's and SM100's; another family's attention class, which
 	// no rules-pack resolution describes, is not judged here.
 	family, _ := in.Chip.CapabilityMajor()
+	if family == 9 && cacheDType == "nvfp4_ds_mla" {
+		return fmt.Errorf("cache_dtype nvfp4_ds_mla on %s on SM90: \"nvfp4_ds_mla needs the "+
+			"V4.1 KV records, which FlashMLA decodes only on SM100\" "+
+			"(vllm/models/deepseek_v41/attention.py:513-517)", arch)
+	}
 	if (family == 9 || family == 10) && !strings.HasSuffix(cacheDType, "_ds_mla") {
 		return fmt.Errorf("cache_dtype %q on %s: its packed attention serves only fp8 "+
 			"caches, as fp8_ds_mla or nvfp4_ds_mla, and vLLM v0.31.0 refuses any other",
@@ -947,6 +952,24 @@ func (k *Kernel) lift(c *resolve.Coefficients, g *model.Graph, cacheBytes float6
 			"vLLM v0.31.0's default (vllm/config/compilation.py:614); the engine "+
 				"downgrades it where an attention backend does not support full graphs, "+
 				"which the kernel cannot see")
+	}
+	// Two MoE dispatch backends cannot be captured, and the engine turns graphs off for
+	// them whatever was stated: DeepEP high-throughput with dp above one
+	// (vllm/config/compilation.py:1237-1253), and MoonEP wherever the all-to-all runs --
+	// dp above one, sequence-parallel MoE, or expert parallelism with pcp above one
+	// (vllm/config/vllm.py:2098-2106; use_all2all, vllm/config/parallel.py:738-743).
+	backend := k.rules.EffectiveAll2AllBackend(k.pool.Engine.All2AllBackend)
+	pl := k.pool.Parallel
+	useAll2All := k.layout.DP > 1 || k.layout.SequenceParallelMoE ||
+		(pl.EnableExpertParallel && k.layout.PCP > 1)
+	if mode != "NONE" && ((backend == "deepep_high_throughput" && k.layout.DP > 1) ||
+		(backend == "moonep" && useAll2All)) {
+		k.layout.Overrides = append(k.layout.Overrides, resolve.Override{
+			Field: "cudagraph_mode", Requested: mode, Resolved: "NONE",
+			Reason: "the " + backend + " all-to-all cannot be captured, so vLLM v0.31.0 " +
+				"runs this layout with no CUDA graphs",
+		})
+		mode = "NONE"
 	}
 	switch mode {
 	case "PIECEWISE":
@@ -1690,10 +1713,10 @@ func dtypeFitSuffix(d model.DType, chip hardware.Chip) fitSpec {
 //   - FP32 parameters (DeepSeek-V4.1's mHC) run at the TF32 tensor-core rate. The catalog
 //     states no TF32 peak; NVIDIA's data-center datasheets put dense TF32 at half the dense
 //     BF16 figure on every part the catalog carries, which is what is taken.
-//   - MXFP8 on SM90: both FlashInfer MXFP8 kernels require SM100, so vLLM v0.31.0 serves it
-//     with MarlinMxfp8LinearKernel, "MXFP8 W8A16 GEMM via Marlin"
+//   - MXFP8 on SM90: the FlashInfer MXFP8 kernels ranked ahead of Marlin require SM100, so
+//     vLLM v0.31.0 serves it with MarlinMxfp8LinearKernel, "MXFP8 W8A16 GEMM via Marlin"
 //     (vllm/model_executor/kernels/linear/__init__.py:529-538, mxfp8/flashinfer.py:47-53,
-//     mxfp8/marlin.py:13-14): BF16 compute, on the registry's w8a16_mxfp8 ramp.
+//     134-141, mxfp8/marlin.py:13-14): BF16 compute, on the registry's w8a16_mxfp8 ramp.
 //   - Four-bit weights on a part without a four-bit peak are weight-only too: Marlin
 //     W4A16 for the MXFP4 MoE backends on SM90 (fused_moe/oracle/mxfp4.py:381-390, the
 //     TRTLLM and DeepGEMM backends being SM100/SM120 only), at the BF16 rate. An earlier
