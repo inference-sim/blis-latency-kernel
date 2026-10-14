@@ -48,12 +48,17 @@ type Kernel struct {
 	// scenario's --quantization is applied over the checkpoint's own format.
 	servedDType model.DType
 
-	// rules is the engine release's rules, kept for the per-request window sizing.
+	// rules is the engine release's rules, kept for the per-request window sizing, the
+	// effective MoE dispatch backend and the Engram defaults.
 	// family is the chip's compute-capability major version (zero when the catalog states
 	// none), and architecture the model class the graph names.
-	rules        resolve.EngineRules
-	family       int
-	architecture string
+	rules  resolve.EngineRules
+	family int
+	// kvConnector is a deployment that runs a KV connector, for offload or a P/D handoff.
+	kvConnector bool
+	// familyAssumed is that an unstated compute capability's inference has been recorded.
+	familyAssumed bool
+	architecture  string
 	// cacheDType is the cache dtype that runs, which a stated cache record is looked up by.
 	cacheDType string
 
@@ -69,6 +74,8 @@ type Kernel struct {
 	layerKV      []layerKV
 	caches       []cacheTerm
 	draftLayerKV []layerKV
+	// draftContextKV is the drafter's context stack's views.
+	draftContextKV []layerKV
 	// draftKVBytesPerToken is the drafter's inferred caches, per context token, held while
 	// the deployment speculates.
 	draftKVBytesPerToken float64
@@ -174,14 +181,16 @@ type Kernel struct {
 	kvBytesPerToken float64
 	blockSize       int
 	// blockSizeFinal is whether blockSize is the size the engine will run: stated by the
-	// deployment, or the 64 a DSA model always picks, on a model with no recurrent layer
+	// deployment, or the block a DSA or DeepSeek-V4-family model always picks, on a model
+	// with no recurrent layer
 	// (whose block the platform may re-align even over a stated size). A check against the
 	// block size runs only when it is final.
 	blockSizeFinal bool
-	// dcpShardsAllKVLayers is whether every KV-holding layer is a kind DCP shards, which
+	// dcpShardsAllKVLayers is whether every layer whose cache is inferred is a kind DCP
+	// shards (layers that state their caches are sized in caches.go), which
 	// is what lets a whole-model capacity figure carry the shard at all.
 	dcpShardsAllKVLayers bool
-	// kvLayers is how many layers hold KV, which is the count kvBytesPerToken is summed
+	// kvLayers is how many layers' caches are inferred, the count kvBytesPerToken is summed
 	// over and so the divisor for one layer's share of the cache. Not TotalLayers: on a
 	// hybrid stack the two differ, and Nemotron-3-Ultra holds KV on 12 of 108 layers.
 	kvLayers int
@@ -661,7 +670,8 @@ func windowedCausalFLOPs(chunks []chunk, window int) float64 {
 // bound is applied to the aggregate.
 //
 // NOT ON THE PRICING PATH. dcpDecodeTokens composes this bound with the decode-context
-// shard per request and is what stepTime calls; this remains as the selection bound stated
+// shard per request and is what the pricer calls (decodeReadBytes, from priceLayers); this
+// remains as the selection bound stated
 // on its own, which is what the sparse-MLA tests pin. The two share readBounded and
 // selectedKVTokensFor, so what those tests establish still holds for the pricer.
 func selectedKVTokens(l *price.PlannedLayer, contexts []int) float64 {

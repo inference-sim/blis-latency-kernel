@@ -72,13 +72,14 @@ as arithmetic, which grows with the number of query-key pairs: with the square o
 for a prompt read in one step. Each has a measured fixed cost per layer, and decode a measured
 rate for each kind of attention: full, sliding-window, latent (MLA) or sparse latent. A layer
 that states a window reads at most the window, whatever its kind; a sparse layer reads its
-window plus the positions its indexer selects, at most its top-k, in decode and in prefill
-alike; and a sparse layer's indexer scan is priced in both phases.
+window plus the positions its indexer selects, at most its top-k, or, where it selects
+nothing, its whole compressed stream, in decode and in prefill alike; and a sparse layer's
+indexer scan is priced in both phases.
 
 **Arithmetic rates.** Each matrix multiply runs at the rate of the format it computes in:
-BF16 weights at the BF16 rate, FP32 weights at the TF32 rate, and on Hopper the weight-only
-kernels vLLM uses for MXFP8 and four-bit weights at the BF16 rate on their own measured
-efficiency. A node the graph marks replicated is not divided by the tensor-parallel width.
+BF16 weights at the BF16 rate, FP32 weights at the TF32 rate, MXFP8 on Hopper and four-bit
+weights on any part without a four-bit peak at the BF16 rate of the weight-only kernels vLLM
+uses for them, the grouped four-bit experts on their own measured efficiency. A node the graph marks replicated is not divided by the tensor-parallel width.
 
 **Recurrent mixers.** Decode rows are priced at the measured decode rate; prefill tokens at a
 measured prefill rate, or, where the registry has none, as the chunked scan vLLM runs for them.
@@ -93,7 +94,7 @@ rather than overlapped, because the sum fits measured expert timings better than
 of the two.[^experts]
 
 [^experts]: Against NVIDIA's expert-GEMM measurements on four chips, the sum fits better on
-    every one. The comparison is recorded beside the composition in `kernel.go`.
+    every one. The comparison is recorded beside the composition in `step.go`.
 
 **Collectives.** Each collective the layer runs, an all-reduce after a tensor-parallel matrix
 multiply for instance, is priced from three coefficients measured for that operation, that
@@ -175,7 +176,8 @@ says more.
 
 ## In the source
 
-The step is composed in `stepTime` in [`kernel.go`](https://github.com/inference-sim/blis-latency-kernel/blob/main/kernel.go),
+The step is composed in `stepTime` in [`step.go`](https://github.com/inference-sim/blis-latency-kernel/blob/main/step.go),
+which prices each layer in `priceLayers`,
 and the laws it uses are pure functions in
 [`internal/price`](https://github.com/inference-sim/blis-latency-kernel/tree/main/internal/price).
 Each term's comment records the measurement that justified its form.

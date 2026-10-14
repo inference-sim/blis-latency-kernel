@@ -19,10 +19,10 @@
 # derived from the workload instead, since a window shorter than isl+osl would describe a
 # deployment that cannot serve its own points.
 #
-# block_size is 128 here, not 16: this is a DeepSeek-V4-family model, whose
-# sparse attention and indexer accept only 128-token kernel blocks on this part:
-# vLLM v0.31.0 picks that size when none is stated and refuses a stated size it does
-# not accept (vllm/models/deepseek_v41/sparse_mla.py:89-90).
+# block_size is 256 here, not 16: this is a DeepSeek-V4 model, whose sparse
+# attention and indexer accept only 256-token kernel blocks: vLLM v0.31.0
+# picks that size when none is stated and refuses a stated size it does not accept
+# (vllm/models/deepseek_v4/sparse_mla.py:59-61).
 kind: Scenario
 name: deepseek-v4-pro-b300-fp4-vllm-tp4-ep4-dp2-cfg5
 engine_version: "0.29.0"
@@ -49,7 +49,7 @@ pools:
     engine:
       quantization: nvfp4
       cache_dtype: fp8
-      block_size: 128
+      block_size: 256
       max_num_batched_tokens: 8192
       max_num_seqs: 256
       max_model_len: 32768

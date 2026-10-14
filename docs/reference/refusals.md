@@ -52,8 +52,9 @@ These are layouts vLLM v0.31.0 refuses at startup.
 
 **Block size and architecture**
 
-- A block size a DeepSeek-V4-family model's sparse backends do not accept: they run 64-token
-  kernel blocks on SM90 and 128-token ones on SM100.
+- A block size a DeepSeek-V4-family model's sparse backends do not accept: DeepSeek-V4.1's
+  run 64-token kernel blocks on SM90 and 128-token ones on SM100, and DeepSeek-V4's run
+  256-token blocks on every part.
 - A model graph that states facts by GPU generation, on a chip whose compute capability the
   catalog does not state or whose generation the graph does not describe.
 

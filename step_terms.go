@@ -8,7 +8,7 @@ import (
 	"github.com/inference-sim/blis-latency-kernel/internal/price"
 )
 
-// The per-layer terms priceLayers composes that are more than a line each.
+// The per-layer and head terms the step composes that are more than a line each.
 
 // decodeReadBytes is what one layer's primary attention reads for these decode requests.
 //
@@ -212,7 +212,7 @@ func (k *Kernel) recurrentSeconds(l *price.PlannedLayer, s *stepShape) float64 {
 
 // expertPadding is how much a tensor-parallel slice of the routed experts grows when the
 // kernel that serves them pads it. On a part without a four-bit peak, vLLM v0.31.0 serves
-// MXFP4 experts with Marlin W4A16, which pads each partition's intermediate width up to a
+// MXFP4 (and NVFP4) experts with Marlin W4A16, which pads each partition's intermediate width up to a
 // multiple of 128 (vllm/model_executor/layers/fused_moe/oracle/mxfp4.py:752-757): at TP8
 // with expert parallelism off, DeepSeek-V4.1's 2,304 / 8 = 288 pads to 384, a third more
 // expert weight and work a rank runs. With expert parallelism a rank holds whole experts

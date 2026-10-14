@@ -57,9 +57,9 @@ func (k *Kernel) shapeOf(b kernel.Batch) stepShape {
 	// full-attention layer pays.
 	var prefillChunks []chunk
 	// Each decode request's own context, kept for the same reason prefillChunks is: a
-	// sparse-MLA layer's read is bounded PER REQUEST (min(ctx, topk) plus a compressed
-	// remainder), and a bound cannot be applied to a batch-wide sum without changing the
-	// answer. min(sum) != sum(min) whenever any request sits on either side of the bound,
+	// bounded layer's read is bounded PER REQUEST (min(ctx, window) + min(ctx / ratio,
+	// topk); see selectedKVTokensFor), and a bound cannot be applied to a batch-wide sum
+	// without changing the answer. min(sum) != sum(min) whenever any request sits on either side of the bound,
 	// which in a mixed batch is the normal case.
 	var decodeContexts []int
 	var prefillRequests, decodeRequests int
@@ -345,6 +345,9 @@ func (k *Kernel) priceLayers(layers []price.PlannedLayer, fits [][]gemmFit, kv [
 		// attnSeconds is apart from the FLOPs terms because attention is priced by a
 		// measured floor-and-rate form rather than from FLOPs.
 		var flops, routedFLOPs, weightBytes, elementwise, attnSeconds float64
+		// kvBytes is cache read charged at HBM bandwidth where no measured attention form
+		// prices it.
+		var kvBytes float64
 		// denseShapedSeconds is the dense-GEMM time when each GEMM is priced at its own
 		// shape's efficiency. It replaces the flops-and-one-ramp path, so exactly one of
 		// the two is populated per layer.
@@ -567,7 +570,8 @@ func (k *Kernel) priceLayers(layers []price.PlannedLayer, fits [][]gemmFit, kv [
 				// its whole prefix: min(ctx, window) + min(ctx / ratio, index_topk) keys, or
 				// the whole compressed stream where it selects nothing. DeepSeek-V4.1 runs
 				// round_up(index_topk + window, 128) keys a query
-				// (vllm/models/deepseek_v41/nvidia/flashmla.py:292 at v0.31.0).
+				// (vllm/models/deepseek_v41/nvidia/flashmla.py:292 at v0.31.0); the kernel
+				// charges the unpadded count.
 				layerCausalFLOPs = sparseCausalFLOPs(s.prefillChunks, l.AttnWindow,
 					l.AttnIndexTopK, l.AttnCompressRatio)
 			case l.AttnWindow > 0:
@@ -648,8 +652,14 @@ func (k *Kernel) priceLayers(layers []price.PlannedLayer, fits [][]gemmFit, kv [
 				if fr, ok := k.attentionByRole[a.Role]; ok {
 					floor, rate = fr.floor, fr.rate
 				}
-				if rate <= 0 {
-					continue
+				// With no measured form at all, the scan is charged as a raw read at HBM
+				// bandwidth, as the primary's is (kvFallback), rather than dropped.
+				charge := func(read float64) {
+					if rate > 0 {
+						attnSeconds += floor.Seconds() + read/rate
+					} else {
+						kvBytes += read
+					}
 				}
 				if len(a.Caches) > 0 {
 					// A scorer that states its cache reads that cache's records: every
@@ -658,12 +668,12 @@ func (k *Kernel) priceLayers(layers []price.PlannedLayer, fits [][]gemmFit, kv [
 					for _, ctx := range s.decodeContexts {
 						read += k.statedReadBytes(a.Caches, 0, ctx)
 					}
-					attnSeconds += floor.Seconds() + read/rate
+					charge(read)
 					continue
 				}
-				// Scale the engine's per-token KV figure by this kernel's own head
-				// geometry over the primary's. Derived rather than recomputed from the
-				// cache dtype so the two cannot drift: kvBytesPerToken already carries
+				// Scale the primary's inferred per-token width (layerKV.inferred) by this
+				// kernel's own head geometry over the primary's. Derived rather than
+				// recomputed from the cache dtype so the two cannot drift: that width carries
 				// the cache width, the tensor-parallel division and the replication
 				// floor that a head is never split across ranks.
 				primary := float64(l.AttnKVHeads) * float64(l.AttnHeadDim)
@@ -703,7 +713,7 @@ func (k *Kernel) priceLayers(layers []price.PlannedLayer, fits [][]gemmFit, kv [
 					tokens = dcpLocalTokens([]int{int(tokens + 0.5)}, k.layout.DCP,
 						k.decodeContext.Interleave)
 				}
-				attnSeconds += floor.Seconds() + tokens*perToken/rate
+				charge(tokens * perToken)
 			}
 		}
 		// Elementwise traffic divides as its node is laid out: sharded nodes over tp,
@@ -747,9 +757,8 @@ func (k *Kernel) priceLayers(layers []price.PlannedLayer, fits [][]gemmFit, kv [
 		// One layer's KV read. Only charged here when attention has no measured form for
 		// this part; otherwise the attention term already carries these bytes and adding
 		// them again would double-count.
-		var kvBytes float64
 		if l.AttnQHeads > 0 && kvFallback {
-			kvBytes = k.decodeReadBytes(l, kv, i, s.decodeContexts)
+			kvBytes += k.decodeReadBytes(l, kv, i, s.decodeContexts)
 		}
 
 		// The efficiency ramp is evaluated at the STEP's token count for every term,
@@ -813,8 +822,9 @@ func (k *Kernel) priceLayers(layers []price.PlannedLayer, fits [][]gemmFit, kv [
 		var routedSM float64
 		if routedFLOPs > 0 {
 			fit := k.fit(l.RoutedFormat, true)
-			routedSM = routedFLOPs / (fit.peak * price.Efficiency(tokensF, fit.epsMax,
-				fit.mHalf)) * smDerate
+			if eff := price.Efficiency(tokensF, fit.epsMax, fit.mHalf); eff > 0 {
+				routedSM = routedFLOPs / (fit.peak * eff) * smDerate
+			}
 		}
 		routedHBM := routedWeightBytes / k.hbmBytesPerSecond
 		routed := routedSM + routedHBM

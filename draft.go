@@ -1,6 +1,8 @@
 package latencykernel
 
 import (
+	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/inference-sim/blis-schemas/kernel"
@@ -16,7 +18,8 @@ import (
 //
 // An earlier form never read the graph's speculator. A deployment drafting tokens was
 // priced at the target's verify width alone, so its draft passes were free and its draft
-// weights were not resident: about 7.9 GB for DeepSeek-V4.1-Flash's three DSpark layers,
+// weights were not resident: about 7.9 GB across the model for DeepSeek-V4.1-Flash's three
+// DSpark layers and its context layer (3.9 GB a rank at TP8),
 // and a whole decoder layer per MTP model. The drafting mode decides how the stack runs
 // (blis-schemas model.Drafting):
 //
@@ -52,24 +55,39 @@ func (k *Kernel) liftDraft(c *resolve.Coefficients, inferred func(price.PlannedL
 			"the deployment names method "+spec.Method+" and the graph states a "+d.Method+
 				" speculator, which is the one priced")
 	}
-	k.draftLayerKV = make([]layerKV, len(d.Layers))
-	for i, l := range d.Layers {
-		if l.AttnQHeads <= 0 {
-			continue
-		}
-		per := inferred(l)
-		k.draftLayerKV[i].inferred = per
-		for _, t := range k.cacheTerms(layerCaches(l), l.Count) {
-			t.draft = true
-			k.caches = append(k.caches, t)
-		}
-		if len(l.AttnCaches) > 0 {
-			k.draftLayerKV[i].stated = true
-			continue
-		}
-		k.draftLayerKV[i].perToken = per
-		k.draftKVBytesPerToken += per * float64(l.Count)
+	if n := k.numSpecTokens(); d.NumSpec > 0 && n != d.NumSpec {
+		// The graph sizes what depends on the draft length -- a parallel-block drafter's
+		// block, a compressor ring's entries (blis-schemas model.Cache.Entries) -- at its
+		// own num_spec_tokens.
+		k.assume("num_spec_tokens", strconv.Itoa(n),
+			"the deployment drafts "+strconv.Itoa(n)+" tokens a step and the graph's "+
+				"speculator states "+strconv.Itoa(d.NumSpec)+"; the passes are priced at the "+
+				"deployment's count, and what the graph sizes at its own count is taken as "+
+				"stated")
 	}
+	lift := func(layers []price.PlannedLayer) []layerKV {
+		kv := make([]layerKV, len(layers))
+		for i, l := range layers {
+			if l.AttnQHeads <= 0 {
+				continue
+			}
+			per := inferred(l)
+			kv[i].inferred = per
+			for _, t := range k.cacheTerms(layerCaches(l), l.Count) {
+				t.draft = true
+				k.caches = append(k.caches, t)
+			}
+			if len(l.AttnCaches) > 0 {
+				kv[i].stated = true
+				continue
+			}
+			kv[i].perToken = per
+			k.draftKVBytesPerToken += per * float64(l.Count)
+		}
+		return kv
+	}
+	k.draftLayerKV = lift(d.Layers)
+	k.draftContextKV = lift(d.Context)
 	return nil
 }
 
@@ -94,8 +112,7 @@ func (k *Kernel) priceDraft(b kernel.Batch, s *stepShape,
 	var overlap float64
 	kernels := 0
 	if len(d.Context) > 0 {
-		zero := make([]layerKV, len(d.Context))
-		overlap += k.priceLayers(d.Context, nil, zero, s, perResource)
+		overlap += k.priceLayers(d.Context, nil, k.draftContextKV, s, perResource)
 		kernels += d.ContextKernels
 	}
 	if len(drafting) == 0 {
@@ -147,17 +164,37 @@ func (k *Kernel) priceDraft(b kernel.Batch, s *stepShape,
 // liftStepTerms resolves the step terms construction can settle once: recurrent prefill
 // forms, per-role attention forms, the host gather rate and where engram tables live, the
 // FlashMLA head padding, and the regions a model breaks out of its own capture.
-func (k *Kernel) liftStepTerms(c *resolve.Coefficients, g *model.Graph) {
+func (k *Kernel) liftStepTerms(c *resolve.Coefficients, g *model.Graph) error {
 	k.resolveEngram(k.rules)
+	// Every layer a step can price: the target's, its embedding and head, and, while the
+	// deployment speculates, the drafter's. A term needed only by a draft layer is needed.
+	layers := append([]price.PlannedLayer{k.plan.Head, k.plan.Embedding}, k.plan.Layers...)
+	if d := k.plan.Draft; d != nil && k.speculating {
+		layers = append(append(append(layers, d.Layers...), d.Context...), d.Embedding,
+			d.Head, d.SequentialHead)
+	}
 	usedRec := map[model.RecurrentKind]bool{}
-	hostGather := false
-	for _, l := range k.plan.Layers {
+	hostGather, engram, maxLenExtent := false, false, false
+	for _, l := range layers {
 		if l.RecurrentKind != "" {
 			usedRec[l.RecurrentKind] = true
 		}
 		for _, gt := range l.Gathers {
 			hostGather = hostGather || k.gatherResidency(gt) == model.ResidencyHost
+			engram = engram || gt.Control == model.ResidencyEngramCPUOffload
 		}
+		for _, cw := range l.Context {
+			maxLenExtent = maxLenExtent || cw.MaxModelLenExtent
+		}
+	}
+	if engram {
+		k.assumeEngram()
+	}
+	if maxLenExtent && k.maxModelLen <= 0 {
+		k.assume("max_model_len", "context",
+			"a decode kernel the graph says runs over a buffer padded to max_model_len is "+
+				"charged over each request's context instead: neither the deployment nor the "+
+				"graph states the bound")
 	}
 
 	k.recurrentPrefill = map[model.RecurrentKind]floorRate{}
@@ -169,9 +206,10 @@ func (k *Kernel) liftStepTerms(c *resolve.Coefficients, g *model.Graph) {
 		if !usedRec[kind] {
 			continue
 		}
-		floor := c.ValueOr("recurrent_prefill_floor_"+suffix, 0)
 		rate := c.ValueOr("recurrent_prefill_rate_"+suffix, 0)
 		if rate > 0 {
+			floor := k.optional(c, "recurrent_prefill_floor_"+suffix, true,
+				"the "+suffix+" mixer's prefill floor is not charged")
 			k.recurrentPrefill[kind] = floorRate{
 				floor: time.Duration(floor * float64(time.Microsecond)), rate: rate * 1e6,
 			}
@@ -184,16 +222,14 @@ func (k *Kernel) liftStepTerms(c *resolve.Coefficients, g *model.Graph) {
 	}
 	if len(usedRec) > 0 {
 		bf16 := price.Format{DType: model.DTypeBF16}
-		if err := k.addFit(c, bf16, false); err == nil {
-			k.prefillFit = k.fit(bf16, false)
-		} else {
-			k.prefillFit = gemmFit{peak: k.computeFLOPsPerSecond, epsMax: k.epsMax,
-				mHalf: k.mHalf}
+		if err := k.addFit(c, bf16, false); err != nil {
+			return fmt.Errorf("a recurrent prefill is priced on the BF16 ramp: %w", err)
 		}
+		k.prefillFit = k.fit(bf16, false)
 	}
 
 	k.attentionByRole = map[string]floorRate{}
-	for _, l := range k.plan.Layers {
+	for _, l := range layers {
 		for _, a := range l.Attentions {
 			if a.HoldsKV() || a.Role == "" {
 				continue
@@ -201,21 +237,36 @@ func (k *Kernel) liftStepTerms(c *resolve.Coefficients, g *model.Graph) {
 			if _, done := k.attentionByRole[a.Role]; done {
 				continue
 			}
-			rate := c.ValueOr("attention_decode_rate_"+a.Role, 0)
+			rate := k.optional(c, "attention_decode_rate_"+a.Role, true,
+				"no measured decode form for the "+a.Role+" kernel, so it is priced with "+
+					"its attention kind's pair")
 			if rate <= 0 {
+				// Recorded once: the absence above is the record.
+				k.attentionByRole[a.Role] = floorRate{}
 				continue
 			}
 			floor := k.attentionFloor
-			if f := c.ValueOr("attention_decode_floor_"+a.Role, 0); f > 0 {
+			if f := k.optional(c, "attention_decode_floor_"+a.Role, true,
+				"the "+a.Role+" kernel inherits the part-wide attention floor"); f > 0 {
 				floor = time.Duration(f * float64(time.Microsecond))
 			}
 			k.attentionByRole[a.Role] = floorRate{floor: floor, rate: rate * 1e6}
+		}
+	}
+	for role, fr := range k.attentionByRole {
+		if fr.rate <= 0 {
+			delete(k.attentionByRole, role)
 		}
 	}
 
 	k.hostGatherBytesPerSecond = c.ValueOr("host_gather_rate_uva", 0) * 1e6
 	if k.hostGatherBytesPerSecond <= 0 {
 		k.hostGatherBytesPerSecond = k.hostBytesPerSecond
+		if hostGather && k.hostGatherBytesPerSecond <= 0 {
+			return fmt.Errorf("a table is read from host memory and the scenario's sets " +
+				"carry neither host_gather_rate_uva nor host_link_bandwidth, so its rows " +
+				"have no rate to cross the host link at")
+		}
 		if hostGather {
 			k.assume("host_gather_rate_uva", "host_link_bandwidth",
 				"no measured rate for a gather from pinned host memory, so a host-resident "+
@@ -223,9 +274,7 @@ func (k *Kernel) liftStepTerms(c *resolve.Coefficients, g *model.Graph) {
 		}
 	}
 
-	hopper := k.family == 9 || (k.family == 0 && k.chip.NVFP4Peak <= 0 &&
-		!preHopperParts[k.chip.Name])
-	k.padFlashMLA = deepseekV4Family(g) && hopper && k.layout.TP > 1
+	k.padFlashMLA = deepseekV4Family(g) && k.layout.TP > 1 && k.hopper()
 
 	if g.Global.Architecture == rules.ArchDeepseekV41 {
 		for _, l := range k.plan.Layers {
@@ -239,6 +288,28 @@ func (k *Kernel) liftStepTerms(c *resolve.Coefficients, g *model.Graph) {
 				}
 			}
 		}
+	}
+	return nil
+}
+
+// assumeEngram records how an engram table's placement was settled where the deployment did
+// not settle it.
+func (k *Kernel) assumeEngram() {
+	ec := k.pool.Engine.EngramConfig
+	if ec == nil || ec.CPUOffload == nil {
+		where := "HBM"
+		if k.engramOnHost {
+			where = "host memory"
+		}
+		k.assume("engram_cpu_offload", strconv.FormatBool(k.engramOnHost),
+			"unstated, so the release's EngramConfig.cpu_offload default places the Engram "+
+				"tables in "+where+" (vllm/config/engram.py)")
+	}
+	if (ec == nil || ec.DPSharedMemory == nil) && k.layout.DP > 1 {
+		k.assume("engram_dp_shared_memory", strconv.Itoa(k.engramShards)+" shards",
+			"unstated, so it resolves as the engine resolves it: on when cpu_offload is on, "+
+				"use_thp off and dp above one (resolve_dp_shared_memory); the kernel cannot see "+
+				"whether /dev/shm holds the tables, where the engine falls back to splitting them")
 	}
 }
 

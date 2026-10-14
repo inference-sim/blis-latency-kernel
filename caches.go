@@ -1,6 +1,7 @@
 package latencykernel
 
 import (
+	"fmt"
 	"math"
 
 	"github.com/inference-sim/blis-schemas/spec/model"
@@ -86,6 +87,43 @@ func (k *Kernel) cacheTerms(stated []price.PlannedCache, count int) []cacheTerm 
 	return out
 }
 
+// checkCaches refuses a window ring the engine rules size at no pages, and records the two
+// facts a stated cache is sized on that the deployment does not settle: which record runs,
+// where the graph lists none for the cache dtype, and that a window ring stays bounded,
+// which holds only under the hybrid KV cache manager.
+func (k *Kernel) checkCaches() error {
+	window, unlisted := false, false
+	for _, t := range k.caches {
+		if t.cache.Kind == model.CacheWindow {
+			window = true
+			if k.rules.WindowPagesPerRequest(t.cache, k.blockSize, 1, 0, k.maxModelLen) <= 0 {
+				return fmt.Errorf("the window cache %q sizes at no pages under these engine "+
+					"rules, so its ring would be free", t.cache.Name)
+			}
+		}
+		if _, ok := t.cache.BytesByCacheDType[k.cacheDType]; !ok {
+			unlisted = true
+		}
+	}
+	if unlisted && len(k.caches) > 0 {
+		dtype := k.cacheDType
+		if dtype == "" {
+			dtype = "auto"
+		}
+		k.assume("cache_record", dtype,
+			"the graph lists no record under this cache dtype for some cache it states, so "+
+				"that cache is sized at its bytes_per_entry, the record under the cache dtype "+
+				"the graph's base description assumes")
+	}
+	if window && k.kvConnector {
+		k.assume("hybrid_kv_cache_manager", "on",
+			"window rings are sized as bounded, which holds only under the hybrid KV cache "+
+				"manager; a KV connector that does not support it turns them into "+
+				"full-length caches (vllm/config/vllm.py), which the kernel cannot see")
+	}
+	return nil
+}
+
 // pages is how many pages a cache holds for tokens context tokens.
 func (t cacheTerm) pages(tokens int) int {
 	if tokens <= 0 {
@@ -99,7 +137,7 @@ func (t cacheTerm) growing() bool {
 	return t.cache.Kind == model.CacheKV || t.cache.Kind == model.CacheIndex
 }
 
-// variableBytes is what the context-growing caches hold for a sequence of tokens, after
+// cacheVariableBytes is what the context-growing caches hold for a sequence of tokens, after
 // decode-context parallelism's shard of the token count.
 func (k *Kernel) cacheVariableBytes(tokens int) float64 {
 	var total float64
@@ -122,10 +160,12 @@ func (k *Kernel) cacheVariableBytes(tokens int) float64 {
 // cacheFixedBytes is what the bounded caches hold per sequence: each window ring at the
 // pages the engine lets a request hold, and each state cache's fixed entries.
 //
-// The ring is cdiv(window - 1 + in-flight tokens, block) + 1 pages
-// (max_admission_blocks_per_request, vllm/v1/kv_cache_interface.py at v0.31.0), which the
-// rules pack applies (WindowPagesPerRequest). A request has 1 + num_spec_tokens tokens in
-// flight in a decode step, so DSpark's five draft tokens make a 128-token ring of 32-token
+// vLLM caps a request at cdiv(window - 1 + extra_retained + max_in_flight_tokens, block) + 1
+// pages (max_admission_blocks_per_request, vllm/v1/kv_cache_interface.py:840-866 at
+// v0.31.0), its in-flight term being the startup sizing's concurrent batches x
+// max_num_batched_tokens. The kernel takes a request's steady-state decode hold instead:
+// 1 + num_spec_tokens tokens in flight and no extra retention, through the rules pack's
+// WindowPagesPerRequest. So DSpark's five draft tokens make a 128-token ring of 32-token
 // pages six pages rather than five.
 func (k *Kernel) cacheFixedBytes() float64 {
 	inFlight := 1 + k.numSpecTokens()
@@ -147,8 +187,10 @@ func (k *Kernel) cacheFixedBytes() float64 {
 
 // cacheTransferBytes is what a P/D handoff moves of the stated caches for a sequence of
 // tokens: the target's owned caches only, as NIXL moves them -- the growing caches in full,
-// each window cache clipped to cdiv(window, block) + 1 pages, and the state caches whole
-// (vllm/distributed/kv_transfer/kv_connector/v1/nixl/base_scheduler.py:134-146 at v0.31.0).
+// each window cache clipped to cdiv(window, block) + 1 pages
+// (vllm/distributed/kv_transfer/kv_connector/v1/nixl/base_scheduler.py:133-146 at v0.31.0,
+// which clips the SlidingWindowSpec groups), and the state caches whole, as the kernel
+// takes them: they are a request's bounded state and cross with it.
 // A reader's cache is its owner's and crosses once; a speculator's caches do not cross,
 // since the decode pool's drafter writes its own.
 func (k *Kernel) cacheTransferBytes(tokens int) float64 {

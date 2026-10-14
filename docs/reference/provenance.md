@@ -24,19 +24,25 @@ reason. They are of two kinds.
 
 | Name | Recorded when |
 |---|---|
-| `block_size` | The deployment states no block size. 64 for a DSA sparse-attention model, whose indexer accepts only 64; for a DeepSeek-V4-family model the one kernel block its sparse backends accept on the part (64 on SM90, 128 on SM100); otherwise vLLM's default of 16. |
+| `block_size` | The deployment states no block size. 64 for a DSA sparse-attention model, whose indexer accepts only 64; for a DeepSeek-V4-family model the one kernel block its sparse backends accept on the part (for DeepSeek-V4.1 64 on SM90 and 128 on SM100; for DeepSeek-V4 256 on every part); otherwise vLLM's default of 16. |
+| `cache_record` | A graph states a cache with no record listed under the cache data type that runs, so the cache is sized at its base record. |
 | `compute_rate_<kind>` | A GEMM's weights are in a format whose rate the catalog does not state: FP32 weights run at the TF32 rate, taken as half the dense BF16 peak. |
+| `compute_capability` | The catalog states no compute capability for the chip, so its generation is inferred from its native-format peaks and name where it decides kernel selection. |
 | `cudagraph_mode` | No CUDA graph mode is stated. vLLM's default, `FULL_AND_PIECEWISE`. |
 | `dcp_comm_backend` | Decode-context parallelism is on and no combine backend is stated: the stock `ag_rs`. Also when one is stated but the engine rules give no list to check it against. |
-| `gemm_eps_max_<kind>` | A weight-only kernel (Marlin W8A16 MXFP8, W4A16 grouped) has no efficiency ramp in the registry for the part, so it is priced on the BF16 ramp at the BF16 peak it computes at. |
 | `engine_version` | The scenario declares a vLLM release other than the one whose behavior the kernel prices (v0.31.0). |
+| `engram_cpu_offload` | A graph states an Engram table and the deployment does not say where it lives: the release's `cpu_offload` default. |
+| `engram_dp_shared_memory` | An Engram table under data parallelism, with `dp_shared_memory` unstated: resolved as the engine resolves it. |
+| `gemm_eps_max_<kind>` | A weight-only kernel (Marlin W8A16 MXFP8, W4A16 grouped) has no efficiency ramp in the registry for the part, so it is priced on the BF16 ramp at the BF16 peak it computes at. |
 | `host_gather_rate_uva` | A table lookup reads a host-resident table (an Engram table under `cpu_offload`) and the registry has no rate for that gather, so its rows are read at the host link's rate. |
+| `hybrid_kv_cache_manager` | A graph states window caches and the deployment runs a KV connector, which can turn the hybrid KV cache manager off and the window rings into full-length caches. |
 | `mamba_cache_mode` | A model with recurrent layers states no recurrent cache mode: `align` with prefix caching on, `none` with it off. |
 | `max_cudagraph_capture_size` | Any CUDA graph is captured. The largest batch a graph covers cannot be stated in a deployment, so it is always vLLM's default. |
 | `max_model_len` | The deployment states no context length, or states `auto`: the bound is the model's context window from the graph (for `auto`, the most the engine can fit it to). |
 | `max_num_batched_tokens` | No token budget per step is stated. vLLM's default for the chip's memory size. |
 | `max_num_seqs` | No limit on concurrent requests is stated. vLLM's default for the chip's memory size. |
 | `mla_context_chunk` | Decode-context parallelism is on for a latent-attention model and no context length is stated, so the chunk in which a prefill gathers its cached context is taken at its largest. |
+| `num_spec_tokens` | The deployment drafts a different number of tokens a step from the graph's speculator, so what the graph sizes at its own count is taken as stated. |
 | `recurrent_prefill_rate_<kind>` | A recurrent mixer has no measured prefill form, so its prefill tokens are priced as the chunked scan's FLOPs on the BF16 ramp rather than at the decode scan's rate. |
 | `sparse_mla_backend` | A DSA sparse-attention model on Hopper selects FlashInfer's sparse MLA backend, which needs a FlashInfer release the kernel cannot see installed. |
 | `speculator` | The deployment speculates and the graph states no speculator, so draft passes are not priced; or the deployment names a different method from the graph's speculator, which is the one priced. |
@@ -52,9 +58,11 @@ the model has a layer of that kind.
 | Coefficient | Without it |
 |---|---|
 | `attention_decode_floor`, `attention_decode_rate` | No measured decode attention: the KV read is charged at memory bandwidth and the per-layer floor is not charged |
-| `attention_decode_rate_<kind>` | The chip-wide attention pair is used for that kind |
+| `attention_decode_rate_<kind>` | The chip-wide attention pair is used for that kind; for a scorer named by its role, its attention kind's pair |
+| `attention_decode_floor_<kind>` | A scorer with its own rate inherits the part-wide attention floor |
 | `attention_prefill_floor`, `attention_prefill_work_scale` | Prefill attention is charged on the plain efficiency ramp, with no floor |
 | `recurrent_decode_floor_<kind>`, `recurrent_decode_rate_<kind>` | The recurrent mixer's decode term is not charged |
+| `recurrent_prefill_floor_<kind>` | A recurrent mixer with a measured prefill rate is charged no prefill floor |
 | `moe_routing_imbalance_median` | Experts are priced as evenly loaded |
 | `host_link_bandwidth` | An offload transfer is not capped at the host link's rate |
 | `host_admission_per_token`, `host_admission_per_request`, `host_output_token`, `host_completion`, `host_launch_eager_per_layer`, `host_launch_per_kernel`, `host_replay_graph_per_step` | That host cost is charged at zero |
@@ -80,9 +88,8 @@ these:
 | Field | When |
 |---|---|
 | `allreduce_backend` | The custom all-reduce was requested at a tensor-parallel width it does not support, or across nodes on a chip without multi-node NVLink. NCCL runs instead. |
-| `cache_dtype` | A sparse-attention model's KV cache is stored in a packed format its backend chooses, such as `fp8_ds_mla` for a stated `fp8` on Hopper. |
+| `cache_dtype` | A sparse-attention model's KV cache is stored in a packed format its backend chooses, such as `fp8_ds_mla` for a stated `fp8` on Hopper, or DeepSeek-V4.1's `nvfp4_ds_mla` for a stated `fp8` on SM100. |
 | `cp_kv_cache_interleave_size` | Decode-context parallelism is on, the interleave is unstated, the block size is above one, and a NIXL connector is configured, so vLLM sets the interleave to the block size. |
-| `host_gather_rate_uva` | A table lookup reads a host-resident table (an Engram table under `cpu_offload`) and the registry has no rate for that gather, so its rows are read at the host link's rate. |
 | `mamba_cache_mode` | A hybrid model states `none` with prefix caching on, which vLLM runs as `align`. |
 
 The two context-parallel widths are not yet fields of `kernel.Resolution`. Until blis-schemas

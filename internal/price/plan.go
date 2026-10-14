@@ -35,14 +35,15 @@ type Plan struct {
 	// Head is the final norm and language-model head, priced once per step rather than
 	// per layer.
 	Head PlannedLayer
-	// TotalLayers is the expanded layer count: what eager launches are counted per, and the
-	// base of PiecewiseSegments. Not the divisor for one layer's share of the KV cache,
-	// which is the KV-holding count (the kernel's kvLayers).
+	// TotalLayers is the expanded layer count, the base of PiecewiseSegments. Not the
+	// divisor for one layer's share of the KV cache, which is the count of layers whose cache
+	// is inferred (the kernel's kvLayers).
 	TotalLayers int
 
 	// TotalKernels is the launch count for one step: every layer's kernels times its
-	// multiplicity, plus the head's. The per-kernel dispatch cost multiplies it, and that
-	// product dominates a single-request decode step.
+	// multiplicity, plus the head's and the embedding's (the drafter's are counted in Draft).
+	// The per-kernel dispatch cost multiplies it, and that product dominates a
+	// single-request decode step; eager launches multiply it too.
 	TotalKernels int
 
 	// Embedding is the graph's embedding nodes -- the vocabulary lookup and the reduction
@@ -632,6 +633,17 @@ func weightBytes(n model.Node, global float64) float64 {
 func planNodes(nodes []model.Node, em Emitter, o PlanOptions,
 	hidden int) (PlannedLayer, error) {
 	var pl PlannedLayer
+	// routedSet and sharedSet record that an expert format was taken, so a second node
+	// stating another one is refused rather than silently overwriting it.
+	routedSet, sharedSet := false, false
+	setFormat := func(into *Format, set *bool, f Format, what string) error {
+		if *set && *into != f {
+			return fmt.Errorf("two %s nodes in one layer compute from different formats "+
+				"(%s and %s), which one expert term cannot price", what, into.DType, f.DType)
+		}
+		*into, *set = f, true
+		return nil
+	}
 	// fusable is the index in DenseGEMMs of the GEMM emitted by the IMMEDIATELY preceding
 	// node, or -1 when the previous node was anything else. Fusion needs adjacency in the
 	// node sequence, not in DenseGEMMs: minimax-m3's layer-0 has qkv_proj and mlp_gate_up
@@ -744,7 +756,10 @@ func planNodes(nodes []model.Node, em Emitter, o PlanOptions,
 				shared := 3 * float64(n.N) * float64(n.K) * float64(max(n.Experts, 1))
 				pl.SharedExpertFLOPsPerToken += 2 * shared
 				pl.SharedExpertWeightBytes += shared * ew
-				pl.SharedFormat = o.Format(n)
+				if err := setFormat(&pl.SharedFormat, &sharedSet, o.Format(n),
+					"shared-expert"); err != nil {
+					return pl, err
+				}
 				pl.SharedTokenSharded = tokenSharded
 				break
 			}
@@ -769,7 +784,10 @@ func planNodes(nodes []model.Node, em Emitter, o PlanOptions,
 			pl.TopK = max(pl.TopK, n.TopK)
 			pl.Experts = max(pl.Experts, n.Experts)
 			pl.ExpertInner = max(pl.ExpertInner, n.N)
-			pl.RoutedFormat = o.Format(n)
+			if err := setFormat(&pl.RoutedFormat, &routedSet, o.Format(n),
+				"routed-expert"); err != nil {
+				return pl, err
+			}
 			pl.RoutedTokenSharded = tokenSharded
 			if n.SharedExperts > 0 {
 				inner := n.N
@@ -779,7 +797,10 @@ func planNodes(nodes []model.Node, em Emitter, o PlanOptions,
 				shared := 3 * float64(inner) * float64(n.K) * float64(n.SharedExperts)
 				pl.SharedExpertFLOPsPerToken += 2 * shared
 				pl.SharedExpertWeightBytes += shared * ew
-				pl.SharedFormat = o.Format(n)
+				if err := setFormat(&pl.SharedFormat, &sharedSet, o.Format(n),
+					"shared-expert"); err != nil {
+					return pl, err
+				}
 				pl.SharedTokenSharded = tokenSharded
 			}
 		case model.OpAttention:
@@ -879,6 +900,13 @@ func planNodes(nodes []model.Node, em Emitter, o PlanOptions,
 				RoutedByTopK: true,
 			})
 		}
+	}
+	// A layer that runs attention must have a primary: the attention that reads the cache
+	// the engine sizes, which the graph marks by leaving its role empty. With none, the
+	// layer's attention, its caches and its KV would all go unpriced, so it is refused.
+	if len(pl.Attentions) > 0 && pl.AttnQHeads == 0 {
+		return pl, fmt.Errorf("the layer runs attention but no attention node has an empty " +
+			"role, so none reads the engine's cache: label the scorer, not the attention")
 	}
 	return pl, nil
 }

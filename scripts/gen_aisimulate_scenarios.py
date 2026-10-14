@@ -82,17 +82,15 @@ QUANT = {"fp4": "nvfp4", "fp8": "fp8", "bf16": None, "int4": None}
 # are stated at 64; every other model at 16.
 DSA_MODELS = {"glm-5"}
 
-# The DeepSeek-V4-family models in the corpus. Their sparse attention and indexer backends
-# accept exactly one kernel block -- 64 on SM90, 128 on SM100
-# (vllm/models/deepseek_v41/sparse_mla.py:89-90, vllm/v1/attention/backends/mla/indexer.py:
-# 277-278 at v0.31.0) -- so vLLM picks that size when none is stated and refuses a stated
-# size it does not accept. They are stated at their part's size.
+# The DeepSeek-V4 models in the corpus. Their sparse attention and indexer backends accept
+# exactly one kernel block, 256 on every part (vllm/models/deepseek_v4/sparse_mla.py:59-61,
+# vllm/v1/attention/backends/mla/indexer.py:259-262 at v0.31.0), so vLLM picks it when none
+# is stated and refuses a stated size it does not accept. They are stated at it.
 V4_MODELS = {"deepseek-v4-pro"}
-SM90_PARTS = {"h100", "h200"}
 
 
 def v4_block_size(gpu: str) -> int:
-    return 64 if gpu in SM90_PARTS else 128
+    return 256
 
 # A KV cache dtype is not stated by the corpus. fp8 KV is the default for the fp8 and fp4
 # arms in these frameworks; bf16 serving keeps an unquantised cache.
@@ -155,10 +153,10 @@ def emit(dep: dict, workloads: set[str], labels: set[str]) -> str:
     if dep["model"] in V4_MODELS:
         lines += [
             "#",
-            f"# block_size is {block_size} here, not 16: this is a DeepSeek-V4-family model, whose",
-            f"# sparse attention and indexer accept only {block_size}-token kernel blocks on this part:",
-            "# vLLM v0.31.0 picks that size when none is stated and refuses a stated size it does",
-            "# not accept (vllm/models/deepseek_v41/sparse_mla.py:89-90).",
+            f"# block_size is {block_size} here, not 16: this is a DeepSeek-V4 model, whose sparse",
+            f"# attention and indexer accept only {block_size}-token kernel blocks: vLLM v0.31.0",
+            "# picks that size when none is stated and refuses a stated size it does not accept",
+            "# (vllm/models/deepseek_v4/sparse_mla.py:59-61).",
         ]
     elif block_size != 16:
         lines += [

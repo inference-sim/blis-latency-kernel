@@ -119,6 +119,8 @@ func New(in Inputs) (*Kernel, error) {
 	k := &Kernel{layout: layout, fabric: fab, pool: pool, chip: *in.Chip, rules: in.Rules,
 		family: family, architecture: g.Global.Architecture}
 	k.tp = float64(max(layout.TP, 1))
+	k.kvConnector = (in.Deployment.Offload != nil && in.Deployment.Offload.Connector != "") ||
+		(in.Deployment.PDTransfer != nil && in.Deployment.PDTransfer.Connector != "")
 
 	// The served weight format, which the scenario may override. A bf16 checkpoint
 	// served fp8 reads half the weight bytes, runs against a different compute peak and
@@ -218,17 +220,17 @@ func New(in Inputs) (*Kernel, error) {
 	v4 := deepseekV4Family(in.Model)
 	k.blockSizeFinal = !hybrid && (k.blockSize > 0 || dsa || v4)
 	switch {
-	case v4 && k.blockSize > 0 && k.blockSize%v4BlockSize(family, in.Chip.NVFP4Peak > 0) != 0:
+	case v4 && k.blockSize > 0 && k.blockSize%v4BlockSize(in.Model.Global.Architecture, k.hopper) != 0:
 		return nil, fmt.Errorf("block_size %d on a DeepSeek-V4-family model: its sparse "+
 			"attention and indexer run %d-token kernel blocks on this part, so a stated size "+
 			"must be a multiple of it, and the engine refuses this layout at startup",
-			k.blockSize, v4BlockSize(family, in.Chip.NVFP4Peak > 0))
+			k.blockSize, v4BlockSize(in.Model.Global.Architecture, k.hopper))
 	case v4 && k.blockSize <= 0:
-		k.blockSize = v4BlockSize(family, in.Chip.NVFP4Peak > 0)
+		k.blockSize = v4BlockSize(in.Model.Global.Architecture, k.hopper)
 		k.assume("block_size", strconv.Itoa(k.blockSize),
 			"what vLLM v0.31.0 picks for a DeepSeek-V4-family model on this part, the only "+
 				"kernel block its sparse backends accept (vllm/models/deepseek_v41/"+
-				"sparse_mla.py:89-90)")
+				"sparse_mla.py:89-90; vllm/models/deepseek_v4/sparse_mla.py:59-61)")
 	case dsa && k.blockSize > 0 && k.blockSize%dsaBlockSize != 0:
 		return nil, fmt.Errorf("block_size %d on a DSA sparse-MLA model: its indexer runs "+
 			"on %d-token kernel blocks, so a stated size must be a multiple of %d, and the "+
@@ -449,8 +451,18 @@ func (k *Kernel) resolveMaxModelLen(g *model.Graph) {
 // dtype for every node that does not state its own, and with it the global scale layout,
 // which belongs to the checkpoint's format; the served format's intrinsic scale, if it
 // has one, is counted instead (NVFP4's one FP8 byte per 16, MXFP4's one per 32).
+//
+// An alias reads its target's weights at the width they are resident at, the same rule
+// applied to the target.
 func weightBytesPerParam(g *model.Graph, n model.Node, served model.DType) float64 {
-	if n.Aliases == "" && n.WeightDType == "" && served != g.Global.WeightDType {
+	if n.Aliases != "" {
+		if t, ok := aliasTarget(g, n.Aliases); ok && t.Op != model.OpGather &&
+			t.Aliases == "" {
+			return weightBytesPerParam(g, t, served)
+		}
+		return g.WeightBytesPerParam(n)
+	}
+	if n.WeightDType == "" && served != g.Global.WeightDType {
 		return model.StoredBytes(served, nil)
 	}
 	return g.WeightBytesPerParam(n)
@@ -933,9 +945,9 @@ func (k *Kernel) lift(c *resolve.Coefficients, g *model.Graph, cacheBytes float6
 	// The rows one chunk of an MLA prefill's context gather covers:
 	// min(max(8 x max_model_len, 4 x max_num_seqs x block_size), 65536)
 	// (determine_chunked_prefill_workspace_size, vllm/model_executor/layers/attention/
-	// mla_attention.py:2297-2320 at v0.31.0). An unstated max_model_len is the model's own
-	// window, which the graph does not carry, so it is taken at the 65,536 cap: exact for any
-	// window of 8,192 tokens or more, which every latent model in the catalog has.
+	// mla_attention.py:2297-2320 at v0.31.0). Where neither the deployment nor the graph
+	// states a context length (resolveMaxModelLen), it is taken at the 65,536 cap: exact for
+	// any window of 8,192 tokens or more, which every latent model in the catalog has.
 	chunk := 65536
 	if mml := k.maxModelLen; mml > 0 {
 		chunk = min(max(8*mml, 4*seqs*k.blockSize), 65536)
@@ -943,7 +955,8 @@ func (k *Kernel) lift(c *resolve.Coefficients, g *model.Graph, cacheBytes float6
 		for _, l := range k.plan.Layers {
 			if latentAttention(l.AttnKind) {
 				k.assume("mla_context_chunk", strconv.Itoa(chunk),
-					"max_model_len is unstated, so the MLA context-gather chunk is taken at "+
+					"neither the deployment nor the graph states a context length, so the MLA "+
+						"context-gather chunk is taken at "+
 						"its 65,536-row cap, exact for a model window of 8,192 tokens or more")
 				break
 			}
@@ -1118,7 +1131,12 @@ func (k *Kernel) lift(c *resolve.Coefficients, g *model.Graph, cacheBytes float6
 	if err := k.liftDraft(c, inferred); err != nil {
 		return err
 	}
-	k.liftStepTerms(c, g)
+	if err := k.checkCaches(); err != nil {
+		return err
+	}
+	if err := k.liftStepTerms(c, g); err != nil {
+		return err
+	}
 	return k.liftMemory(c, g)
 }
 
@@ -1608,12 +1626,8 @@ func dtypeFitSuffix(d model.DType, chip hardware.Chip) fitSpec {
 //     TRTLLM and DeepGEMM backends being SM100/SM120 only), at the BF16 rate. An earlier
 //     form priced them at the FP8 peak, a rate the dequantize-then-BF16 path never reaches.
 //   - Everything else is dtypeFit's choice.
-func formatFit(f price.Format, grouped bool, chip hardware.Chip, family int) fitSpec {
+func formatFit(f price.Format, grouped bool, chip hardware.Chip, hopper bool) fitSpec {
 	bf16 := chip.BF16Peak * 1e12
-	hopper := chip.NVFP4Peak <= 0 && !preHopperParts[chip.Name]
-	if family > 0 {
-		hopper = family == 9
-	}
 	switch {
 	case f.DType == model.DTypeFP32:
 		return fitSpec{suffix: "bf16", peak: bf16 / 2,
@@ -1637,7 +1651,11 @@ func (k *Kernel) addFit(c *resolve.Coefficients, f price.Format, grouped bool) e
 	if _, ok := k.fits[key]; ok {
 		return nil
 	}
-	spec := formatFit(f, grouped, k.chip, k.family)
+	hopper := false
+	if f.DType == model.DTypeFP8 && f.MX() {
+		hopper = k.hopper()
+	}
+	spec := formatFit(f, grouped, k.chip, hopper)
 	if spec.fallback != "" && !c.Has("gemm_eps_max_"+spec.suffix) {
 		k.assume("gemm_eps_max_"+spec.suffix, spec.fallback,
 			"no efficiency ramp for the "+spec.suffix+" kernel on "+k.chip.Name+", so it is "+
@@ -1670,6 +1688,9 @@ func (k *Kernel) liftFit(c *resolve.Coefficients, spec fitSpec) (gemmFit, error)
 	}
 	if fit.mHalf, err = c.Value("gemm_m_half_" + spec.suffix); err != nil {
 		return gemmFit{}, fmt.Errorf("no efficiency half-max: %w", err)
+	}
+	if err := mustPositive("gemm_eps_max_"+spec.suffix, fit.epsMax); err != nil {
+		return gemmFit{}, err
 	}
 	nHalf, nErr := c.Value("gemm_n_half_" + spec.suffix)
 	kHalf, kErr := c.Value("gemm_k_half_" + spec.suffix)

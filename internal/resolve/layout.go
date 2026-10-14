@@ -42,8 +42,9 @@ type Layout struct {
 	// ModelSequenceParallel is whether the model's own sequence parallelism is on, as the
 	// rules pack decides it for the architecture the graph names. DeepSeek-V4.1 then shards
 	// its residual stream by token across the tensor-parallel ranks, and replaces each
-	// attention all-reduce with an all-gather and a reduce-scatter (v0.31.0
-	// vllm/models/deepseek_v41/nvidia/model.py).
+	// attention all-reduce with an all-gather and a reduce-scatter
+	// (vllm/models/deepseek_v41/nvidia/model.py:239-247, _use_sequence_parallel, and
+	// 579-586 at v0.31.0).
 	ModelSequenceParallel bool
 
 	// CustomAllReduce is whether the SM-consuming reduction kernel will run. A request
