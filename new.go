@@ -162,6 +162,15 @@ func New(in Inputs) (*Kernel, error) {
 			"model on one stage would misstate every term", pool.Parallel.PP)
 	}
 
+	if err := refuseV4Layouts(in, k.cacheDType); err != nil {
+		return nil, err
+	}
+	if in.Model.Modality == model.ModalityTextDecoderOfMultimodal {
+		k.assume("modality", string(in.Model.Modality),
+			"the graph prices the text decoder of a multimodal model: its vision or audio "+
+				"tower, and the encoder work a multimodal request adds, are not priced")
+	}
+
 	plan, err := price.BuildPlanWith(in.Model, emitter{layout}, price.PlanOptions{
 		WeightBytesPerParam: func(n model.Node) float64 {
 			return weightBytesPerParam(in.Model, n, served)
@@ -443,6 +452,64 @@ func (k *Kernel) resolveMaxModelLen(g *model.Graph) {
 			"unstated, so the engine derives it from the model configuration, which the "+
 				"graph states as its context window")
 	}
+}
+
+// refuseV4Layouts refuses the DeepSeek-V4-family layouts vLLM v0.31.0 refuses at startup,
+// which no field validation catches and which would otherwise price as a deployment that
+// runs.
+//
+//   - V4.1's packed attention serves only fp8 caches: a cache dtype that resolves to neither
+//     packed record is a ValueError ("DeepseekV4 packed KV layouts only support fp8
+//     kv-cache", vllm/models/deepseek_v41/attention.py:147-155).
+//   - A mega-MoE backend needs expert parallelism ("DeepSeek V4 MegaMoE currently requires
+//     expert parallel", vllm/models/deepseek_v41/nvidia/model.py:630-635; the V4 model is
+//     the same).
+//   - V4.1 with Engram layers refuses dual-batch overlap ("DeepSeek V4.1 Engram does not
+//     support DBO or microbatching", vllm/config/vllm.py).
+//   - V4.1 refuses MTP drafting: its drafter is DSpark (the rules pack's
+//     deepseek-v41-refuses-mtp).
+func refuseV4Layouts(in Inputs, cacheDType string) error {
+	arch := in.Model.Global.Architecture
+	if arch != rules.ArchDeepseekV4 && arch != rules.ArchDeepseekV41 {
+		return nil
+	}
+	pool := in.Deployment.Pools[in.PoolIndex]
+	if pack, ok := in.Rules.(*rules.Pack); ok && pack != nil &&
+		pack.MegaMoEBackends[rules.NormalizeMoEBackend(pool.Engine.MoEBackend)] &&
+		!pool.Parallel.EnableExpertParallel {
+		return fmt.Errorf("moe_backend %q on %s needs expert parallelism: vLLM v0.31.0 "+
+			"refuses mega-MoE without it", pool.Engine.MoEBackend, arch)
+	}
+	if arch != rules.ArchDeepseekV41 {
+		return nil
+	}
+	if !strings.HasSuffix(cacheDType, "_ds_mla") {
+		return fmt.Errorf("cache_dtype %q on %s: its packed attention serves only fp8 "+
+			"caches, as fp8_ds_mla or nvfp4_ds_mla, and vLLM v0.31.0 refuses any other",
+			pool.Engine.CacheDType, arch)
+	}
+	if s := pool.Engine.Speculative; s != nil && s.NumSpecTokens > 0 &&
+		strings.Contains(strings.ToLower(s.Method), "mtp") {
+		return fmt.Errorf("speculative method %q on %s: its drafter is DSpark, and vLLM "+
+			"v0.31.0 refuses MTP for it", s.Method, arch)
+	}
+	if d := pool.Engine.DBO; d != nil && d.Enabled && graphHasEngram(in.Model) {
+		return fmt.Errorf("dual-batch overlap on %s with Engram layers: vLLM v0.31.0 "+
+			"refuses it at startup", arch)
+	}
+	return nil
+}
+
+// graphHasEngram reports whether a graph runs an Engram lookup.
+func graphHasEngram(g *model.Graph) bool {
+	for _, lk := range g.LayerKinds {
+		for _, n := range lk.Nodes {
+			if n.Op == model.OpGather && n.ResidencyControl == model.ResidencyEngramCPUOffload {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // weightBytesPerParam is the resident bytes of one parameter of a GEMM or GroupedGEMM
@@ -1587,6 +1654,9 @@ type gemmFit struct {
 	// both for the format; shapeAware says whether it does.
 	nHalf, kHalf float64
 	shapeAware   bool
+	// weightOnly is a weight-only kernel's own measured ramp (Marlin W8A16 or W4A16), which
+	// the registry validated with experts divided by their tensor-parallel slice.
+	weightOnly bool
 }
 
 // fitKey is a format and whether it is a grouped (MoE) GEMM, which can select a ramp of
@@ -1669,6 +1739,8 @@ func (k *Kernel) addFit(c *resolve.Coefficients, f price.Format, grouped bool) e
 	if err != nil {
 		return fmt.Errorf("weights in %s: %w", f.DType, err)
 	}
+	fit.weightOnly = strings.HasPrefix(spec.suffix, "w8a16_") ||
+		strings.HasPrefix(spec.suffix, "w4a16_")
 	k.fits[key] = fit
 	return nil
 }

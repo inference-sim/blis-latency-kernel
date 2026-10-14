@@ -96,7 +96,8 @@ type Kernel struct {
 	// many ways its heads split.
 	engramOnHost bool
 	engramShards int
-	// captureBreaks is how many regions a captured forward leaves eager (hostPerStep).
+	// captureBreaks is how many regions a breakable capture leaves eager, zero for a model
+	// split at its attention ops instead (modeHost).
 	captureBreaks int
 
 	// Constants lifted out of the coefficient set once, so the hot path reads fields
@@ -1344,8 +1345,7 @@ func (k *Kernel) moeDPFunnel() float64 {
 //	           replays one segment per split point and runs attention eagerly between
 //	           them: 73 launches on a 72-layer model, not one.
 //	FULL       one replay for the whole step, which is what a single per-step cost
-//	           describes -- or, on a model whose own code breaks the capture, one replay
-//	           per captured region.
+//	           describes.
 //
 // Charging one replay for a PIECEWISE step understates its host cost by the layer count.
 // On a 72-layer model at the conventional 5-10 microsecond replay cost that is half a
@@ -1394,15 +1394,18 @@ func (k *Kernel) hostPerStepWith(b kernel.Batch, draftKernels int) time.Duration
 func (k *Kernel) modeHost(mode graphMode, draftKernels int) time.Duration {
 	switch mode {
 	case graphModeFull:
-		// A model that breaks its own capture -- DeepSeek-V4.1 runs every layer's indexer
-		// and attention in an @eager_break_during_capture region, and its engram prefetch in
-		// two more (vllm/models/deepseek_v41/attention.py:766-792, 947-971;
-		// nvidia/engram.py:464-492 at v0.31.0) -- replays one piece per captured region.
-		// The break regions' own launches are dispatch, which launchSeconds charges per
-		// kernel in every mode, as it does for the eager attention between piecewise
-		// segments.
-		return time.Duration(float64(k.replayPerStep) * float64(1+k.captureBreaks))
+		return k.replayPerStep
 	case graphModePiecewise:
+		// A model on vLLM's breakable CUDA graphs is captured whole with eager regions cut
+		// out of it, rather than split at every attention op: piecewise dispatch replays
+		// one piece per region between breaks (BreakableCUDAGraphWrapper, "Scoped to
+		// PIECEWISE dispatch; FULL cudagraphs are unaffected",
+		// vllm/v1/worker/gpu_model_runner.py:5395-5405 at v0.31.0; the default
+		// architectures, vllm/config/vllm.py:78-92). The break regions' own launches are
+		// dispatch, which launchSeconds charges per kernel in every mode.
+		if k.captureBreaks > 0 {
+			return time.Duration(float64(k.replayPerStep) * float64(1+k.captureBreaks))
+		}
 		return time.Duration(float64(k.replayPerStep) * float64(k.plan.PiecewiseSegments()))
 	default:
 		return time.Duration(float64(k.launchEager) *

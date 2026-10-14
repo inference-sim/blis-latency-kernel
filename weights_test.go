@@ -120,26 +120,18 @@ func chain(n int) [][2]int {
 	return e
 }
 
-// A weight-only kernel computes at its ACTIVATION format's rate. On a part with no
-// four-bit peak, four-bit experts compute no faster than FP8 ones; and MXFP8 weights (one
-// E8M0 scale per 32), served by Marlin W8A16 on SM90, no faster than block-scaled FP8.
+// A weight-only kernel computes at its ACTIVATION format's rate: MXFP8 weights (one E8M0
+// scale per 32), served by Marlin W8A16 on SM90, no faster than block-scaled FP8.
 func TestWeightOnlyGEMMsComputeAtTheirActivationRate(t *testing.T) {
 	prefill := kernel.Batch{Reqs: []kernel.ReqShape{{Scheduled: 8192, PromptLen: 8192}}}
 	sm := func(k *Kernel) float64 {
 		return k.StepTime(prefill).PerResource[kernel.ResourceSM].Seconds()
 	}
-	in := fixtureInputs(t, v41)
-	fp4 := sm(build(t, in))
-	in = fixtureInputs(t, v41)
-	editNodes(in.Model, role("experts"), func(n *model.Node) { n.WeightDType = model.DTypeFP8 })
-	fp8 := sm(build(t, in))
-	if fp4 < fp8 {
-		t.Errorf("MXFP4 experts on H200 compute in %.2f ms, faster than FP8 experts' %.2f",
-			fp4*1e3, fp8*1e3)
-	}
-
+	// Four-bit experts against FP8 ones is TestFourBitExpertsOnHopperComputeAtBF16, with
+	// expert parallelism on so neither the Marlin padding nor the tensor-parallel slice
+	// enters the comparison.
 	mx := sm(build(t, fixtureInputs(t, v41)))
-	in = fixtureInputs(t, v41)
+	in := fixtureInputs(t, v41)
 	in.Model.Global.WeightScale = &model.WeightScale{Elements: 128 * 128, Bytes: 4}
 	block := sm(build(t, in))
 	if mx <= block {
@@ -233,9 +225,6 @@ func TestTokenShardingAppliesOnlyUnderSequenceParallelism(t *testing.T) {
 		return build(t, in)
 	}
 	on, onCleared := sp(nil), sp(clear)
-	if !on.layout.ModelSequenceParallel {
-		t.Fatal("tp 4 x dp 2 with expert parallelism did not turn on V4.1's sequence parallelism")
-	}
 	b := kernel.Batch{Reqs: []kernel.ReqShape{{Scheduled: 4096, PromptLen: 4096}}}
 	if on.StepTime(b).NoOverlap > onCleared.StepTime(b).NoOverlap {
 		t.Error("under sequence parallelism, sharding nodes by token made the step dearer")

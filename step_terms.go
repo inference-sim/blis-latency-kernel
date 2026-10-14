@@ -15,16 +15,44 @@ import (
 // A layer that states its caches reads their records (statedReadBytes). Any other reads
 // its inferred cache, at its own per-token width, over the tokens its bound and the
 // decode-context shard leave it (dcpDecodeTokens).
+//
+// A SPARSE layer's read is per query row, not per request. Its kernel takes an explicit set
+// of positions for every query -- the window and the selected top-k -- and vLLM v0.31.0
+// gathers that set for each query token of a request separately: "We treat queries in the
+// same seq as different queries" (vllm/models/deepseek_v41/nvidia/flashmla.py:200-203). A
+// speculative verify of 1 + K tokens therefore reads 1 + K sets, where dense attention
+// over a shared prefix reads it once. The registry's sparse rate was fitted on single-token
+// decode rows, where the two agree.
 func (k *Kernel) decodeReadBytes(l *price.PlannedLayer, kv []layerKV, i int,
-	contexts []int) float64 {
+	s *stepShape) float64 {
+	contexts := s.decodeContexts
+	perQuery := l.AttnKind == model.AttentionSparseMLA
+	rows := func(r int) float64 {
+		if perQuery {
+			return float64(max(s.decodeRows[r], 1))
+		}
+		return 1
+	}
 	if kv[i].stated {
 		var read float64
-		for _, ctx := range contexts {
+		for r, ctx := range contexts {
 			if ctx > 0 {
-				read += k.statedReadBytes(l.AttnCaches, l.AttnIndexTopK, ctx)
+				read += rows(r) * k.statedReadBytes(l.AttnCaches, l.AttnIndexTopK,
+					l.AttnWindow, ctx)
 			}
 		}
 		return read
+	}
+	if perQuery {
+		var read float64
+		for r, ctx := range contexts {
+			if t := k.dcpDecodeTokens(l, l.AttnKind, contexts[r:r+1]); t >= 0 {
+				read += rows(r) * t
+			} else if ctx > 0 {
+				read += rows(r) * float64(ctx)
+			}
+		}
+		return read * kv[i].perToken
 	}
 	var tokens float64
 	if bounded := k.dcpDecodeTokens(l, l.AttnKind, contexts); bounded >= 0 {

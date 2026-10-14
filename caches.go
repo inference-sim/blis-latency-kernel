@@ -191,12 +191,14 @@ func (k *Kernel) cacheFixedBytes() float64 {
 // (vllm/distributed/kv_transfer/kv_connector/v1/nixl/base_scheduler.py:133-146 at v0.31.0,
 // which clips the SlidingWindowSpec groups), and the state caches whole, as the kernel
 // takes them: they are a request's bounded state and cross with it.
-// A reader's cache is its owner's and crosses once; a speculator's caches do not cross,
-// since the decode pool's drafter writes its own.
+// A reader's cache is its owner's and crosses once; a speculator's caches cross with the
+// target's while the deployment speculates -- they share its KV cache groups, and every
+// group is transferable unless marked otherwise (KVCacheGroupSpec.enable_kv_transfer,
+// vllm/v1/kv_cache_interface.py:1460-1464, 1498-1508).
 func (k *Kernel) cacheTransferBytes(tokens int) float64 {
 	var total float64
 	for _, t := range k.caches {
-		if t.draft {
+		if t.draft && !k.speculating {
 			continue
 		}
 		var pages int
@@ -222,14 +224,18 @@ func (k *Kernel) cacheTransferBytes(tokens int) float64 {
 //
 // The shard of decode-context parallelism applies to the growing part only, the part
 // stored by token position -- the same caches cacheVariableBytes shards.
-func (k *Kernel) statedReadBytes(caches []price.PlannedCache, topk, ctx int) float64 {
+//
+// window is the node's own read window where it states one: a parallel-block draft reads its
+// ring plus its block positions (DSpark's 133 over a 128-token ring), which the ring holds
+// while they are in flight.
+func (k *Kernel) statedReadBytes(caches []price.PlannedCache, topk, window, ctx int) float64 {
 	var total float64
 	for _, c := range caches {
 		switch c.Kind {
 		case model.CacheWindow:
 			w := ctx
-			if c.Window > 0 {
-				w = min(ctx, c.Window)
+			if bound := max(c.Window, window); bound > 0 {
+				w = min(ctx, bound)
 			}
 			total += float64(w) * float64(c.EntryBytes)
 		case model.CacheKV, model.CacheIndex:

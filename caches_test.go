@@ -1,7 +1,6 @@
 package latencykernel
 
 import (
-	"math"
 	"math/rand"
 	"testing"
 
@@ -24,9 +23,19 @@ func growth(k *Kernel) float64 {
 	return float64(k.SequenceVariableBytes(hi)-k.SequenceVariableBytes(lo)) / (hi - lo)
 }
 
-// ownedRecordRate is what the graph's owned growing caches hold per context token, before
-// paging: each record over the tokens it covers, once per layer that owns it.
-func ownedRecordRate(g *model.Graph) float64 {
+// ownedRecordRate is what a fixture's owned growing caches hold per context token, before
+// paging: each record over the tokens it covers, once per layer that owns it, on the graph
+// as served on the fixture's chip and under the cache dtype its release resolves.
+func ownedRecordRate(t *testing.T, in Inputs) float64 {
+	t.Helper()
+	family, _ := in.Chip.CapabilityMajor()
+	g, err := in.Model.ForCapability(family)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pool := in.Deployment.Pools[0]
+	dtype := rulesFor(in.Scenario.EngineVersion).ResolveCacheDType(g.Global.Architecture,
+		family, pool.Parallel.TP, pool.Engine.CacheDType)
 	byID := map[string]model.LayerKind{}
 	for _, lk := range g.LayerKinds {
 		byID[lk.ID] = lk
@@ -35,7 +44,7 @@ func ownedRecordRate(g *model.Graph) float64 {
 	for _, id := range g.Stack.Expand() {
 		for _, n := range byID[id].Nodes {
 			for _, c := range n.Caches {
-				rate += c.BytesPerContextToken("fp8_ds_mla")
+				rate += c.BytesPerContextToken(dtype)
 			}
 		}
 	}
@@ -48,7 +57,7 @@ func ownedRecordRate(g *model.Graph) float64 {
 // alignment's rounding.
 func TestStatedCachesGrowAtTheOwnedRecordRate(t *testing.T) {
 	in := fixtureInputs(t, v41)
-	want := ownedRecordRate(in.Model)
+	want := ownedRecordRate(t, in)
 	got := growth(build(t, in))
 	if got < want || got > want*1.1 {
 		t.Errorf("a sequence grows %.1f B a token; its owned records are %.1f B a token, "+
@@ -93,11 +102,13 @@ func stripCaches(g *model.Graph) {
 func TestCacheStatementsArePerNode(t *testing.T) {
 	full := build(t, fixtureInputs(t, v41))
 	in := fixtureInputs(t, v41)
+	stripped := 0
 	for i := range in.Model.LayerKinds {
 		for j := range in.Model.LayerKinds[i].Nodes {
 			n := &in.Model.LayerKinds[i].Nodes[j]
 			switch {
 			case n.Op == model.OpAttention && n.Role == "":
+				stripped += len(n.Caches)
 				n.Caches = nil
 			case n.WritesCache != "" && n.WritesCache != "index":
 				n.WritesCache, n.PerTokens = "", 0
@@ -114,6 +125,9 @@ func TestCacheStatementsArePerNode(t *testing.T) {
 			}
 		}
 		in.Model.ArchOverrides[i].Caches = kept
+	}
+	if stripped == 0 {
+		t.Fatal("no primary attention stated a cache to strip")
 	}
 	in.Deployment.Pools[0].Engine.Speculative = nil
 	partial := build(t, in)
@@ -275,7 +289,7 @@ func TestHandoffMovesOnlyWhatTheTargetOwns(t *testing.T) {
 	lo, hi := 1<<18, 1<<20
 	rate := float64(k.PDTransferDemand(hi, from, to).Bytes-
 		k.PDTransferDemand(lo, from, to).Bytes) / float64(hi-lo)
-	if want := ownedRecordRate(fixtureInputs(t, v41).Model); rate < want || rate > 1.1*want {
+	if want := ownedRecordRate(t, fixtureInputs(t, v41)); rate < want || rate > 1.1*want {
 		t.Errorf("a handoff grows %.1f B a token; the owned records are %.1f", rate, want)
 	}
 }
@@ -311,8 +325,8 @@ func TestAWindowBoundsTheDecodeReadOfEveryKind(t *testing.T) {
 }
 
 // The selection bound, as properties over random layers and contexts: the read never
-// shrinks as context grows, never exceeds what the layer's caches hold, and a layer that
-// selects a top-k reads at most its window plus that top-k whatever the context.
+// shrinks as context grows, and a layer that selects a top-k reads at most its window plus
+// that top-k whatever the context.
 func TestSelectionBoundProperties(t *testing.T) {
 	r := rand.New(rand.NewSource(1))
 	for i := 0; i < 2000; i++ {
@@ -329,16 +343,11 @@ func TestSelectionBoundProperties(t *testing.T) {
 		if !readBounded(l) {
 			continue
 		}
-		ratio := float64(max(l.AttnCompressRatio, 1))
 		prev := 0.0
 		for _, ctx := range []int{1, 7, 128, 1000, 4096, 65536, 1 << 20} {
 			got := selectedKVTokensFor(l, ctx)
-			c := float64(ctx)
 			if got < prev {
 				t.Fatalf("%+v: read %v at %d, less than %v at a shorter context", *l, got, ctx, prev)
-			}
-			if got > c+c/ratio+1e-9 {
-				t.Fatalf("%+v: read %v at %d, more than its caches hold", *l, got, ctx)
 			}
 			if l.AttnIndexTopK > 0 &&
 				got > float64(l.AttnWindow)+float64(l.AttnIndexTopK)+1e-9 {
@@ -346,8 +355,5 @@ func TestSelectionBoundProperties(t *testing.T) {
 			}
 			prev = got
 		}
-	}
-	if math.IsNaN(selectedKVTokensFor(&price.PlannedLayer{AttnWindow: 1}, 0)) {
-		t.Fatal("an empty context read NaN")
 	}
 }

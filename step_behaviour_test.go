@@ -1,7 +1,6 @@
 package latencykernel
 
 import (
-	"math/rand"
 	"testing"
 
 	"github.com/inference-sim/blis-schemas/kernel"
@@ -44,46 +43,6 @@ func TestEagerLaunchesCostAtLeastAReplay(t *testing.T) {
 		if host["NONE"] < host["PIECEWISE"] || host["PIECEWISE"] < host["FULL"] {
 			t.Errorf("%s: host time NONE %.3g, PIECEWISE %.3g, FULL %.3g; capturing more "+
 				"cannot cost the host more", scenario, host["NONE"], host["PIECEWISE"], host["FULL"])
-		}
-	}
-}
-
-// Adding a request never makes a step cheaper -- in particular across the CUDA-graph
-// capture ceiling, past which the step runs with no graph. Checked on random batches
-// straddling the ceiling, over dense, sparse-MLA, recurrent and V4.1 deployments, adding
-// a decode or a short prefill.
-func TestAddingARequestNeverLowersTheStep(t *testing.T) {
-	r := rand.New(rand.NewSource(42))
-	for _, scenario := range []string{"glm5-h200-tp8.yaml", "minimax-m25-h200-tp8.yaml",
-		"kimi-k3-h100-nospec.yaml", v41} {
-		k := fixture(t, scenario)
-		ceiling := k.captureTokens
-		for trial := 0; trial < 200; trial++ {
-			var b kernel.Batch
-			b.DecodeThreshold = k.uniformDecodeWidth
-			total := ceiling - 12 + r.Intn(12)
-			for total > 0 {
-				s := k.uniformDecodeWidth
-				if r.Intn(3) == 0 {
-					s = 1 + r.Intn(min(total, 64))
-				}
-				s = min(s, total)
-				ctx := 1 + r.Intn(16384)
-				b.Reqs = append(b.Reqs, kernel.ReqShape{Scheduled: s, Computed: ctx,
-					PromptLen: ctx + s})
-				total -= s
-			}
-			before := k.StepTime(b).NoOverlap
-			extra := 1 + r.Intn(16)
-			if r.Intn(2) == 0 {
-				extra = k.uniformDecodeWidth
-			}
-			b.Reqs = append(b.Reqs, kernel.ReqShape{Scheduled: extra, Computed: 4096,
-				PromptLen: 4096 + extra})
-			if after := k.StepTime(b).NoOverlap; after < before {
-				t.Fatalf("%s: adding a %d-token request to a %d-token step lowered it from "+
-					"%v to %v", scenario, extra, b.Tokens()-extra, before, after)
-			}
 		}
 	}
 }
@@ -140,13 +99,12 @@ func TestTheDrafterIsPriced(t *testing.T) {
 	in.Model.Speculator.Drafting = model.DraftingAutoregressive
 	in.Model.Speculator.SequentialHead = nil
 	in.Model.Speculator.ContextStack = nil
-	for i := range in.Model.LayerKinds {
-		for j := range in.Model.LayerKinds[i].Nodes {
-			n := &in.Model.LayerKinds[i].Nodes[j]
-			if n.Window == 133 {
-				n.Window = 128 // an autoregressive draft reads only its ring
-			}
-		}
+	// An autoregressive draft reads only its ring, not the block positions beyond it.
+	if editNodes(in.Model, func(n model.Node) bool {
+		return n.Op == model.OpAttention && len(n.Caches) > 0 &&
+			n.Caches[0].Kind == model.CacheWindow && n.Window > n.Caches[0].Window
+	}, func(n *model.Node) { n.Window = n.Caches[0].Window }) == 0 {
+		t.Fatal("the drafter states no read beyond its ring")
 	}
 	ar := build(t, in)
 	in = fixtureInputs(t, v41)

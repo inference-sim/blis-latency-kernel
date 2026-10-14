@@ -6,6 +6,7 @@ import (
 
 	"github.com/inference-sim/blis-schemas/kernel"
 	"github.com/inference-sim/blis-schemas/spec/coefficient"
+	"github.com/inference-sim/blis-schemas/spec/deployment"
 	"github.com/inference-sim/blis-schemas/spec/model"
 )
 
@@ -86,5 +87,45 @@ func TestAScorerWithoutItsOwnRateIsRecorded(t *testing.T) {
 	in.Chip, in.Scenario.Cluster.Hardware = chipInputs(t, "b200"), "b200"
 	if k := build(t, in); !recorded(k, "attention_decode_rate_block_index_scores") {
 		t.Error("the indexer on B200 has no rate of its own and Provenance does not say so")
+	}
+}
+
+// The DeepSeek-V4.1 layouts vLLM v0.31.0 refuses at startup are refused, not priced.
+func TestV41LayoutsTheEngineRefuses(t *testing.T) {
+	for name, edit := range map[string]func(*Inputs){
+		"a bf16 cache": func(in *Inputs) { in.Deployment.Pools[0].Engine.CacheDType = "bfloat16" },
+		"mega-MoE without expert parallelism": func(in *Inputs) {
+			in.Deployment.Pools[0].Engine.MoEBackend = "deep_gemm_mega_moe"
+		},
+		"dual-batch overlap with Engram": func(in *Inputs) {
+			in.Deployment.Pools[0].Engine.DBO = &deployment.DBO{Enabled: true}
+		},
+		"MTP drafting": func(in *Inputs) {
+			in.Deployment.Pools[0].Engine.Speculative.Method = "mtp"
+		},
+	} {
+		in := fixtureInputs(t, v41)
+		edit(&in)
+		if _, err := New(in); err == nil {
+			t.Errorf("%s: priced a layout vLLM v0.31.0 refuses at startup", name)
+		}
+	}
+}
+
+// A sparse layer gathers its window and top-k for every query token, so the context it reads
+// grows once per verify token, where a dense layer reads its shared prefix once. Measured as
+// how much more HBM time a longer context costs -- below the top-k, where a sparse read
+// still grows -- which per-token terms that do not read context leave untouched.
+func TestSparseReadsArePerQueryToken(t *testing.T) {
+	k := fixture(t, "glm5-h200-tp8.yaml") // DSA: top-k 2048, read per query
+	gap := func(q int) float64 {
+		hbm := func(ctx int) float64 {
+			return k.StepTime(decodeBatch(32, q, ctx)).PerResource[kernel.ResourceHBM].Seconds()
+		}
+		return hbm(2000) - hbm(1000)
+	}
+	if one, six := gap(1), gap(6); six < 3*one {
+		t.Errorf("a 6-token verify's context costs %.3g s of HBM against a 1-token decode's "+
+			"%.3g; six queries each gather their own selection", six, one)
 	}
 }

@@ -50,6 +50,17 @@ func (k *Kernel) liftDraft(c *resolve.Coefficients, inferred func(price.PlannedL
 		return nil
 	}
 	k.speculating = true
+	for _, l := range k.plan.Layers {
+		if l.AttnKind == model.AttentionSparseMLA && l.AttnQHeads > 0 {
+			k.assume("sparse_read_per_query", "1 + num_spec_tokens",
+				"a verify step's sparse attention is charged one window-and-top-k read per "+
+					"query token, as vLLM gathers them (vllm/models/deepseek_v41/nvidia/"+
+					"flashmla.py:200-203); the registry's sparse rate was fitted on single-token "+
+					"decode, and how much of that read a request's tokens share in cache was "+
+					"never measured")
+			break
+		}
+	}
 	if spec.Method != "" && d.Method != "" && spec.Method != d.Method {
 		k.assume("speculator", d.Method,
 			"the deployment names method "+spec.Method+" and the graph states a "+d.Method+
@@ -276,7 +287,12 @@ func (k *Kernel) liftStepTerms(c *resolve.Coefficients, g *model.Graph) error {
 
 	k.padFlashMLA = deepseekV4Family(g) && k.layout.TP > 1 && k.hopper()
 
-	if g.Global.Architecture == rules.ArchDeepseekV41 {
+	// The eager regions of a breakable capture: one per attention layer -- each layer's
+	// indexer and attention are one @eager_break_during_capture region
+	// (vllm/models/deepseek_v41/attention.py:766-792, 947-971; deepseek_v4/attention.py:538,
+	// 733 at v0.31.0) -- and, on V4.1 with its tables in host memory, the Engram prefetch's
+	// start and finish (nvidia/engram.py:464-492).
+	if a := g.Global.Architecture; a == rules.ArchDeepseekV41 || a == rules.ArchDeepseekV4 {
 		for _, l := range k.plan.Layers {
 			if l.AttnQHeads > 0 {
 				k.captureBreaks += l.Count

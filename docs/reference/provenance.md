@@ -41,10 +41,12 @@ reason. They are of two kinds.
 | `max_model_len` | The deployment states no context length, or states `auto`: the bound is the model's context window from the graph (for `auto`, the most the engine can fit it to). |
 | `max_num_batched_tokens` | No token budget per step is stated. vLLM's default for the chip's memory size. |
 | `max_num_seqs` | No limit on concurrent requests is stated. vLLM's default for the chip's memory size. |
+| `modality` | The graph prices the text decoder of a multimodal model; its vision or audio tower is not priced. |
 | `mla_context_chunk` | Decode-context parallelism is on for a latent-attention model and no context length is stated, so the chunk in which a prefill gathers its cached context is taken at its largest. |
 | `num_spec_tokens` | The deployment drafts a different number of tokens a step from the graph's speculator, so what the graph sizes at its own count is taken as stated. |
 | `recurrent_prefill_rate_<kind>` | A recurrent mixer has no measured prefill form, so its prefill tokens are priced as the chunked scan's FLOPs on the BF16 ramp rather than at the decode scan's rate. |
 | `sparse_mla_backend` | A DSA sparse-attention model on Hopper selects FlashInfer's sparse MLA backend, which needs a FlashInfer release the kernel cannot see installed. |
+| `sparse_read_per_query` | A speculating deployment of a sparse-attention model: each verify token is charged its own window-and-top-k read, as vLLM gathers them, though the registry's rate was fitted on single-token decode and the sharing between a request's tokens was never measured. |
 | `speculator` | The deployment speculates and the graph states no speculator, so draft passes are not priced; or the deployment names a different method from the graph's speculator, which is the one priced. |
 
 ### Optional coefficients that were missing

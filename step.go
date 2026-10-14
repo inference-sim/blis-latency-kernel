@@ -24,11 +24,13 @@ type stepShape struct {
 	causalFLOPs, decodeKVTokens, decodeQueryCtx float64
 	prefillChunks                               []chunk
 	decodeContexts                              []int
-	prefills                                    []prefillShape
-	prefillRequests, decodeRequests             int
-	decodeTokens, prefillTokens                 int
-	anyContext                                  bool
-	smDerate                                    float64
+	// decodeRows is each decode request's query rows, aligned with decodeContexts.
+	decodeRows                      []int
+	prefills                        []prefillShape
+	prefillRequests, decodeRequests int
+	decodeTokens, prefillTokens     int
+	anyContext                      bool
+	smDerate                        float64
 }
 
 // shapeOf reduces a batch to the step shape.
@@ -61,7 +63,7 @@ func (k *Kernel) shapeOf(b kernel.Batch) stepShape {
 	// topk); see selectedKVTokensFor), and a bound cannot be applied to a batch-wide sum
 	// without changing the answer. min(sum) != sum(min) whenever any request sits on either side of the bound,
 	// which in a mixed batch is the normal case.
-	var decodeContexts []int
+	var decodeContexts, decodeRows []int
 	var prefillRequests, decodeRequests int
 	// decodeTokens is the query rows the decode regime runs, which is what crosses in a
 	// decode-context combine: one row per scheduled token, so a speculative decode
@@ -165,6 +167,7 @@ func (k *Kernel) shapeOf(b kernel.Batch) stepShape {
 		decodeKVTokens += float64(ctx)
 		decodeQueryCtx += float64(r.Scheduled) * float64(ctx)
 		decodeContexts = append(decodeContexts, ctx)
+		decodeRows = append(decodeRows, r.Scheduled)
 		// A decode row is REPLICATED across prefill-context-parallel ranks, not split:
 		// _iter_rank_chunks gives every rank chunk_indices = (0,) for a non-prefilling
 		// request, so each computes the whole one-token query. PCP divides prefill only,
@@ -211,7 +214,7 @@ func (k *Kernel) shapeOf(b kernel.Batch) stepShape {
 		spRows:      math.Ceil(tokensF / k.tp),
 		causalFLOPs: causalFLOPs, decodeKVTokens: decodeKVTokens,
 		decodeQueryCtx: decodeQueryCtx,
-		prefillChunks:  prefillChunks, decodeContexts: decodeContexts, prefills: prefills,
+		prefillChunks:  prefillChunks, decodeContexts: decodeContexts, decodeRows: decodeRows, prefills: prefills,
 		prefillRequests: prefillRequests, decodeRequests: decodeRequests,
 		decodeTokens: decodeTokens, prefillTokens: prefillTokens,
 		anyContext: anyContext, smDerate: smDerate,
@@ -461,6 +464,14 @@ func (k *Kernel) priceLayers(layers []price.PlannedLayer, fits [][]gemmFit, kv [
 			dpSlice := 1.0
 			if k.layout.ExpertWidth <= 1 {
 				dpSlice = k.expertTensorShards / k.tp
+				// EXCEPT on a weight-only Marlin ramp, where the over-charge has no
+				// measurement to cancel. That ramp was fitted at moe_tp 1 and validated at
+				// wider tp with each rank's slice of the expert width (blis-registry
+				// scripts/fit_marlin_grouped_ramp.py terms()), which is what vLLM runs; the
+				// cancellation the native ramps rest on was measured on them, not on it.
+				if k.fit(l.RoutedFormat, true).weightOnly {
+					dpSlice = k.expertTensorShards
+				}
 			}
 			// Marlin pads a tensor-parallel slice of each expert's intermediate width to a
 			// multiple of 128 (see expertPadding), which is work and weight it runs.
@@ -531,7 +542,7 @@ func (k *Kernel) priceLayers(layers []price.PlannedLayer, fits [][]gemmFit, kv [
 				// because min(sum) != sum(min): in a batch holding one request below the
 				// top-k and one far above it, bounding the batch-wide total gets both
 				// wrong.
-				read := k.decodeReadBytes(l, kv, i, s.decodeContexts)
+				read := k.decodeReadBytes(l, kv, i, s)
 				// The FLOOR stays outside the shard, deliberately. It is a KERNEL
 				// LAUNCH-AND-SETUP cost, paid once per rank per invocation however many
 				// tokens that rank holds, and sharding a sequence does not make a launch
@@ -666,7 +677,7 @@ func (k *Kernel) priceLayers(layers []price.PlannedLayer, fits [][]gemmFit, kv [
 					// entry of each request's context, ceil(ctx / tokens_per_entry).
 					var read float64
 					for _, ctx := range s.decodeContexts {
-						read += k.statedReadBytes(a.Caches, 0, ctx)
+						read += k.statedReadBytes(a.Caches, 0, 0, ctx)
 					}
 					charge(read)
 					continue
@@ -758,7 +769,7 @@ func (k *Kernel) priceLayers(layers []price.PlannedLayer, fits [][]gemmFit, kv [
 		// this part; otherwise the attention term already carries these bytes and adding
 		// them again would double-count.
 		if l.AttnQHeads > 0 && kvFallback {
-			kvBytes += k.decodeReadBytes(l, kv, i, s.decodeContexts)
+			kvBytes += k.decodeReadBytes(l, kv, i, s)
 		}
 
 		// The efficiency ramp is evaluated at the STEP's token count for every term,

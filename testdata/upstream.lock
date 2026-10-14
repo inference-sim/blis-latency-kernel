@@ -6,4 +6,4 @@
 # run the script, and run `go test ./...`: a renamed chip or coefficient is supposed to
 # break the fixtures that name it.
 catalog  https://github.com/inference-sim/blis-catalog  0.2.2   3ed02ff75e6bf505f64cf7a54aa5e3bd626f85a5  hardware/*.yaml networks/*.yaml devices/storage.yaml models/*/graph.yaml
-registry https://github.com/inference-sim/blis-registry pr-40   7bb531c4cbd657b8191099de210ab175fa0b5e5e  coefficients/*.yaml
+registry https://github.com/inference-sim/blis-registry pr-40   e08b3038b63b2df7cfe5349ad2106812ace70674  coefficients/*.yaml
