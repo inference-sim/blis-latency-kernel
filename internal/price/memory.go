@@ -38,7 +38,9 @@ import "math"
 // fp32 scales a token (vllm/model_executor/layers/attention/mla_attention.py:1580-1593), so
 // the kernel refuses those cache dtypes rather than size them here; padded pages are sized by
 // their own specs (vllm/v1/kv_cache_interface.py:527-536), and a compressed cache (a
-// compress_ratio layer) holds fewer states than tokens, and neither is modelled.
+// compress_ratio layer) holds fewer states than tokens. Neither is modelled HERE: a graph
+// that states its caches (blis-schemas model.Cache) is sized from them in the root package
+// (caches.go), and this law is what a layer that states none is sized by.
 //
 // The cache dtype is independent of the weight dtype. A bf16 model with an fp8 cache
 // halves this, which is the difference between a deployment holding one long sequence and

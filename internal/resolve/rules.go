@@ -1,5 +1,10 @@
 package resolve
 
+import (
+	"github.com/inference-sim/blis-schemas/spec/deployment"
+	"github.com/inference-sim/blis-schemas/spec/model"
+)
+
 // EngineRules is the version-specific behaviour a resolver needs.
 //
 // It is an interface rather than a set of constants because these facts belong to one
@@ -24,4 +29,20 @@ type EngineRules interface {
 	// DBOEngages reports whether dual-batch overlap splits a batch, given its total
 	// token count and whether every request schedules the same number of tokens.
 	DBOEngages(enabled bool, totalTokens int, uniformDecode bool) bool
+
+	// ModelSequenceParallel reports whether a model's OWN sequence parallelism is on, for
+	// the architecture its graph names: DeepSeek-V4.1 decides it in its model code, and it
+	// decides the sequence_parallel emit conditions.
+	ModelSequenceParallel(architecture string, pl deployment.Parallelism, moeBackend string) bool
+
+	// EffectiveAll2AllBackend is the MoE dispatch backend the engine runs for a stated one:
+	// the release's default where none is stated, and the replacement for a renamed one.
+	EffectiveAll2AllBackend(backend string) string
+
+	// ResolveCacheDType is the cache dtype that runs for a requested one, on an
+	// architecture, compute-capability family and tensor-parallel width.
+	ResolveCacheDType(architecture string, family, tp int, requested string) string
+
+	// WindowPagesPerRequest is how many pages of a window cache one request holds.
+	WindowPagesPerRequest(c model.Cache, engineBlock, inFlight, extraRetained, maxModelLen int) int
 }

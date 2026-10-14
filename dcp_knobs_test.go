@@ -5,10 +5,12 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/inference-sim/blis-schemas/kernel"
 	"github.com/inference-sim/blis-schemas/rules/v0_29"
 	"github.com/inference-sim/blis-schemas/spec/coefficient"
+	"github.com/inference-sim/blis-schemas/spec/deployment"
 	"github.com/inference-sim/blis-schemas/vocab"
 
 	schemas "github.com/inference-sim/blis-schemas"
@@ -157,29 +159,24 @@ func TestUnderPCPTheCombineIsAnLSEGatherAndAnAllReduce(t *testing.T) {
 //
 // Asked the same way: at tp=2 the tensor-parallel all-gather is the 2-rank one, and the
 // decode-context group is 4 or 8 ranks wide, so inflating the 2-rank all-gather floor moves
-// the decode step exactly when that gather runs.
+// the decode step by more exactly where that gather runs. The step's other 2-rank all-gather,
+// the LM head's logits gather, is the same in both layouts, so it moves both alike and the
+// difference between them is the query gather's.
 func TestUnderPCPTheQueryIsGatheredOverTPOnlyWhenDCPSpansTheBlock(t *testing.T) {
 	decode := decodeBatch(8, 1, 8192)
-	for _, c := range []struct {
-		dcp      int
-		gathered bool
-	}{
-		{4, false}, // dcp == pcp: the PCP axis alone
-		{8, true},  // dcp == tp*pcp: the whole block, after a tensor-parallel gather
-	} {
-		base := mustDCPVariant(t, dcpSparseFixture, 2, 4, c.dcp, nil)
-		inflated := mustDCPVariant(t, dcpSparseFixture, 2, 4, c.dcp, func(in *Inputs) {
+	moved := func(dcp int) time.Duration {
+		base := mustDCPVariant(t, dcpSparseFixture, 2, 4, dcp, nil)
+		inflated := mustDCPVariant(t, dcpSparseFixture, 2, 4, dcp, func(in *Inputs) {
 			in.Coefficients = scaleFloors(in.Coefficients, "all_gather_fp16_2rank", 10)
 		})
-		before, after := base.StepTime(decode).NoOverlap, inflated.StepTime(decode).NoOverlap
-		if c.gathered && after <= before {
-			t.Errorf("dcp=%d: inflating the 2-rank all-gather left the decode step at %v; "+
-				"the query is gathered over the tensor-parallel group here", c.dcp, after)
-		}
-		if !c.gathered && after != before {
-			t.Errorf("dcp=%d: inflating the 2-rank all-gather moved the decode step from "+
-				"%v to %v; with dcp == pcp no tensor-parallel gather runs", c.dcp, before, after)
-		}
+		return inflated.StepTime(decode).NoOverlap - base.StepTime(decode).NoOverlap
+	}
+	// dcp == pcp: the PCP axis alone; dcp == tp*pcp: the whole block, after a
+	// tensor-parallel query gather.
+	if alone, block := moved(4), moved(8); block <= alone {
+		t.Errorf("inflating the 2-rank all-gather moved the decode step %v at dcp=8 and %v at "+
+			"dcp=4; only dcp == tp*pcp gathers the query over the tensor-parallel group",
+			block, alone)
 	}
 }
 
@@ -513,7 +510,7 @@ func TestTheFabricDCPLayoutsDeclareIsInTheCatalog(t *testing.T) {
 // A FULL-ATTENTION DCP LAYER COMBINES EVERY QUERY ROW WHEN ANY REQUEST READS CONTEXT.
 // FlashAttention runs one context pass over the whole step's queries -- gathering them all
 // and combining every row -- and skips it when no request has cached context
-// (vllm/v1/attention/backends/flash_attn.py:1563-1691 at v0.31.0). So beside decode rows a
+// (vllm/v1/attention/backends/flash_attn.py:1591-1686 at v0.31.0). So beside decode rows a
 // prefill's tokens join the combine; on a step of fresh prefills nothing is combined at all.
 func TestAFullAttentionDCPLayerCombinesEveryRowWhenContextIsRead(t *testing.T) {
 	const fixture = "minimax-m25-h200-tp8.yaml" // gqa
@@ -578,7 +575,7 @@ func TestALatentPrefillGathersItsContextOnceAChunk(t *testing.T) {
 		}
 		setLen := func(in *Inputs) {
 			if maxModelLen > 0 {
-				in.Deployment.Pools[0].Engine.MaxModelLen = maxModelLen
+				in.Deployment.Pools[0].Engine.MaxModelLen = deployment.MaxModelLen(maxModelLen)
 			}
 		}
 		base := mustDCPVariant(t, dcpMLAFixture, 8, 1, 2, setLen)

@@ -39,6 +39,14 @@ type Layout struct {
 	// and all-gather pair, so the two are alternatives rather than both running.
 	SequenceParallelMoE bool
 
+	// ModelSequenceParallel is whether the model's own sequence parallelism is on, as the
+	// rules pack decides it for the architecture the graph names. DeepSeek-V4.1 then shards
+	// its residual stream by token across the tensor-parallel ranks, and replaces each
+	// attention all-reduce with an all-gather and a reduce-scatter
+	// (vllm/models/deepseek_v41/nvidia/model.py:239-247, _use_sequence_parallel, and
+	// 579-586 at v0.31.0).
+	ModelSequenceParallel bool
+
 	// CustomAllReduce is whether the SM-consuming reduction kernel will run. A request
 	// for it is declined when the group spans nodes without multi-node NVLink, or when
 	// the rank count is one the kernel does not support — in which case the cost moves
@@ -95,6 +103,13 @@ func (f Fabric) Ratio() float64 {
 // engine rules for its declared version.
 func ResolveLayout(s *scenario.Scenario, pool deployment.Pool, fab Fabric,
 	rules EngineRules) (Layout, error) {
+	return ResolveLayoutFor(s, pool, fab, rules, "")
+}
+
+// ResolveLayoutFor is ResolveLayout for a model whose graph names its architecture, which
+// decides whether the model's own sequence parallelism is on.
+func ResolveLayoutFor(s *scenario.Scenario, pool deployment.Pool, fab Fabric,
+	rules EngineRules, architecture string) (Layout, error) {
 	pl := pool.Parallel
 	if pl.TP < 1 || pl.DP < 1 {
 		return Layout{}, fmt.Errorf("tensor- and data-parallel widths must be at least 1")
@@ -133,6 +148,10 @@ func ResolveLayout(s *scenario.Scenario, pool deployment.Pool, fab Fabric,
 
 	l.SequenceParallelMoE = rules.SequenceParallelMoE(
 		pool.Engine.All2AllBackend, pl.EnableExpertParallel, pl.TP, pl.DP)
+	if architecture != "" {
+		l.ModelSequenceParallel = rules.ModelSequenceParallel(architecture, pl,
+			pool.Engine.MoEBackend)
+	}
 	l.CustomAllReduce, l.Overrides = resolveCustomAllReduce(pool, l, fab, rules)
 	return l, nil
 }
@@ -196,6 +215,10 @@ func (l Layout) Emits(c model.EmitCondition) bool {
 		return l.MoEGroup() > 1
 	case model.EmitTensorParallelUnlessSequenceParallelMoE:
 		return l.TP > 1 && !l.SequenceParallelMoE
+	case model.EmitSequenceParallel:
+		return l.ModelSequenceParallel
+	case model.EmitTensorParallelUnlessSequenceParallel:
+		return l.TP > 1 && !l.ModelSequenceParallel
 	}
 	// An unrecognized condition answers false here, but it never reaches this line from
 	// the pricer: BuildPlan asks Recognizes first and rejects the graph, because silently
@@ -208,7 +231,8 @@ func (l Layout) Emits(c model.EmitCondition) bool {
 func Recognizes(c model.EmitCondition) bool {
 	switch c {
 	case model.EmitAlways, model.EmitTensorParallel, model.EmitExpertParallel,
-		model.EmitTensorParallelUnlessSequenceParallelMoE:
+		model.EmitTensorParallelUnlessSequenceParallelMoE, model.EmitSequenceParallel,
+		model.EmitTensorParallelUnlessSequenceParallel:
 		return true
 	}
 	return false

@@ -500,7 +500,7 @@ func TestDenseGEMMShardAxisComesFromTheGraph(t *testing.T) {
 		// shapes correctly and this one wrongly.
 		{Op: model.OpGEMM, Role: "index_qk_proj", N: 640, K: hidden},
 	}
-	pl, err := planNodes(nodes, emitAll{}, 1, 1, hidden)
+	pl, err := planNodes(nodes, emitAll{}, testOptions(1, 1), hidden)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -527,7 +527,7 @@ func TestDenseGEMMShardAxisComesFromTheGraph(t *testing.T) {
 func TestDenseGEMMShardAxisFallsBackWithoutHidden(t *testing.T) {
 	pl, err := planNodes([]model.Node{
 		{Op: model.OpGEMM, Role: "unknown", N: 4096, K: 4096},
-	}, emitAll{}, 1, 1, 0)
+	}, emitAll{}, testOptions(1, 1), 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -552,7 +552,7 @@ func TestConsecutiveColumnParallelGEMMsFuse(t *testing.T) {
 	const hidden = 6144
 	plan := func(nodes ...model.Node) PlannedLayer {
 		t.Helper()
-		pl, err := planNodes(nodes, emitAll{}, 1, 1, hidden)
+		pl, err := planNodes(nodes, emitAll{}, testOptions(1, 1), hidden)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -603,5 +603,45 @@ func TestConsecutiveColumnParallelGEMMsFuse(t *testing.T) {
 	if len(got.DenseGEMMs) != 2 {
 		t.Fatalf("a row-parallel GEMM on the same K fused into a column-parallel one: "+
 			"%d GEMMs, want 2", len(got.DenseGEMMs))
+	}
+}
+
+// testOptions plans every weight at dtypeBytes and every format as bf16, the shape the
+// planNodes tests below were written against.
+func testOptions(dtypeBytes, stateBytes float64) PlanOptions {
+	return PlanOptions{
+		WeightBytesPerParam: func(n model.Node) float64 { return weightBytes(n, dtypeBytes) },
+		Format:              func(model.Node) Format { return Format{DType: model.DTypeBF16} },
+		EntryBytes:          func(c model.Cache) int { return c.BytesPerEntry },
+		StateBytes:          stateBytes,
+	}
+}
+
+// A layer that runs attention with no primary -- every attention node labelled, none the
+// one that reads the engine's cache -- is refused rather than planned with its attention
+// unpriced.
+func TestALayerWithAttentionButNoPrimaryIsRefused(t *testing.T) {
+	_, err := planNodes([]model.Node{
+		{Op: model.OpAttention, Role: "attention", AttentionKind: model.AttentionGQA,
+			NumQHeads: 8, NumKVHeads: 8, HeadDim: 128},
+	}, emitAll{}, testOptions(2, 4), 1024)
+	if err == nil {
+		t.Fatal("a layer whose only attention is labelled was planned")
+	}
+}
+
+// Two routed-expert nodes of one layer computing from different formats cannot be one
+// expert term, and are refused rather than the second silently replacing the first.
+func TestConflictingExpertFormatsAreRefused(t *testing.T) {
+	o := testOptions(1, 4)
+	o.Format = func(n model.Node) Format { return Format{DType: n.WeightDType} }
+	_, err := planNodes([]model.Node{
+		{Op: model.OpGroupedGEMM, N: 512, K: 1024, Experts: 64, TopK: 4,
+			WeightDType: model.DTypeFP8},
+		{Op: model.OpGroupedGEMM, N: 512, K: 1024, Experts: 64, TopK: 4,
+			WeightDType: model.DTypeMXFP4},
+	}, emitAll{}, o, 1024)
+	if err == nil {
+		t.Fatal("two routed-expert formats in one layer were planned as one")
 	}
 }

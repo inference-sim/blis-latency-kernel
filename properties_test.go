@@ -37,6 +37,7 @@ func propertyFixtures(t *testing.T) map[string]*Kernel {
 		"nemotron3-ultra-h100-agg.yaml",    // three replicas, fabric declared
 		"kimi-k3-h100-nospec.yaml",         // multi-node, speculation disabled
 		"direct/m27-h200-puretp4-fpm.yaml", // four GPUs per node
+		v41,                                // stated caches, replicated nodes, a drafter
 	} {
 		out[name] = fixture(t, name)
 	}

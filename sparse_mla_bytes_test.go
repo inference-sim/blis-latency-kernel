@@ -104,36 +104,45 @@ func TestSparseMLADecodeDoesNotScaleWithTheWholeContext(t *testing.T) {
 // the pricer, and neither exists today -- so the gap is recorded here instead of being
 // hidden behind an assertion that happens to pass.
 func TestSparseMLABoundsEachRequestNotTheBatchTotal(t *testing.T) {
-	// csa4_moe's geometry: topk 1024, compressed remainder at 1/4.
+	// csa4_moe's geometry: a 128-token window, and a top-k of 1,024 from a stream
+	// compressed 4:1.
 	l := &price.PlannedLayer{
-		AttnKind: model.AttentionSparseMLA, AttnIndexTopK: 1024, AttnCompressRatio: 4,
+		AttnKind: model.AttentionSparseMLA, AttnWindow: 128, AttnIndexTopK: 1024,
+		AttnCompressRatio: 4,
 	}
 
-	// Four requests of 1,024 tokens: every one sits exactly at the top-k, so nothing is
-	// compressed and the total is 4 x 1024.
+	// Four requests of 1,024 tokens: each reads its window and the 256 compressed
+	// positions it has, all of which the top-k admits: 4 x (128 + 256).
 	perRequest := selectedKVTokens(l, []int{1024, 1024, 1024, 1024})
-	if want := 4096.0; perRequest != want {
-		t.Errorf("4 requests at the top-k selected %v tokens, want %v", perRequest, want)
+	if want := 4 * (128.0 + 256.0); perRequest != want {
+		t.Errorf("4 requests of 1,024 selected %v tokens, want %v", perRequest, want)
 	}
 
-	// The same 4,096 tokens of context in ONE request: 1,024 selected plus 3,072/4
-	// compressed = 1,792. Applying the cap to the batch total would give this same answer
-	// for the case above, which is how the two differ.
+	// The same 4,096 tokens of context in ONE request: its window and a top-k that its
+	// 1,024 compressed positions just fill, 128 + 1,024. Applying the bounds to the batch
+	// total would give this same answer for the case above, which is how the two differ.
 	concentrated := selectedKVTokens(l, []int{4096})
-	if want := 1024.0 + 3072.0/4.0; concentrated != want {
+	if want := 128.0 + 1024.0; concentrated != want {
 		t.Errorf("one request of 4,096 selected %v tokens, want %v", concentrated, want)
 	}
 	if perRequest == concentrated {
-		t.Errorf("4x1,024 and 1x4,096 tokens of context both selected %v; the cap is "+
+		t.Errorf("4x1,024 and 1x4,096 tokens of context both selected %v; the bound is "+
 			"being applied to the batch total rather than per request", perRequest)
 	}
 
 	// And the direction matters: spreading the same context over more requests reads MORE,
-	// because each request pays its own uncompressed top-k.
+	// because each request reads its own window.
 	if perRequest <= concentrated {
 		t.Errorf("spreading context over 4 requests selected %v, not more than the %v one "+
-			"request reads; each request pays its own top-k at full resolution",
-			perRequest, concentrated)
+			"request reads; each request pays its own window", perRequest, concentrated)
+	}
+
+	// Past the top-k nothing grows with context: a top-k layer reads its window plus at
+	// most index_topk positions (vllm/models/deepseek_v4/nvidia/flashmla.py:187-262 at
+	// v0.31.0). The form this replaced added (ctx - topk) / ratio, which grew without bound.
+	if long := selectedKVTokens(l, []int{1 << 20}); long != concentrated {
+		t.Errorf("a 1M-token request selected %v tokens, want the saturated %v",
+			long, concentrated)
 	}
 }
 
@@ -157,13 +166,24 @@ func TestSelectedKVTokensRefusesWhatItCannotBound(t *testing.T) {
 		})
 	}
 
-	// A window with no top-k IS a bound: that is how blis-catalog states csa128_moe.
+	// A compressing layer that selects nothing IS a bound: its window plus the whole
+	// compressed stream, which is how blis-catalog states csa128_moe.
 	l := price.PlannedLayer{
 		AttnKind: model.AttentionSparseMLA, AttnWindow: 128, AttnCompressRatio: 128,
 	}
-	if got := selectedKVTokens(&l, []int{65536}); got != 128.0+(65536.0-128.0)/128.0 {
+	if got := selectedKVTokens(&l, []int{65536}); got != 128.0+65536.0/128.0 {
 		t.Errorf("a window-selected sparse layer bounded to %v, want %v",
-			got, 128.0+(65536.0-128.0)/128.0)
+			got, 128.0+65536.0/128.0)
+	}
+
+	// A window bounds every kind, not sparse_mla alone: a sliding-window or windowed MLA
+	// layer reads min(ctx, window), as the registry's swa rate was fitted
+	// (blis-registry scripts/fit_attention_by_kind.py:98-109).
+	for _, kind := range []model.AttentionKind{model.AttentionSWA, model.AttentionMLA} {
+		w := price.PlannedLayer{AttnKind: kind, AttnWindow: 128}
+		if got := selectedKVTokens(&w, []int{65536, 64}); got != 128+64 {
+			t.Errorf("a %s layer with a 128-token window read %v, want %v", kind, got, 128+64)
+		}
 	}
 }
 

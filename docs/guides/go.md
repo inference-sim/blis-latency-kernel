@@ -39,10 +39,10 @@ decode schedules one token against its whole context:
 ```
 
 ```text
-between 24.1 and 25.6 ms, bottleneck hbm
+between 24.1 and 25.7 ms, bottleneck hbm
 sm        4.5 ms
 hbm      16.5 ms
-nvlink    1.1 ms
+nvlink    1.2 ms
 host      3.5 ms
 ```
 
@@ -82,12 +82,12 @@ kernel it returned.
 ```
 
 ```text
-weights       78.1 GiB
+weights       78.2 GiB
 activations    1.1 GiB
 CUDA graphs    0.8 GiB
 comm buffers   3.9 GiB
 EPLB           0.0 GiB
-total         83.9 GiB per rank
+total         84.0 GiB per rank
 a 4,096-token request: 137 MiB of KV cache per rank
 ```
 
@@ -100,11 +100,11 @@ a 4,096-token request: 137 MiB of KV cache per rank
 ```
 
 ```text
-110 of 149 values rest on evidence; 38 were assumed
-  assumed       38
-  measured      93
+109 of 151 values rest on evidence; 41 were assumed
+  assumed       41
+  measured      94
   not_charged    1
-  vendor_spec   17
+  vendor_spec   15
 the kernel assumed max_cudagraph_capture_size
 the kernel assumed engine_version
 ```

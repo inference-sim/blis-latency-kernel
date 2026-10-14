@@ -1080,7 +1080,7 @@ func TestDispatchCostScalesWithTheKernelCount(t *testing.T) {
 	// step survived it.
 	e := k.StepTime(decodeBatch(1, 1, 8256))
 	host := e.PerResource[kernel.ResourceHost]
-	dispatch := seconds(k.launchSeconds())
+	dispatch := seconds(k.launchSeconds(0))
 	if host < dispatch {
 		t.Errorf("the step reports %v of host time but dispatch alone is %v; the term "+
 			"is computed and not charged", host, dispatch)
@@ -1109,12 +1109,12 @@ func TestDispatchCostIsIndependentOfBatchAndContext(t *testing.T) {
 	// The term is per kernel, and the kernel count is a property of the model rather than
 	// of the batch. If it moved with either, it would be absorbing something else.
 	k := fixture(t, "minimax-m25-h200-tp8.yaml")
-	want := k.launchSeconds()
+	want := k.launchSeconds(0)
 	for _, b := range []kernel.Batch{
 		decodeBatch(1, 1, 128), decodeBatch(1, 1, 32768), decodeBatch(512, 1, 8192),
 	} {
 		_ = k.StepTime(b)
-		if got := k.launchSeconds(); got != want {
+		if got := k.launchSeconds(0); got != want {
 			t.Errorf("dispatch changed to %v at %d tokens; it is per kernel and the "+
 				"kernel count does not depend on the batch", got, b.Tokens())
 		}

@@ -70,7 +70,22 @@ so one read is shared by every request in the batch.
 **Attention.** Decode attention is priced as a read of the cached context; prefill attention
 as arithmetic, which grows with the number of query-key pairs: with the square of the prompt,
 for a prompt read in one step. Each has a measured fixed cost per layer, and decode a measured
-rate for each kind of attention: full, sliding-window, latent (MLA) or sparse latent.
+rate for each kind of attention: full, sliding-window, latent (MLA) or sparse latent. A layer
+that states a window reads at most the window, whatever its kind; a sparse layer reads its
+window plus the positions its indexer selects, at most its top-k, or, where it selects
+nothing, its whole compressed stream, in decode and in prefill alike; and a sparse layer's
+indexer scan is priced in both phases.
+
+**Arithmetic rates.** Each matrix multiply runs at the rate of the format it computes in:
+BF16 weights at the BF16 rate, FP32 weights at the TF32 rate, MXFP8 on Hopper and four-bit
+weights on any part without a four-bit peak at the BF16 rate of the weight-only kernels vLLM
+uses for them, the grouped four-bit experts on their own measured efficiency. A node the graph marks replicated is not divided by the tensor-parallel width.
+
+**Recurrent mixers.** Decode rows are priced at the measured decode rate; prefill tokens at a
+measured prefill rate, or, where the registry has none, as the chunked scan vLLM runs for them.
+
+**Speculative decoding.** When the deployment speculates and the graph states its drafter,
+each step also pays the drafter's passes, and the drafter's weights are resident.
 
 **Experts.** In a mixture-of-experts layer each token is routed to a few experts. The kernel
 estimates how many distinct experts a batch touches, reads their weights, and prices their
@@ -79,7 +94,7 @@ rather than overlapped, because the sum fits measured expert timings better than
 of the two.[^experts]
 
 [^experts]: Against NVIDIA's expert-GEMM measurements on four chips, the sum fits better on
-    every one. The comparison is recorded beside the composition in `kernel.go`.
+    every one. The comparison is recorded beside the composition in `step.go`.
 
 **Collectives.** Each collective the layer runs, an all-reduce after a tensor-parallel matrix
 multiply for instance, is priced from three coefficients measured for that operation, that
@@ -146,7 +161,11 @@ the engine decides that per batch. The kernel follows vLLM v0.31.0's choice:
 - With *piecewise* capture, the graph is split at each attention or recurrent mixer (and, on a
   sparse-attention layer, at its indexer too), and the host pays one replay per piece.
 - With no capture, or for a batch larger than the largest captured size, the host launches
-  every layer eagerly.
+  every kernel eagerly, at the eager launch cost per kernel. A batch past the largest
+  captured size is never charged less than the same batch captured, so adding a request
+  never lowers the price.
+- A model whose own code breaks the capture, as DeepSeek-V4.1 does around every layer's
+  attention, replays one piece per captured region even in full capture.
 
 On top of that, every kernel the step runs costs a fixed dispatch time. For a single request
 the host can be the largest resource, as the figure above shows.
@@ -157,7 +176,8 @@ says more.
 
 ## In the source
 
-The step is composed in `stepTime` in [`kernel.go`](https://github.com/inference-sim/blis-latency-kernel/blob/main/kernel.go),
+The step is composed in `stepTime` in [`step.go`](https://github.com/inference-sim/blis-latency-kernel/blob/main/step.go),
+which prices each layer in `priceLayers`,
 and the laws it uses are pure functions in
 [`internal/price`](https://github.com/inference-sim/blis-latency-kernel/tree/main/internal/price).
 Each term's comment records the measurement that justified its form.

@@ -53,13 +53,79 @@ const dsaHeadDim = 576
 // SM100), at select_common_block_size, which the indexer fails ("No common block size").
 const dsaBlockSize = 64
 
-// isDSA reports whether a graph's attention is the DSA family's sparse MLA.
+// isDSA reports whether a graph's attention is the DSA family's sparse MLA: some layer of
+// its target stack reads the engine's cache with a 576-wide sparse-MLA head.
 func isDSA(g *model.Graph) bool {
 	if g == nil {
 		return false
 	}
-	_, headDim, _, kind := kvGeometry(g)
-	return kind == model.AttentionSparseMLA && headDim == dsaHeadDim
+	byID := map[string]model.LayerKind{}
+	for _, lk := range g.LayerKinds {
+		byID[lk.ID] = lk
+	}
+	for _, id := range g.Stack.Expand() {
+		for _, n := range byID[id].Nodes {
+			if n.Op == model.OpAttention && n.Role == "" &&
+				n.AttentionKind == model.AttentionSparseMLA && n.HeadDim == dsaHeadDim {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// deepseekV4Family reports whether a graph is DeepSeek-V4 or V4.1, whose attention runs on
+// that family's own FlashMLA backends (vllm/models/deepseek_v4, deepseek_v41) rather than
+// the DSA ones. By the architecture the graph names, and nothing else: a 512-wide sparse-MLA
+// head is not the family's mark, since GLM-5.3-Flash's sparse layers have one too.
+func deepseekV4Family(g *model.Graph) bool {
+	switch g.Global.Architecture {
+	case "DeepseekV4ForCausalLM", "DeepseekV41ForCausalLM":
+		return true
+	}
+	return false
+}
+
+// v4BlockSize is the one kernel block a DeepSeek-V4-family model's sparse backends accept.
+// DeepSeek-V4.1's run 64 on SM90 and 128 elsewhere (vllm/models/deepseek_v41/
+// sparse_mla.py:89-90, vllm/v1/attention/backends/mla/indexer.py:277-278 at v0.31.0);
+// DeepSeek-V4's run 256 on every part, its indexer pages holding 64 rows of a 4:1 stream
+// (vllm/models/deepseek_v4/sparse_mla.py:59-61, indexer.py:259-262). hopper is consulted
+// only for V4.1.
+func v4BlockSize(architecture string, hopper func() bool) int {
+	if architecture != "DeepseekV41ForCausalLM" {
+		return 256
+	}
+	if hopper() {
+		return 64
+	}
+	return 128
+}
+
+// hopper reports whether the chip is the SM90 family, which decides the kernels vLLM
+// selects for several formats and layouts. The catalog states the compute capability; for a
+// chip that does not, it is inferred -- data-center Blackwell by native NVFP4, the
+// pre-Hopper parts by name, everything else as Hopper -- and that inference is recorded the
+// first time it decides anything.
+func (k *Kernel) hopper() bool {
+	if k.family > 0 {
+		return k.family == 9
+	}
+	h := k.chip.NVFP4Peak <= 0 && !preHopperParts[k.chip.Name]
+	if !k.familyAssumed {
+		k.familyAssumed = true
+		guess := "sm100"
+		if h {
+			guess = "sm90"
+		} else if preHopperParts[k.chip.Name] {
+			guess = "pre-sm90"
+		}
+		k.assume("compute_capability", guess,
+			"the catalog states no compute capability for "+k.chip.Name+", so its generation "+
+				"is inferred from its native-format peaks and name, which decide kernel "+
+				"selection")
+	}
+	return h
 }
 
 // The sparse-MLA backends v0.31.0 ships for SM90 and SM100, by AttentionBackendEnum name.

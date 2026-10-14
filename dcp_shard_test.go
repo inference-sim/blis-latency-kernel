@@ -423,7 +423,7 @@ func TestDCPShardsEachRequestSeparatelyAtTheCallSite(t *testing.T) {
 	var sparse *price.PlannedLayer
 	ks := dcpKernel(t, dcpSparseFixture, 4)
 	for i := range ks.plan.Layers {
-		if sparseTopK(&ks.plan.Layers[i]) > 0 {
+		if ks.plan.Layers[i].AttnIndexTopK > 0 {
 			sparse = &ks.plan.Layers[i]
 			break
 		}
@@ -452,7 +452,7 @@ func TestDCPShardsEachRequestSeparatelyAtTheCallSite(t *testing.T) {
 	// The error is small and it is in the wrong direction for the wrong reason, which is
 	// the kind that survives review. Asserted on an exact integer so there is nothing to
 	// tune: a saturated selection sharded four ways is a whole number of positions.
-	topk := sparseTopK(sparse)
+	topk := sparse.AttnIndexTopK
 	if sparse.AttnCompressRatio > 0 {
 		t.Skipf("this fixture's sparse layer compresses (ratio %d), so its selection does "+
 			"not saturate at the top-k and the exact figure below does not apply",
@@ -482,7 +482,7 @@ func TestDCPShardsAtTheEngineDefaultTokenInterleave(t *testing.T) {
 	k := dcpKernel(t, dcpMLAFixture, 4)
 	var full *price.PlannedLayer
 	for i := range k.plan.Layers {
-		if k.plan.Layers[i].AttnQHeads > 0 && sparseTopK(&k.plan.Layers[i]) == 0 {
+		if k.plan.Layers[i].AttnQHeads > 0 && !readBounded(&k.plan.Layers[i]) {
 			full = &k.plan.Layers[i]
 			break
 		}

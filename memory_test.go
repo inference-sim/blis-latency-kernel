@@ -817,7 +817,7 @@ func TestAPackedSparseMLACacheIsItsOwnSize(t *testing.T) {
 // (vllm/v1/attention/backends/flash_attn.py:1326-1478 at v0.31.0), so it pays one launch per
 // layer where FlashInfer, which splits decode from prefill, pays two. v0.31.0 picks
 // FlashAttention for causal full attention everywhere but data-center Blackwell
-// (vllm/platforms/cuda.py:157-180).
+// (vllm/platforms/cuda.py:154-179).
 //
 // Asserted as a contrast on one deployment: minimax-m2.5 on h200, and the same chip marked as
 // data-center Blackwell (native NVFP4, which nothing else in this fp8-served deployment

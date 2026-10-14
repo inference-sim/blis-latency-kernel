@@ -12,8 +12,9 @@ var summaries = map[string]struct{ title, summary string }{
 	"internal/price/memory.go|KVBytesPerToken|Coverage limit": {
 		"KV cache layouts not sized",
 		"The kernel does not size every KV cache layout vLLM has. It refuses the per-token-head " +
-			"quantized formats rather than size them, and it does not model padded pages or a " +
-			"cache that compresses several tokens into one stored state.",
+			"quantized formats rather than size them. Padded pages and a cache that compresses " +
+			"several tokens into one stored state are sized only where the model graph states " +
+			"its caches; a graph that does not is sized as one full-length cache per layer.",
 	},
 	"internal/price/plan.go|ActivationBytes|Coverage limit": {
 		"Expert dispatch priced at 16 bits",
@@ -22,6 +23,20 @@ var summaries = map[string]struct{ title, summary string }{
 			"tell which kernel serves a layer, so an fp8 deployment whose experts take quantized " +
 			"input has its dispatch charged about twice its bytes.",
 	},
+	"internal/price/plan.go|planNodes|Coverage limit": {
+		"Every expert priced as gated",
+		"Each expert is priced as three matrices, a gated MLP. An expert with no gate, such as " +
+			"Nemotron-H's relu2 experts, holds two, and blis-schemas has no field saying which an " +
+			"expert is, so such a model's expert weights and arithmetic are over-stated by half.",
+	},
+	"kernel.go|(*Kernel).pdTransferBytes|Coverage limit": {
+		"P/D handoffs between pools of different widths",
+		"Each decode rank's pull is priced as one rank's transfer at one rank's link rate. That " +
+			"is exact when the prefill and decode pools have the same tensor-parallel width. Where " +
+			"the decode pool is wider, several decode ranks pull from one prefill rank, whose link " +
+			"then carries several payloads, and a placement that names a node rather than a rank " +
+			"cannot express that.",
+	},
 	"kernel.go|(*Kernel).SequenceVariableBytes|Coverage limit": {
 		"Hybrid attention under decode-context parallelism",
 		"For a model that mixes sliding-window and full-attention layers, decode-context " +
@@ -29,7 +44,7 @@ var summaries = map[string]struct{ title, summary string }{
 			"refuses such a deployment under its default KV cache manager, so this matters only " +
 			"with that manager turned off.",
 	},
-	"kernel.go|(*Kernel).stepTime|Known over-charge": {
+	"step.go|(*Kernel).priceLayers|Known over-charge": {
 		"Routed experts under tensor parallelism",
 		"Under tensor parallelism each rank is charged the arithmetic of whole routed experts, " +
 			"where vLLM gives it a tp-th slice of each. Correcting this makes the measured accuracy " +
