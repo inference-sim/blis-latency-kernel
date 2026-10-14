@@ -105,7 +105,12 @@ func (k *Kernel) checkCaches() error {
 			unlisted = true
 		}
 	}
-	if unlisted && len(k.caches) > 0 {
+	// A record not listed under the running dtype is the base one, which the base
+	// description assumes for the engine's own default (blis-schemas model.Cache): so it is
+	// an assumption only where the deployment runs a dtype other than the default the
+	// release resolves for this architecture.
+	base := k.rules.ResolveCacheDType(k.architecture, k.family, k.layout.TP, "")
+	if unlisted && len(k.caches) > 0 && k.cacheDType != base {
 		dtype := k.cacheDType
 		if dtype == "" {
 			dtype = "auto"

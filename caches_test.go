@@ -357,3 +357,18 @@ func TestSelectionBoundProperties(t *testing.T) {
 		}
 	}
 }
+
+// A cache sized at the record the graph states for the engine's own default is not an
+// assumption: only a deployment running another dtype, which the graph lists no record for,
+// is recorded.
+func TestTheDefaultCacheRecordIsNotAnAssumption(t *testing.T) {
+	for _, chip := range []string{"h200", "b200"} {
+		in := fixtureInputs(t, v41)
+		if chip != "h200" {
+			in.Chip, in.Scenario.Cluster.Hardware = chipInputs(t, chip), chip
+		}
+		if recorded(build(t, in), "cache_record") {
+			t.Errorf("%s: the default cache dtype's record was recorded as an assumption", chip)
+		}
+	}
+}

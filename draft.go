@@ -292,7 +292,10 @@ func (k *Kernel) liftStepTerms(c *resolve.Coefficients, g *model.Graph) error {
 	// (vllm/models/deepseek_v41/attention.py:766-792, 947-971; deepseek_v4/attention.py:538,
 	// 733 at v0.31.0) -- and, on V4.1 with its tables in host memory, the Engram prefetch's
 	// start and finish (nvidia/engram.py:464-492).
-	if a := g.Global.Architecture; a == rules.ArchDeepseekV41 || a == rules.ArchDeepseekV4 {
+	// Not under dual-batch overlap: vLLM leaves the breakable wrapper off when it micro-batches
+	// (vllm/v1/worker/gpu_model_runner.py:5395-5405).
+	dbo := k.pool.Engine.DBO != nil && k.pool.Engine.DBO.Enabled
+	if a := g.Global.Architecture; !dbo && (a == rules.ArchDeepseekV41 || a == rules.ArchDeepseekV4) {
 		for _, l := range k.plan.Layers {
 			if l.AttnQHeads > 0 {
 				k.captureBreaks += l.Count

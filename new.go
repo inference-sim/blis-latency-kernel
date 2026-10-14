@@ -483,7 +483,10 @@ func refuseV4Layouts(in Inputs, cacheDType string) error {
 	if arch != rules.ArchDeepseekV41 {
 		return nil
 	}
-	if !strings.HasSuffix(cacheDType, "_ds_mla") {
+	// The packed records are SM90's and SM100's; another family's attention class, which
+	// no rules-pack resolution describes, is not judged here.
+	family, _ := in.Chip.CapabilityMajor()
+	if (family == 9 || family == 10) && !strings.HasSuffix(cacheDType, "_ds_mla") {
 		return fmt.Errorf("cache_dtype %q on %s: its packed attention serves only fp8 "+
 			"caches, as fp8_ds_mla or nvfp4_ds_mla, and vLLM v0.31.0 refuses any other",
 			pool.Engine.CacheDType, arch)
