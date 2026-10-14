@@ -4,22 +4,56 @@ import (
 	"testing"
 
 	"github.com/inference-sim/blis-schemas/kernel"
-
-	"github.com/inference-sim/blis-latency-kernel/internal/price"
+	"github.com/inference-sim/blis-schemas/spec/model"
 )
 
-// scorersOf returns every block-index scorer the plan launches, by pointer so a test can
-// vary its bound and re-price the same kernel.
-func scorersOf(k *Kernel) []*price.PlannedAttention {
-	var out []*price.PlannedAttention
-	for i := range k.plan.Layers {
-		for j := range k.plan.Layers[i].Attentions {
-			if a := &k.plan.Layers[i].Attentions[j]; a.Role == "block_index_scores" {
-				out = append(out, a)
+const pooledFixture = "aisimulate/deepseek-v4-pro-b300-fp4-vllm-tp4.yaml"
+
+// pooledAt builds the pooled-scan fixture with every block-index scorer pooling ratio
+// tokens into one state: the scorer's compress_ratio, the index cache it states, and the
+// store that writes that cache, all moved together, as a graph pooling at that ratio would
+// state them. Zero leaves the cache's tokens_per_entry and the store's per_tokens unset,
+// which mean one; the scorer itself must state a bound, so it states one.
+func pooledAt(t *testing.T, ratio int) *Kernel {
+	t.Helper()
+	in := fixtureInputs(t, pooledFixture)
+	scorers := 0
+	for i := range in.Model.LayerKinds {
+		for j := range in.Model.LayerKinds[i].Nodes {
+			n := &in.Model.LayerKinds[i].Nodes[j]
+			if n.Role == "block_index_scores" {
+				// A sparse scorer must state some bound, so "absent" is said on the cache.
+				n.CompressRatio = max(ratio, 1)
+				scorers++
+			}
+			for c := range n.Caches {
+				if n.Caches[c].Kind == model.CacheIndex {
+					n.Caches[c].TokensPerEntry = ratio
+				}
+			}
+			if n.WritesCache != "" && cacheKindIn(in.Model.LayerKinds[i], n.WritesCache) ==
+				model.CacheIndex {
+				n.PerTokens = ratio
 			}
 		}
 	}
-	return out
+	if scorers == 0 {
+		t.Fatalf("the fixture's graph launches no block-index scorer, so the pooled-scan " +
+			"term cannot be exercised; pick a fixture whose model has one")
+	}
+	return build(t, in)
+}
+
+// cacheKindIn is the kind of the cache a layer kind names name.
+func cacheKindIn(lk model.LayerKind, name string) model.CacheKind {
+	for _, n := range lk.Nodes {
+		for _, c := range n.Caches {
+			if c.Name == name {
+				return c.Kind
+			}
+		}
+	}
+	return ""
 }
 
 // A pooled indexer caches one state per index_kpool tokens and scores over those states,
@@ -28,7 +62,10 @@ func scorersOf(k *Kernel) []*price.PlannedAttention {
 //
 // Asserted on STEP TIME, not on the plan: a plan that merely carries the ratio while the
 // step ignores it is the failure mode a plan-level check cannot see -- the same trap
-// TestSlidingWindowAndFullAttentionPriceDifferently documents for the per-kind rate.
+// TestSlidingWindowAndFullAttentionPriceDifferently documents for the per-kind rate. And
+// varied on the GRAPH, every field that states the ratio together: a scorer whose graph
+// states its index cache reads that cache's entries, so a ratio moved on the node alone
+// would describe a graph that contradicts itself.
 //
 // No committed catalog graph declares a pooled SCORER yet. deepseek-v4-pro carries
 // compress_ratio on its PRIMARY attention (the compressed-tail read that
@@ -37,25 +74,14 @@ func scorersOf(k *Kernel) []*price.PlannedAttention {
 // skipping: what is under test is the kernel's pricing, and a skip would leave the term
 // unexercised in CI -- the silent-skip hole 7c556d7 closed elsewhere in this suite.
 func TestAPooledScorersRatioChangesTheStepTime(t *testing.T) {
-	k := fixture(t, "aisimulate/deepseek-v4-pro-b300-fp4-vllm-tp4.yaml")
-	scorers := scorersOf(k)
-	if len(scorers) == 0 {
-		t.Fatalf("the fixture's graph launches no block-index scorer, so the pooled-scan " +
-			"term cannot be exercised; pick a fixture whose model has one")
-	}
-
 	b := longDecodeBatch()
-	saved := saveRatios(scorers)
-	defer restoreRatios(scorers, saved)
 
 	// Unpooled: every token is its own candidate, which is what the kernel charged
 	// before this term existed.
-	setRatios(scorers, 1)
-	unpooled := k.StepTime(b).Overlap
+	unpooled := pooledAt(t, 1).StepTime(b).Overlap
 
 	// Pooled 4:1, GLM-5.3-Flash's index_kpool. Everything else held fixed.
-	setRatios(scorers, 4)
-	pooled := k.StepTime(b).Overlap
+	pooled := pooledAt(t, 4).StepTime(b).Overlap
 
 	if pooled == unpooled {
 		t.Fatalf("step time is %v whether or not the scorer is pooled; the plan carries "+
@@ -73,21 +99,12 @@ func TestAPooledScorersRatioChangesTheStepTime(t *testing.T) {
 // multiplied instead of divided, or that clamped, passes a single-value check and fails
 // this one.
 func TestPooledScanTimeIsMonotonicInThePoolSize(t *testing.T) {
-	k := fixture(t, "aisimulate/deepseek-v4-pro-b300-fp4-vllm-tp4.yaml")
-	scorers := scorersOf(k)
-	if len(scorers) == 0 {
-		t.Fatal("the fixture's graph launches no block-index scorer")
-	}
-
 	b := longDecodeBatch()
-	saved := saveRatios(scorers)
-	defer restoreRatios(scorers, saved)
 
 	var prev float64
 	seen := map[float64]bool{}
 	for _, ratio := range []int{1, 2, 4, 8, 16, 64} {
-		setRatios(scorers, ratio)
-		got := k.StepTime(b).Overlap.Seconds()
+		got := pooledAt(t, ratio).StepTime(b).Overlap.Seconds()
 		if prev != 0 && got > prev {
 			t.Fatalf("ratio %d priced %.9fs, above the previous ratio's %.9fs; a larger "+
 				"pool holds FEWER states per span, so the scan cannot cost more",
@@ -117,20 +134,8 @@ func TestPooledScanTimeIsMonotonicInThePoolSize(t *testing.T) {
 // contribution to the step. Measured as a difference of differences, which cancels every
 // other term in the step and leaves the scan.
 func TestPooledScanBoundIsTheRatioExactly(t *testing.T) {
-	k := fixture(t, "aisimulate/deepseek-v4-pro-b300-fp4-vllm-tp4.yaml")
-	scorers := scorersOf(k)
-	if len(scorers) == 0 {
-		t.Fatal("the fixture's graph launches no block-index scorer")
-	}
-
 	b := longDecodeBatch()
-	saved := saveRatios(scorers)
-	defer restoreRatios(scorers, saved)
-
-	at := func(ratio int) float64 {
-		setRatios(scorers, ratio)
-		return k.StepTime(b).Overlap.Seconds()
-	}
+	at := func(ratio int) float64 { return pooledAt(t, ratio).StepTime(b).Overlap.Seconds() }
 
 	// The scorer contributes S/r at ratio r, so t(r) = base + S/r. Then
 	//   t(1) - t(2) = S/2  and  t(2) - t(4) = S/4,
@@ -148,24 +153,13 @@ func TestPooledScanBoundIsTheRatioExactly(t *testing.T) {
 	}
 }
 
-// A ratio of zero or one means no pooling, and must price exactly alike: the bound is
-// absent either way. This is the no-regression guarantee for every model that declares
+// An unset pool size and a pool of one mean no pooling, and must price exactly alike: the
+// bound is absent either way. This is the no-regression guarantee for every model that declares
 // no index_kpool, which is all of them but one.
 func TestAnAbsentPoolRatioPricesAsOne(t *testing.T) {
-	k := fixture(t, "aisimulate/deepseek-v4-pro-b300-fp4-vllm-tp4.yaml")
-	scorers := scorersOf(k)
-	if len(scorers) == 0 {
-		t.Fatal("the fixture's graph launches no block-index scorer")
-	}
-
 	b := longDecodeBatch()
-	saved := saveRatios(scorers)
-	defer restoreRatios(scorers, saved)
-
-	setRatios(scorers, 0)
-	zero := k.StepTime(b).Overlap
-	setRatios(scorers, 1)
-	one := k.StepTime(b).Overlap
+	zero := pooledAt(t, 0).StepTime(b).Overlap
+	one := pooledAt(t, 1).StepTime(b).Overlap
 
 	if zero != one {
 		t.Fatalf("an unset ratio priced %v and a ratio of 1 priced %v; both mean one "+
@@ -184,24 +178,4 @@ func longDecodeBatch() kernel.Batch {
 			Scheduled: 1, Computed: 65536, PromptLen: 65536})
 	}
 	return b
-}
-
-func saveRatios(as []*price.PlannedAttention) []int {
-	out := make([]int, len(as))
-	for i, a := range as {
-		out[i] = a.CompressRatio
-	}
-	return out
-}
-
-func setRatios(as []*price.PlannedAttention, r int) {
-	for _, a := range as {
-		a.CompressRatio = r
-	}
-}
-
-func restoreRatios(as []*price.PlannedAttention, saved []int) {
-	for i, a := range as {
-		a.CompressRatio = saved[i]
-	}
 }
