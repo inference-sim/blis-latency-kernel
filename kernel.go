@@ -160,8 +160,10 @@ type Kernel struct {
 	activationWidth   float64
 	batchedTokens     int
 
-	// The heaviest rank's expert count, derived once.
+	// The heaviest rank's expert count, derived once, and every MoE layer's geometry by its
+	// expert count (geom).
 	expertsPerRank float64
+	expertGeoms    map[int]expertGeom
 
 	// totalExperts is the model's physical expert count, which the expected-coverage
 	// term needs alongside the local count.

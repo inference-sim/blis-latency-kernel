@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/inference-sim/blis-schemas/kernel"
 	"github.com/inference-sim/blis-schemas/rules/v0_29"
@@ -158,29 +159,24 @@ func TestUnderPCPTheCombineIsAnLSEGatherAndAnAllReduce(t *testing.T) {
 //
 // Asked the same way: at tp=2 the tensor-parallel all-gather is the 2-rank one, and the
 // decode-context group is 4 or 8 ranks wide, so inflating the 2-rank all-gather floor moves
-// the decode step exactly when that gather runs.
+// the decode step by more exactly where that gather runs. The step's other 2-rank all-gather,
+// the LM head's logits gather, is the same in both layouts, so it moves both alike and the
+// difference between them is the query gather's.
 func TestUnderPCPTheQueryIsGatheredOverTPOnlyWhenDCPSpansTheBlock(t *testing.T) {
 	decode := decodeBatch(8, 1, 8192)
-	for _, c := range []struct {
-		dcp      int
-		gathered bool
-	}{
-		{4, false}, // dcp == pcp: the PCP axis alone
-		{8, true},  // dcp == tp*pcp: the whole block, after a tensor-parallel gather
-	} {
-		base := mustDCPVariant(t, dcpSparseFixture, 2, 4, c.dcp, nil)
-		inflated := mustDCPVariant(t, dcpSparseFixture, 2, 4, c.dcp, func(in *Inputs) {
+	moved := func(dcp int) time.Duration {
+		base := mustDCPVariant(t, dcpSparseFixture, 2, 4, dcp, nil)
+		inflated := mustDCPVariant(t, dcpSparseFixture, 2, 4, dcp, func(in *Inputs) {
 			in.Coefficients = scaleFloors(in.Coefficients, "all_gather_fp16_2rank", 10)
 		})
-		before, after := base.StepTime(decode).NoOverlap, inflated.StepTime(decode).NoOverlap
-		if c.gathered && after <= before {
-			t.Errorf("dcp=%d: inflating the 2-rank all-gather left the decode step at %v; "+
-				"the query is gathered over the tensor-parallel group here", c.dcp, after)
-		}
-		if !c.gathered && after != before {
-			t.Errorf("dcp=%d: inflating the 2-rank all-gather moved the decode step from "+
-				"%v to %v; with dcp == pcp no tensor-parallel gather runs", c.dcp, before, after)
-		}
+		return inflated.StepTime(decode).NoOverlap - base.StepTime(decode).NoOverlap
+	}
+	// dcp == pcp: the PCP axis alone; dcp == tp*pcp: the whole block, after a
+	// tensor-parallel query gather.
+	if alone, block := moved(4), moved(8); block <= alone {
+		t.Errorf("inflating the 2-rank all-gather moved the decode step %v at dcp=8 and %v at "+
+			"dcp=4; only dcp == tp*pcp gathers the query over the tensor-parallel group",
+			block, alone)
 	}
 }
 

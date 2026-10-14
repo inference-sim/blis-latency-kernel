@@ -1,7 +1,9 @@
 package latencykernel
 
 import (
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/inference-sim/blis-schemas/kernel"
 	"github.com/inference-sim/blis-schemas/spec/model"
@@ -171,6 +173,89 @@ func TestFlashMLAPadsQueryHeads(t *testing.T) {
 		if full, h := build(t, in).StepTime(b).NoOverlap, build(t, half).StepTime(b).NoOverlap; full != h {
 			t.Errorf("%s: 64 heads prefill in %v and 32 in %v; both pad to 64 a rank",
 				chip, full, h)
+		}
+	}
+}
+
+// The drafter's routed experts divide over the expert group by their own count, not the
+// target's: what speculating adds to a rank's weights does not depend on how many experts
+// the target routes over.
+func TestDraftExpertsAreSizedByTheirOwnCount(t *testing.T) {
+	added := func(targetExperts int) int64 {
+		with := func(spec bool) int64 {
+			in := fixtureInputs(t, v41)
+			if !spec {
+				in.Deployment.Pools[0].Engine.Speculative = nil
+			}
+			for i := range in.Model.LayerKinds {
+				if strings.HasPrefix(in.Model.LayerKinds[i].ID, "dspark") {
+					continue
+				}
+				for j := range in.Model.LayerKinds[i].Nodes {
+					if n := &in.Model.LayerKinds[i].Nodes[j]; n.Role == "experts" {
+						n.Experts = targetExperts
+					}
+				}
+			}
+			return build(t, in).FixedBytes().Weights
+		}
+		return with(true) - with(false)
+	}
+	if a, b := added(384), added(192); a != b {
+		t.Errorf("speculating adds %d weight bytes beside 384 target experts and %d beside "+
+			"192; the drafter's are its own", a, b)
+	}
+}
+
+// The LM head runs over the logits rows -- one per prefill request, one per decode token --
+// so widening the vocabulary costs an 8K prefill the same head work as a one-token decode.
+func TestTheLMHeadRunsOverLogitsRows(t *testing.T) {
+	widen := func(in *Inputs) { scaleVocab(in, 2) }
+	wide := func() *Kernel {
+		in := fixtureInputs(t, v41)
+		in.Deployment.Pools[0].Engine.Speculative = nil
+		widen(&in)
+		return build(t, in)
+	}()
+	in := fixtureInputs(t, v41)
+	in.Deployment.Pools[0].Engine.Speculative = nil
+	narrow := build(t, in)
+	sm := func(k *Kernel, b kernel.Batch) time.Duration { return k.StepTime(b).PerResource[kernel.ResourceSM] }
+	prefill, decode := prefillOf(8192, 0), decodeBatch(1, 1, 8192)
+	dp := sm(wide, prefill) - sm(narrow, prefill)
+	dd := sm(wide, decode) - sm(narrow, decode)
+	if dd <= 0 || dp > 2*dd {
+		t.Errorf("doubling the vocabulary costs an 8K prefill %v of SM and a 1-token decode %v; "+
+			"both run the head over one row", dp, dd)
+	}
+}
+
+// Under tensor parallelism the vocabulary-parallel logits are gathered: a wider vocabulary
+// costs link time at TP8.
+func TestLogitsAreGatheredAcrossTP(t *testing.T) {
+	link := func(scale int) time.Duration {
+		in := fixtureInputs(t, v41)
+		scaleVocab(&in, scale)
+		in.Deployment.Pools[0].Engine.Speculative = nil
+		return build(t, in).StepTime(decodeBatch(64, 1, 8192)).PerResource[kernel.ResourceNVLink]
+	}
+	if one, two := link(1), link(2); two <= one {
+		t.Errorf("a doubled vocabulary moves %v of NVLink against %v; the logits are gathered",
+			two, one)
+	}
+}
+
+// scaleVocab widens the LM head, and the drafter's head that aliases it, by factor.
+func scaleVocab(in *Inputs, factor int) {
+	heads := [][]model.Node{in.Model.Head}
+	if in.Model.Speculator != nil {
+		heads = append(heads, in.Model.Speculator.Head)
+	}
+	for _, h := range heads {
+		for i := range h {
+			if h[i].Op == model.OpGEMM {
+				h[i].N *= factor
+			}
 		}
 	}
 }

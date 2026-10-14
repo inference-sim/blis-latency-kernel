@@ -126,7 +126,24 @@ func New(in Inputs) (*Kernel, error) {
 	// served fp8 reads half the weight bytes, runs against a different compute peak and
 	// sits on a different efficiency envelope, so this has to be resolved before
 	// anything is priced.
-	served, err := servedDType(in.Model.Global.WeightDType, pool.Engine.Quantization)
+	quantization := pool.Engine.Quantization
+	// A DeepSeek-V4-family FP8 checkpoint is served by its own quantization method whatever
+	// --quantization names: DeepseekV4Fp8Config's override claims it
+	// (vllm/models/deepseek_v41/quant_config.py:139-167) and ModelConfig replaces the
+	// requested method with it (vllm/config/model.py:1382-1403). So the checkpoint's own
+	// formats are what run.
+	if deepseekV4Family(in.Model) && in.Model.Global.WeightDType == model.DTypeFP8 &&
+		quantization != "" {
+		if quantization != "deepseek_v4_fp8" {
+			k.layout.Overrides = append(k.layout.Overrides, resolve.Override{
+				Field: "quantization", Requested: quantization, Resolved: "deepseek_v4_fp8",
+				Reason: "vLLM v0.31.0 serves a DeepSeek-V4-family FP8 checkpoint with its own " +
+					"quantization method whatever is requested",
+			})
+		}
+		quantization = ""
+	}
+	served, err := servedDType(in.Model.Global.WeightDType, quantization)
 	if err != nil {
 		return nil, err
 	}
@@ -474,18 +491,41 @@ func refuseV4Layouts(in Inputs, cacheDType string) error {
 		return nil
 	}
 	pool := in.Deployment.Pools[in.PoolIndex]
+	family, _ := in.Chip.CapabilityMajor()
 	if pack, ok := in.Rules.(*rules.Pack); ok && pack != nil &&
-		pack.MegaMoEBackends[rules.NormalizeMoEBackend(pool.Engine.MoEBackend)] &&
-		!pool.Parallel.EnableExpertParallel {
-		return fmt.Errorf("moe_backend %q on %s needs expert parallelism: vLLM v0.31.0 "+
-			"refuses mega-MoE without it", pool.Engine.MoEBackend, arch)
+		pack.MegaMoEBackends[rules.NormalizeMoEBackend(pool.Engine.MoEBackend)] {
+		if !pool.Parallel.EnableExpertParallel {
+			return fmt.Errorf("moe_backend %q on %s needs expert parallelism: vLLM v0.31.0 "+
+				"refuses mega-MoE without it", pool.Engine.MoEBackend, arch)
+		}
+		if family != 10 {
+			return fmt.Errorf("moe_backend %q on %s needs an SM100 part: \"DeepGEMM MegaMoE "+
+				"requires SM100 GPUs\" (vllm/models/deepseek_v4/nvidia/model.py:366-369)",
+				pool.Engine.MoEBackend, in.Chip.Name)
+		}
+	}
+	// The family's sparse attention backends declare no implementation class -- their
+	// get_impl_cls raises (vllm/models/deepseek_v41/sparse_mla.py:96-104, deepseek_v4/
+	// sparse_mla.py:67-75) -- so PCP support reads as no and the engine's assertion stops it
+	// (vllm/v1/worker/cp_utils.py:31-38). Nor does the family's attention implement
+	// decode-context sharding: its window cache's manager asserts dcp_world_size == 1 on the
+	// prefix-cache lookup (vllm/v1/core/single_type_kv_cache_manager.py:989), and nothing in
+	// vllm/models/deepseek_v4* shards its compressed caches by DCP.
+	if pool.Parallel.PCP > 1 {
+		return fmt.Errorf("prefill-context parallelism (pcp %d) on %s: its sparse attention "+
+			"backends do not support PCP, and vLLM v0.31.0 refuses it at startup",
+			pool.Parallel.PCP, arch)
+	}
+	if pool.Parallel.DCP > 1 {
+		return fmt.Errorf("decode-context parallelism (dcp %d) on %s: its attention "+
+			"implements no DCP sharding, and its window cache asserts dcp_world_size == 1",
+			pool.Parallel.DCP, arch)
 	}
 	if arch != rules.ArchDeepseekV41 {
 		return nil
 	}
 	// The packed records are SM90's and SM100's; another family's attention class, which
 	// no rules-pack resolution describes, is not judged here.
-	family, _ := in.Chip.CapabilityMajor()
 	if family == 9 && cacheDType == "nvfp4_ds_mla" {
 		return fmt.Errorf("cache_dtype nvfp4_ds_mla on %s on SM90: \"nvfp4_ds_mla needs the "+
 			"V4.1 KV records, which FlashMLA decodes only on SM100\" "+
@@ -1124,6 +1164,8 @@ func (k *Kernel) lift(c *resolve.Coefficients, g *model.Graph, cacheBytes float6
 		// 1/width.
 		k.localExpertShare = float64(heaviest) / float64(experts+redundant)
 		k.totalExperts = experts + redundant
+		k.expertGeoms = map[int]expertGeom{experts: {
+			total: k.totalExperts, perRank: k.expertsPerRank, share: k.localExpertShare}}
 	}
 
 	// KV, PER LAYER KIND of the target stack. Both the cache dtype and the tensor-parallel
@@ -2096,6 +2138,32 @@ func (k *Kernel) computeFixedBytes(g *model.Graph) kernel.MemoryBreakdown {
 	}
 }
 
+// expertGeom is how one MoE layer's routed experts divide over the expert group: the physical
+// count, the heaviest rank's count, and that rank's share.
+type expertGeom struct {
+	total   int
+	perRank float64
+	share   float64
+}
+
+// geom returns the expert geometry of a layer, by its own expert count. The target's layers
+// share the geometry lift resolved, EPLB's redundant replicas included; a layer of another
+// count -- DeepSeek-V4.1's DSpark draft layers route over 128 experts against the target's
+// 384 (dspark_n_routed_experts, vllm/models/deepseek_v41/nvidia/model.py:126-135 at
+// v0.31.0) -- divides its own experts over the same group.
+func (k *Kernel) geom(l *price.PlannedLayer) expertGeom {
+	if g, ok := k.expertGeoms[l.Experts]; ok {
+		return g
+	}
+	_, heaviest, _, _ := price.ExpertsPerRank(l.Experts, k.layout.ExpertWidth)
+	if heaviest <= 0 || l.Experts <= 0 {
+		return expertGeom{total: k.totalExperts, perRank: k.expertsPerRank,
+			share: k.localExpertShare}
+	}
+	return expertGeom{total: l.Experts, perRank: float64(heaviest),
+		share: float64(heaviest) / float64(l.Experts)}
+}
+
 // residentBytes is one layer's weights resident on a rank, divided as each node is laid
 // out.
 //
@@ -2126,7 +2194,7 @@ func (k *Kernel) residentBytes(l price.PlannedLayer) float64 {
 		}
 	}
 	if l.ExpertWeightBytesPerExpert > 0 {
-		b += l.ExpertWeightBytesPerExpert * k.expertsPerRank / k.expertTensorShards *
+		b += l.ExpertWeightBytesPerExpert * k.geom(&l).perRank / k.expertTensorShards *
 			k.expertPadding(&l)
 	}
 	if l.SharedTokenSharded && sp {
@@ -2195,7 +2263,7 @@ func (k *Kernel) buildProvenance(c *resolve.Coefficients) {
 		AllReduceBackend:    backend,
 		AsyncScheduling:     async,
 		CascadeAttention:    cascade,
-		SequenceParallelMoE: k.layout.SequenceParallelMoE,
+		SequenceParallelMoE: k.layout.SequenceParallelMoE || k.layout.ModelSequenceParallel,
 		Overrides:           overrides,
 	}
 }

@@ -25,7 +25,11 @@ type stepShape struct {
 	prefillChunks                               []chunk
 	decodeContexts                              []int
 	// decodeRows is each decode request's query rows, aligned with decodeContexts.
-	decodeRows                      []int
+	decodeRows []int
+	// logitsRows is the rows the LM head runs over: every decode row, and one per prefill
+	// request, its last scheduled token (input_batch.logits_indices,
+	// vllm/v1/worker/gpu/model_runner.py:1578-1579 at v0.31.0).
+	logitsRows                      float64
 	prefills                        []prefillShape
 	prefillRequests, decodeRequests int
 	decodeTokens, prefillTokens     int
@@ -218,6 +222,7 @@ func (k *Kernel) shapeOf(b kernel.Batch) stepShape {
 		prefillRequests: prefillRequests, decodeRequests: decodeRequests,
 		decodeTokens: decodeTokens, prefillTokens: prefillTokens,
 		anyContext: anyContext, smDerate: smDerate,
+		logitsRows: float64(decodeTokens + prefillRequests),
 	}
 }
 
@@ -454,7 +459,8 @@ func (k *Kernel) priceLayers(layers []price.PlannedLayer, fits [][]gemmFit, kv [
 			// FPM's mixed rows measure: on MiniMax-M2.7 h200 the signed error runs
 			// -14.9% at dp=1 tep2, -34.0% at dp=2 and -46.7% at dp=4, ordering by dp.
 			routedTokens := tokensF * k.moeDPFunnel()
-			routedPerRank := routedTokens * float64(l.TopK) * k.localExpertShare
+			eg := k.geom(l)
+			routedPerRank := routedTokens * float64(l.TopK) * eg.share
 			// With expert parallelism off and dp above one, the funnel's dp-fold tokens
 			// each reach a 1/dp slice of every expert beyond the tensor-parallel one (the
 			// MoE is flattened over dp x tp, see expertTensorShards), so the work per rank
@@ -497,8 +503,7 @@ func (k *Kernel) priceLayers(layers []price.PlannedLayer, fits [][]gemmFit, kv [
 			// under-reads expert weights exactly where coverage is partial -- at the
 			// batch 1-4 prefill rows that make up FPM's attention-DP cells.
 			routedWeightBytes += l.ExpertWeightBytesPerExpert / k.expertTensorShards * pad *
-				price.ExpertsTouched(int(routedTokens+0.5), k.totalExperts, l.TopK,
-					k.expertsPerRank)
+				price.ExpertsTouched(int(routedTokens+0.5), eg.total, l.TopK, eg.perRank)
 		}
 		if l.SharedExpertFLOPsPerToken > 0 {
 			// A shared expert is dense: every token pays it, sharded like any projection --

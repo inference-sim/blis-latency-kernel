@@ -2,7 +2,9 @@ package latencykernel
 
 import (
 	"fmt"
+	"math"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/inference-sim/blis-schemas/kernel"
@@ -19,7 +21,8 @@ import (
 // An earlier form never read the graph's speculator. A deployment drafting tokens was
 // priced at the target's verify width alone, so its draft passes were free and its draft
 // weights were not resident: about 7.9 GB across the model for DeepSeek-V4.1-Flash's three
-// DSpark layers and its context layer (3.9 GB a rank at TP8),
+// DSpark layers and its context layer (1.5 GB a rank at TP8, its layers routing over
+// their own 128 experts),
 // and a whole decoder layer per MTP model. The drafting mode decides how the stack runs
 // (blis-schemas model.Drafting):
 //
@@ -61,10 +64,13 @@ func (k *Kernel) liftDraft(c *resolve.Coefficients, inferred func(price.PlannedL
 			break
 		}
 	}
-	if spec.Method != "" && d.Method != "" && spec.Method != d.Method {
-		k.assume("speculator", d.Method,
-			"the deployment names method "+spec.Method+" and the graph states a "+d.Method+
-				" speculator, which is the one priced")
+	// A different method is a different drafter -- its own checkpoint (EAGLE3), no GPU pass
+	// at all (n-gram) -- which this graph does not describe, so it is refused rather than
+	// priced as the graph's.
+	if spec.Method != "" && d.Method != "" && specMethod(spec.Method) != specMethod(d.Method) {
+		return fmt.Errorf("the deployment drafts with %q and the model graph states a %q "+
+			"speculator; a %s drafter is not described by this graph, so it cannot be priced",
+			spec.Method, d.Method, spec.Method)
 	}
 	if n := k.numSpecTokens(); d.NumSpec > 0 && n != d.NumSpec {
 		// The graph sizes what depends on the draft length -- a parallel-block drafter's
@@ -75,6 +81,14 @@ func (k *Kernel) liftDraft(c *resolve.Coefficients, inferred func(price.PlannedL
 				"speculator states "+strconv.Itoa(d.NumSpec)+"; the passes are priced at the "+
 				"deployment's count, and what the graph sizes at its own count is taken as "+
 				"stated")
+	}
+	for _, l := range d.Layers {
+		if l.Experts > 0 && k.layout.ExpertWidth > 1 {
+			if base, _, _, _ := price.ExpertsPerRank(l.Experts, k.layout.ExpertWidth); base == 0 {
+				return fmt.Errorf("expert-parallel width %d exceeds the drafter's %d experts, "+
+					"so some ranks would hold none", k.layout.ExpertWidth, l.Experts)
+			}
+		}
 	}
 	lift := func(layers []price.PlannedLayer) []layerKV {
 		kv := make([]layerKV, len(layers))
@@ -100,6 +114,16 @@ func (k *Kernel) liftDraft(c *resolve.Coefficients, inferred func(price.PlannedL
 	k.draftLayerKV = lift(d.Layers)
 	k.draftContextKV = lift(d.Context)
 	return nil
+}
+
+// specMethod is a speculative method's name as vLLM v0.31.0 runs it: every model-specific
+// MTP name (deepseek_mtp, nemotron_h_mtp, ... -- MTPModelTypes) is replaced with mtp
+// (vllm/config/speculative.py:39-67, 1135-1139).
+func specMethod(m string) string {
+	if strings.HasSuffix(m, "_mtp") {
+		return "mtp"
+	}
+	return m
 }
 
 // priceDraft prices one step's draft work, adding each resource's time to per, and returns
@@ -146,6 +170,14 @@ func (k *Kernel) priceDraft(b kernel.Batch, s *stepShape,
 		if part.Count > 0 {
 			t += k.priceLayers([]price.PlannedLayer{part}, nil, one, &ps, &per)
 		}
+	}
+	// The draft's logits are gathered like the target's, over every draft row
+	// (compute_draft_logits, vllm/models/deepseek_v41/nvidia/dspark.py:341-347 at v0.31.0).
+	if d.Head.Count > 0 {
+		on, cross := k.logitsGather(d.Head, ps.tokensF)
+		per[idxNVLink] += on
+		per[idxNIC] += cross
+		t += math.Max(on, cross)
 	}
 	// An autoregressive drafter's passes differ only in reading one more token of context
 	// each, so one pass is priced and charged passes times.

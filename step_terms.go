@@ -299,6 +299,12 @@ func sparseCausalFLOPs(chunks []chunk, window, topk, ratio int) float64 {
 // formats' token ramps and their weight reads, the traffic of the elementwise nodes the
 // graph states a width for, and its collectives. It returns the stage time.
 //
+// The LM head runs over the logits rows, not every scheduled token: vLLM computes logits on
+// hidden_states[logits_indices] (vllm/v1/worker/gpu/model_runner.py:1578-1579 at v0.31.0),
+// one row per decode token and one per prefill request. An 8,192-token prefill chunk runs
+// the head over one row. The norms and collectives before it still see every token. The
+// vocabulary-parallel logits are then gathered (logitsGather).
+//
 // A head norm the graph states no width for is not charged, as it never was: it is one
 // hidden-width read and write a step, small beside the LM head. A node that states one --
 // DeepSeek-V4.1's mHC collapse, tens of kilobytes a token -- is.
@@ -318,8 +324,9 @@ func (k *Kernel) priceHead(head price.PlannedLayer, s *stepShape,
 		}
 		weightBytes += g.WeightReadBytes / div
 		fit := k.fit(g.Format, false)
-		if eff := price.Efficiency(s.tokensF, fit.epsMax, fit.mHalf); eff > 0 {
-			headSM += s.tokensF * g.FLOPsPerToken / div / (fit.peak * eff) * s.smDerate
+		rows := s.logitsRows
+		if eff := price.Efficiency(rows, fit.epsMax, fit.mHalf); eff > 0 {
+			headSM += rows * g.FLOPsPerToken / div / (fit.peak * eff) * s.smDerate
 		}
 	}
 	headHBM := (weightBytes + elementwise) / k.hbmBytesPerSecond
@@ -332,9 +339,36 @@ func (k *Kernel) priceHead(head price.PlannedLayer, s *stepShape,
 			onNode += k.collectiveSeconds(key, s.tokensF*c.BytesPerToken)
 		}
 	}
+	gOn, gCross := k.logitsGather(head, s.logitsRows)
+	onNode += gOn
+	crossNode += gCross
 	perResource[idxSM] += headSM
 	perResource[idxHBM] += headHBM
 	perResource[idxNVLink] += onNode
 	perResource[idxNIC] += crossNode
 	return math.Max(math.Max(headSM, headHBM), math.Max(onNode, crossNode))
+}
+
+// logitsGather prices the all-gather that completes a vocabulary-parallel LM head: under
+// tensor parallelism each rank holds a vocabulary shard of every logits row, and
+// LogitsProcessor gathers them (vllm/model_executor/layers/logits_processor.py:120-130,
+// 186-194 at v0.31.0; an all-gather on CUDA, vllm/platforms/interface.py:1165-1167). The
+// payload is the gathered BF16 logits, rows x vocabulary. A replicated head gathers nothing.
+func (k *Kernel) logitsGather(head price.PlannedLayer, rows float64) (onNode, crossNode float64) {
+	if k.layout.TP <= 1 || rows <= 0 {
+		return 0, 0
+	}
+	key := collKey{Op: model.OpAllGather, Group: price.GroupTP}
+	for _, g := range head.DenseGEMMs {
+		if g.Replicated {
+			continue
+		}
+		bytes := rows * float64(g.N) * price.ActivationBytes
+		if k.crossesNodes(key) {
+			crossNode += k.collectiveSeconds(key, bytes*k.spanFor(key))
+		} else {
+			onNode += k.collectiveSeconds(key, bytes)
+		}
+	}
+	return onNode, crossNode
 }

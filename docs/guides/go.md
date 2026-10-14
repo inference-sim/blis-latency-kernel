@@ -39,10 +39,10 @@ decode schedules one token against its whole context:
 ```
 
 ```text
-between 24.1 and 25.6 ms, bottleneck hbm
+between 24.1 and 25.7 ms, bottleneck hbm
 sm        4.5 ms
 hbm      16.5 ms
-nvlink    1.1 ms
+nvlink    1.2 ms
 host      3.5 ms
 ```
 

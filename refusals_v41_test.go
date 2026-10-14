@@ -172,3 +172,56 @@ func TestUncapturableDispatchRunsEager(t *testing.T) {
 		t.Error("the engine's switch to eager is not reported as an override")
 	}
 }
+
+// Layouts vLLM v0.31.0 refuses for the DeepSeek-V4 family because its own attention and MoE
+// backends cannot run them.
+func TestV4FamilyLayoutsItsBackendsCannotRun(t *testing.T) {
+	for name, edit := range map[string]func(*Inputs){
+		"prefill-context parallelism": func(in *Inputs) { in.Deployment.Pools[0].Parallel.PCP = 2 },
+		"decode-context parallelism":  func(in *Inputs) { in.Deployment.Pools[0].Parallel.DCP = 2 },
+		"mega-MoE on SM90": func(in *Inputs) {
+			pl := &in.Deployment.Pools[0].Parallel
+			pl.TP, pl.DP, pl.EnableExpertParallel = 4, 2, true
+			in.Deployment.Pools[0].Engine.MoEBackend = "deep_gemm_mega_moe"
+		},
+		"a drafter the graph does not describe": func(in *Inputs) {
+			in.Deployment.Pools[0].Engine.Speculative.Method = "eagle3"
+		},
+	} {
+		in := fixtureInputs(t, v41)
+		edit(&in)
+		if _, err := New(in); err == nil {
+			t.Errorf("%s: priced a DeepSeek-V4.1 layout vLLM v0.31.0 cannot run", name)
+		}
+	}
+}
+
+// An FP8 DeepSeek-V4-family checkpoint is served by its own quantization method whatever
+// --quantization names, so naming one changes no price and is reported as overridden.
+func TestV4CheckpointIgnoresTheQuantizationFlag(t *testing.T) {
+	base := build(t, fixtureInputs(t, v41))
+	for _, q := range []string{"deepseek_v4_fp8", "fp8", "mxfp4", "modelopt_fp4"} {
+		in := fixtureInputs(t, v41)
+		in.Deployment.Pools[0].Engine.Quantization = q
+		k := build(t, in)
+		if k.FixedBytes() != base.FixedBytes() {
+			t.Errorf("--quantization %s moved the resident bytes", q)
+		}
+		for name, b := range batchShapes() {
+			if k.StepTime(b).NoOverlap != base.StepTime(b).NoOverlap {
+				t.Errorf("--quantization %s moved the %s step", q, name)
+			}
+		}
+	}
+}
+
+// A model-specific MTP name is the method vLLM runs as mtp, so a deployment naming mtp
+// drafts with a graph's deepseek_mtp speculator.
+func TestModelSpecificMTPNamesAreMTP(t *testing.T) {
+	if got := specMethod("deepseek_mtp"); got != "mtp" {
+		t.Errorf("deepseek_mtp normalises to %q", got)
+	}
+	if got := specMethod("dspark"); got != "dspark" {
+		t.Errorf("dspark normalises to %q", got)
+	}
+}
