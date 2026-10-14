@@ -1566,8 +1566,17 @@ change. The engine's reasons cite the vLLM v0.31.0 source in the code beside the
 <ul>
 <li>A cache data type vLLM does not accept, or a recurrent-state data type it does not accept.</li>
 <li><code>fp8_inc</code>, which no CUDA attention backend serves.</li>
-<li>The packed <code>fp8_ds_mla</code> and <code>nvfp4_ds_mla</code> layouts on a model without sparse attention.</li>
+<li>The packed <code>fp8_ds_mla</code> and <code>nvfp4_ds_mla</code> layouts on a model whose target stack holds any
+  attention that is not sparse.</li>
 <li>Plain <code>nvfp4</code> on a model with latent attention.</li>
+</ul>
+<p><strong>Block size and architecture</strong></p>
+<ul>
+<li>A block size a DeepSeek-V4-family model's sparse backends do not accept: DeepSeek-V4.1's
+  run 64-token kernel blocks on SM90 and 128-token ones on SM100, and DeepSeek-V4's run
+  256-token blocks on every part.</li>
+<li>A model graph that states facts by GPU generation, on a chip whose compute capability the
+  catalog does not state or whose generation the graph does not describe.</li>
 </ul>
 <p><strong>Experts</strong></p>
 <ul>

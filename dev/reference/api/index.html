@@ -1551,7 +1551,7 @@ its arguments and safe to call from many goroutines at once.</p>
 </tr>
 <tr>
 <td><code>SequenceFixedBytes()</code></td>
-<td>One request's recurrent state, where it does not grow with length.</td>
+<td>What one request holds whatever its length: recurrent state where it does not grow with length, and the window rings and fixed state caches a graph states.</td>
 </tr>
 <tr>
 <td><code>TierTime(tier, dir, bytes, depth)</code></td>
@@ -1559,7 +1559,11 @@ its arguments and safe to call from many goroutines at once.</p>
 </tr>
 <tr>
 <td><code>PDTransferTime(tokens, from, to)</code></td>
-<td>Moving one request's <abbr title="The attention keys and values a request keeps for every token it has processed">KV</abbr> cache between pools: the whole request's cache, which decode-context parallelism does not divide, over NVLink within a node or an NVLink rack, and over the fabric otherwise.</td>
+<td>Moving one request's <abbr title="The attention keys and values a request keeps for every token it has processed">KV</abbr> cache between pools: the whole request's cache, which decode-context parallelism does not divide, over NVLink within a node or an NVLink rack, and over the fabric otherwise. A graph that states its caches moves only the caches the target owns, each window ring clipped to cdiv(window, block) + 1 pages, and fixed state caches whole. It is <code>PDTransferDemand(...).AloneTime()</code>.</td>
+</tr>
+<tr>
+<td><code>PDTransferDemand(tokens, from, to)</code></td>
+<td>The same handoff separated into payload bytes, a fixed floor and the links it crosses, each with its rate, so a simulator running several handoffs can share the links between them. Link IDs come from the placement, so every kernel of a deployment names a link alike.</td>
 </tr>
 <tr>
 <td><code>AdmissionOverhead(tokens)</code></td>

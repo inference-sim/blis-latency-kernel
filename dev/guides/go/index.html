@@ -1618,10 +1618,10 @@ decode schedules one token against its whole context:</p>
 <a id="__codelineno-2-21" name="__codelineno-2-21" href="#__codelineno-2-21"></a><span class="w">    </span><span class="nx">fmt</span><span class="p">.</span><span class="nx">Printf</span><span class="p">(</span><span class="s">"%-7s %5.1f ms\n"</span><span class="p">,</span><span class="w"> </span><span class="nx">r</span><span class="p">,</span><span class="w"> </span><span class="nx">ms</span><span class="p">(</span><span class="nx">e</span><span class="p">.</span><span class="nx">PerResource</span><span class="p">[</span><span class="nx">r</span><span class="p">]))</span>
 <a id="__codelineno-2-22" name="__codelineno-2-22" href="#__codelineno-2-22"></a><span class="p">}</span>
 </code></pre></div>
-<div class="language-text highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>between 24.1 and 25.6 ms, bottleneck hbm
+<div class="language-text highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>between 24.1 and 25.7 ms, bottleneck hbm
 <a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>sm        4.5 ms
 <a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>hbm      16.5 ms
-<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>nvlink    1.1 ms
+<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>nvlink    1.2 ms
 <a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>host      3.5 ms
 </code></pre></div>
 <p><code>DecodeThreshold</code> is the engine's: a request scheduling at most that many tokens is priced as
@@ -1676,12 +1676,12 @@ kernel it returned.</p>
 <a id="__codelineno-6-11" name="__codelineno-6-11" href="#__codelineno-6-11"></a><span class="nx">fmt</span><span class="p">.</span><span class="nx">Printf</span><span class="p">(</span><span class="s">"a 4,096-token request: %.0f MiB of KV cache per rank\n"</span><span class="p">,</span>
 <a id="__codelineno-6-12" name="__codelineno-6-12" href="#__codelineno-6-12"></a><span class="w">    </span><span class="kt">float64</span><span class="p">(</span><span class="nx">k</span><span class="p">.</span><span class="nx">SequenceVariableBytes</span><span class="p">(</span><span class="mi">4096</span><span class="p">))</span><span class="o">/</span><span class="p">(</span><span class="mi">1</span><span class="o">&lt;&lt;</span><span class="mi">20</span><span class="p">))</span>
 </code></pre></div>
-<div class="language-text highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>weights       78.1 GiB
+<div class="language-text highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>weights       78.2 GiB
 <a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>activations    1.1 GiB
 <a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a>CUDA graphs    0.8 GiB
 <a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a>comm buffers   3.9 GiB
 <a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a>EPLB           0.0 GiB
-<a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a>total         83.9 GiB per rank
+<a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a>total         84.0 GiB per rank
 <a id="__codelineno-7-7" name="__codelineno-7-7" href="#__codelineno-7-7"></a>a 4,096-token request: 137 MiB of KV cache per rank
 </code></pre></div>
 <p><a href="../../concepts/memory/">Memory</a> explains each figure.</p>
@@ -1707,11 +1707,11 @@ kernel it returned.</p>
 <a id="__codelineno-8-19" name="__codelineno-8-19" href="#__codelineno-8-19"></a><span class="w">    </span><span class="p">}</span>
 <a id="__codelineno-8-20" name="__codelineno-8-20" href="#__codelineno-8-20"></a><span class="p">}</span>
 </code></pre></div>
-<div class="language-text highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>110 of 149 values rest on evidence; 38 were assumed
-<a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a>  assumed       38
-<a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a>  measured      93
+<div class="language-text highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>109 of 151 values rest on evidence; 41 were assumed
+<a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a>  assumed       41
+<a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a>  measured      94
 <a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a>  not_charged    1
-<a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a>  vendor_spec   17
+<a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a>  vendor_spec   15
 <a id="__codelineno-9-6" name="__codelineno-9-6" href="#__codelineno-9-6"></a>the kernel assumed max_cudagraph_capture_size
 <a id="__codelineno-9-7" name="__codelineno-9-7" href="#__codelineno-9-7"></a>the kernel assumed engine_version
 </code></pre></div>

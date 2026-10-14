@@ -1073,6 +1073,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#every-expert-priced-as-gated" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Every expert priced as gated
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#hybrid-attention-under-decode-context-parallelism" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1084,10 +1095,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#routed-experts-under-tensor-parallelism" class="md-nav__link">
+  <a href="#expert-tokens-under-prefill-context-parallelism" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Routed experts under tensor parallelism
+        Expert tokens under prefill-context parallelism
       
     </span>
   </a>
@@ -1095,10 +1106,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#expert-tokens-under-prefill-context-parallelism" class="md-nav__link">
+  <a href="#pd-handoffs-between-pools-of-different-widths" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Expert tokens under prefill-context parallelism
+        P/D handoffs between pools of different widths
       
     </span>
   </a>
@@ -1121,6 +1132,17 @@
     <span class="md-ellipsis">
       
         Choosing the sparse attention backend
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#routed-experts-under-tensor-parallelism" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Routed experts under tensor parallelism
       
     </span>
   </a>
@@ -1486,6 +1508,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#every-expert-priced-as-gated" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Every expert priced as gated
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#hybrid-attention-under-decode-context-parallelism" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1497,10 +1530,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#routed-experts-under-tensor-parallelism" class="md-nav__link">
+  <a href="#expert-tokens-under-prefill-context-parallelism" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Routed experts under tensor parallelism
+        Expert tokens under prefill-context parallelism
       
     </span>
   </a>
@@ -1508,10 +1541,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#expert-tokens-under-prefill-context-parallelism" class="md-nav__link">
+  <a href="#pd-handoffs-between-pools-of-different-widths" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Expert tokens under prefill-context parallelism
+        P/D handoffs between pools of different widths
       
     </span>
   </a>
@@ -1534,6 +1567,17 @@
     <span class="md-ellipsis">
       
         Choosing the sparse attention backend
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#routed-experts-under-tensor-parallelism" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Routed experts under tensor parallelism
       
     </span>
   </a>
@@ -1585,7 +1629,7 @@ every one outside the tests.</p>
 </dl>
 <h3 id="kv-cache-layouts-not-sized"><abbr title="The attention keys and values a request keeps for every token it has processed">KV</abbr> cache layouts not sized<a class="headerlink" href="#kv-cache-layouts-not-sized" title="Permanent link">&para;</a></h3>
 <p><em>Coverage limit, in <code>KVBytesPerToken</code> in <a href="https://github.com/inference-sim/blis-latency-kernel/blob/main/internal/price/memory.go"><code>internal/price/memory.go</code></a>.</em></p>
-<p>The kernel does not size every <abbr title="The attention keys and values a request keeps for every token it has processed">KV</abbr> cache layout vLLM has. It refuses the per-token-head quantized formats rather than size them, and it does not model padded pages or a cache that compresses several tokens into one stored state.</p>
+<p>The kernel does not size every <abbr title="The attention keys and values a request keeps for every token it has processed">KV</abbr> cache layout vLLM has. It refuses the per-token-head quantized formats rather than size them. Padded pages and a cache that compresses several tokens into one stored state are sized only where the model graph states its caches; a graph that does not is sized as one full-length cache per layer.</p>
 <details class="quote">
 <summary>The note in the source</summary>
 <p>The layouts that state their own size are applied by the kernel where a deployment names
@@ -1594,7 +1638,9 @@ sparseMLABackend in the root package). COVERAGE LIMIT: per-token-head quantizati
 fp32 scales a token (vllm/model_executor/layers/attention/mla_attention.py:1580-1593), so
 the kernel refuses those cache dtypes rather than size them here; padded pages are sized by
 their own specs (vllm/v1/kv_cache_interface.py:527-536), and a compressed cache (a
-compress_ratio layer) holds fewer states than tokens, and neither is modelled.</p>
+compress_ratio layer) holds fewer states than tokens. Neither is modelled HERE: a graph
+that states its caches (blis-schemas model.Cache) is sized from them in the root package
+(caches.go), and this law is what a layer that states none is sized by.</p>
 </details>
 <h3 id="expert-dispatch-priced-at-16-bits">Expert dispatch priced at 16 bits<a class="headerlink" href="#expert-dispatch-priced-at-16-bits" title="Permanent link">&para;</a></h3>
 <p><em>Coverage limit, in <code>ActivationBytes</code> in <a href="https://github.com/inference-sim/blis-latency-kernel/blob/main/internal/price/plan.go"><code>internal/price/plan.go</code></a>.</em></p>
@@ -1615,13 +1661,23 @@ dispatch from a 2-byte one. COVERAGE LIMIT: an fp8 w8a8 deployment whose experts
 takes quantized input has its dispatch charged about twice its bytes; its combine is
 charged right.</p>
 </details>
+<h3 id="every-expert-priced-as-gated">Every expert priced as gated<a class="headerlink" href="#every-expert-priced-as-gated" title="Permanent link">&para;</a></h3>
+<p><em>Coverage limit, in <code>planNodes</code> in <a href="https://github.com/inference-sim/blis-latency-kernel/blob/main/internal/price/plan.go"><code>internal/price/plan.go</code></a>.</em></p>
+<p>Each expert is priced as three matrices, a gated MLP. An expert with no gate, such as Nemotron-H's relu2 experts, holds two, and blis-schemas has no field saying which an expert is, so such a model's expert weights and arithmetic are over-stated by half.</p>
+<details class="quote">
+<summary>The note in the source</summary>
+<p>COVERAGE LIMIT: every expert is priced as gated. A non-gated expert (relu2,
+as Nemotron-H's are) holds two matrices, and blis-schemas v0.3.0 has no field
+that says which an expert is, so such a model's experts are over-stated by
+half.</p>
+</details>
 <h3 id="hybrid-attention-under-decode-context-parallelism">Hybrid attention under decode-context parallelism<a class="headerlink" href="#hybrid-attention-under-decode-context-parallelism" title="Permanent link">&para;</a></h3>
 <p><em>Coverage limit, in <code>(*Kernel).SequenceVariableBytes</code> in <a href="https://github.com/inference-sim/blis-latency-kernel/blob/main/kernel.go"><code>kernel.go</code></a>.</em></p>
 <p>For a model that mixes sliding-window and full-attention layers, decode-context parallelism does not shard the <abbr title="The attention keys and values a request keeps for every token it has processed">KV</abbr> cache the kernel reports, which overstates it. vLLM refuses such a deployment under its default <abbr title="The attention keys and values a request keeps for every token it has processed">KV</abbr> cache manager, so this matters only with that manager turned off.</p>
 <details class="quote">
 <summary>The note in the source</summary>
 <p>COVERAGE LIMIT, STATED RATHER THAN PAPERED OVER. kvBytesPerToken is ONE whole-model
-scalar, summed by kvGeometry over layers of every attention kind, and this function
+scalar, summed over the inferred layers of every attention kind, and this function
 has no per-kind context to spend. So the shard applies only when every <abbr title="The attention keys and values a request keeps for every token it has processed">KV</abbr>-holding
 layer is a kind DCP shards. A hybrid stack -- gpt-oss-120b alternates a 128-token
 swa layer with a full gqa one -- is left UNSHARDED, which overstates what it needs.
@@ -1634,21 +1690,6 @@ sharded, which this overstates. Expressing the hybrid case exactly would mean
 splitting kvBytesPerToken per kind -- a larger refactor, for configurations that
 either do not start or run only with the hybrid manager off.</p>
 </details>
-<h3 id="routed-experts-under-tensor-parallelism">Routed experts under tensor parallelism<a class="headerlink" href="#routed-experts-under-tensor-parallelism" title="Permanent link">&para;</a></h3>
-<p><em>Known over-charge, in <code>(*Kernel).stepTime</code> in <a href="https://github.com/inference-sim/blis-latency-kernel/blob/main/kernel.go"><code>kernel.go</code></a>.</em></p>
-<p>Under tensor parallelism each rank is charged the arithmetic of whole routed experts, where vLLM gives it a tp-th slice of each. Correcting this makes the measured accuracy worse, because the over-charge offsets a cost not yet identified, so it is kept until that cost is found.</p>
-<details class="quote">
-<summary>The note in the source</summary>
-<p>NOT divided by expertTensorShards, and that is a KNOWN over-charge rather
-than an oversight. Under pure tensor parallelism localExpertShare is 1 --
-every rank does hold every expert -- and vLLM shards the intermediate
-dimension, `intermediate_size_per_partition = intermediate_size // tp_size`
-(vllm/model_executor/layers/fused_moe/config.py:1321-1323), so a rank's
-routed work is its slice's. Charging the whole expert over-prices routed
-compute by the tensor-parallel width on the 400 of 591 InferenceX scenarios
-that are pure TP. The BYTES do divide by it (routedWeightBytes, below), so the
-two terms disagree about the same experts.</p>
-</details>
 <h3 id="expert-tokens-under-prefill-context-parallelism">Expert tokens under prefill-context parallelism<a class="headerlink" href="#expert-tokens-under-prefill-context-parallelism" title="Permanent link">&para;</a></h3>
 <p><em>Coverage limit, in <code>(*Kernel).moeDPFunnel</code> in <a href="https://github.com/inference-sim/blis-latency-kernel/blob/main/kernel.go"><code>kernel.go</code></a>.</em></p>
 <p>The tokens reaching a rank's experts are multiplied by the data-parallel width, because vLLM gathers every data-parallel rank's tokens to them, but not by the prefill-context width. How the experts gather a mix of split prefill tokens and replicated decode tokens is not modeled.</p>
@@ -1657,6 +1698,17 @@ two terms disagree about the same experts.</p>
 <p>COVERAGE LIMIT: prefill-context ranks are not counted here. A PCP rank's prefill tokens
 are its own share while its decode rows are replicated across the group, and how the <abbr title="Mixture of experts">MoE</abbr>
 gathers that mixture is not modelled.</p>
+</details>
+<h3 id="pd-handoffs-between-pools-of-different-widths">P/D handoffs between pools of different widths<a class="headerlink" href="#pd-handoffs-between-pools-of-different-widths" title="Permanent link">&para;</a></h3>
+<p><em>Coverage limit, in <code>(*Kernel).pdTransferBytes</code> in <a href="https://github.com/inference-sim/blis-latency-kernel/blob/main/kernel.go"><code>kernel.go</code></a>.</em></p>
+<p>Each decode rank's pull is priced as one rank's transfer at one rank's link rate. That is exact when the prefill and decode pools have the same tensor-parallel width. Where the decode pool is wider, several decode ranks pull from one prefill rank, whose link then carries several payloads, and a placement that names a node rather than a rank cannot express that.</p>
+<details class="quote">
+<summary>The note in the source</summary>
+<p>COVERAGE LIMIT: each pull is priced as one rank's demand at one rank's link rate. That is
+exact when the pools' tensor-parallel widths match. Where the decode pool is wider, several
+decode ranks pull from one prefill rank (tp_mapping.py:97), whose link then carries
+decode_tp / prefill_tp payloads, which a placement that names a node and not a rank
+cannot express.</p>
 </details>
 <h3 id="expert-weights-under-prefill-context-parallelism">Expert weights under prefill-context parallelism<a class="headerlink" href="#expert-weights-under-prefill-context-parallelism" title="Permanent link">&para;</a></h3>
 <p><em>Coverage limit, in <code>(*Kernel).lift</code> in <a href="https://github.com/inference-sim/blis-latency-kernel/blob/main/new.go"><code>new.go</code></a>.</em></p>
@@ -1687,7 +1739,22 @@ the <abbr title="DeepSeek sparse attention">DSA</abbr> family satisfies (128 and
 the graph does not state; and the SM120 parts' backend, which repacks "auto" too, has no
 part in the catalog.</p>
 </details>
-<p><em>7 notes: 1 known over-charge, 6 coverage limits.</em></p>
+<h3 id="routed-experts-under-tensor-parallelism">Routed experts under tensor parallelism<a class="headerlink" href="#routed-experts-under-tensor-parallelism" title="Permanent link">&para;</a></h3>
+<p><em>Known over-charge, in <code>(*Kernel).priceLayers</code> in <a href="https://github.com/inference-sim/blis-latency-kernel/blob/main/step.go"><code>step.go</code></a>.</em></p>
+<p>Under tensor parallelism each rank is charged the arithmetic of whole routed experts, where vLLM gives it a tp-th slice of each. Correcting this makes the measured accuracy worse, because the over-charge offsets a cost not yet identified, so it is kept until that cost is found.</p>
+<details class="quote">
+<summary>The note in the source</summary>
+<p>NOT divided by expertTensorShards, and that is a KNOWN over-charge rather
+than an oversight. Under pure tensor parallelism localExpertShare is 1 --
+every rank does hold every expert -- and vLLM shards the intermediate
+dimension, `intermediate_size_per_partition = intermediate_size // tp_size`
+(vllm/model_executor/layers/fused_moe/config.py:1321-1323), so a rank's
+routed work is its slice's. Charging the whole expert over-prices routed
+compute by the tensor-parallel width on the 400 of 591 InferenceX scenarios
+that are pure TP. The BYTES do divide by it (routedWeightBytes, below), so the
+two terms disagree about the same experts.</p>
+</details>
+<p><em>9 notes: 1 known over-charge, 8 coverage limits.</em></p>
 
 
 
