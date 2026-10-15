@@ -33,6 +33,16 @@ A data-parallel rank's pad tokens run the target model's forward but not the dra
     vllm/v1/spec\_decode/dflash.py:230-261 at v0.31.0), which depends on every rank's draft
     batch, and a batch states only this rank's pad for the target's forward.
 
+### An autoregressive drafter's own graphs
+
+*Coverage limit, in `(*Kernel).draftHasOwnGraphs` in [`draft.go`](https://github.com/inference-sim/blis-latency-kernel/blob/main/draft.go).*
+
+A parallel-block drafter such as DSpark is charged under its own CUDA graphs and capture ceiling. An autoregressive drafter (MTP, EAGLE) is still charged under the target's graph mode and ceiling; whether it captures graphs of its own is not modelled.
+
+??? quote "The note in the source"
+    COVERAGE LIMIT: an autoregressive drafter (MTP, EAGLE) is charged under the target's
+    graph mode and ceiling, as before; its own capture under Model Runner V2 is not modelled.
+
 ### KV cache layouts not sized
 
 *Coverage limit, in `KVBytesPerToken` in [`internal/price/memory.go`](https://github.com/inference-sim/blis-latency-kernel/blob/main/internal/price/memory.go).*
@@ -243,4 +253,4 @@ Under tensor parallelism each rank is charged the arithmetic of whole routed exp
     that are pure TP. The BYTES do divide by it (routedWeightBytes, below), so the
     two terms disagree about the same experts.
 
-*16 notes: 1 known divergence, 3 known over-charges, 12 coverage limits.*
+*17 notes: 1 known divergence, 3 known over-charges, 13 coverage limits.*

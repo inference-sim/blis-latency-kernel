@@ -16,6 +16,13 @@ var summaries = map[string]struct{ title, summary string }{
 			"several tokens into one stored state are sized only where the model graph states " +
 			"its caches; a graph that does not is sized as one full-length cache per layer.",
 	},
+	"draft.go|(*Kernel).draftHasOwnGraphs|Coverage limit": {
+		"An autoregressive drafter's own graphs",
+		"A parallel-block drafter such as DSpark is charged under its own CUDA graphs and " +
+			"capture ceiling. An autoregressive drafter (MTP, EAGLE) is still charged under the " +
+			"target's graph mode and ceiling; whether it captures graphs of its own is not " +
+			"modelled.",
+	},
 	"internal/price/plan.go|ActivationBytes|Coverage limit": {
 		"Expert dispatch priced at 16 bits",
 		"The tokens sent to the experts are priced at 16 bits per element. On a quantized " +

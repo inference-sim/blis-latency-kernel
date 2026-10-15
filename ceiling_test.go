@@ -6,6 +6,8 @@ import (
 
 	"github.com/inference-sim/blis-schemas/kernel"
 	"github.com/inference-sim/blis-schemas/spec/coefficient"
+
+	"github.com/inference-sim/blis-latency-kernel/internal/price"
 )
 
 // THE CAPTURE CEILING FOLLOWS THE ENGINE'S DEFAULT, on every input that sets it. vLLM v0.31.0
@@ -236,5 +238,51 @@ func TestAModelScopedEagerCostWinsWhateverItsOrder(t *testing.T) {
 			c.want-got > time.Nanosecond {
 			t.Errorf("%s: eager cost per launch %v, want %v", c.name, got, c.want)
 		}
+	}
+}
+
+// THE DSPARK DRAFTER RUNS UNDER ITS OWN GRAPHS. Its manager captures FULL graphs only, and
+// only when the target's decode mode is FULL ("PIECEWISE cudagraphs are not supported for
+// dflash", vllm/v1/worker/gpu/spec_decode/dflash/speculator.py:126-150); otherwise it runs
+// eagerly. A replay covers the context rows of one verify per request (:309-311), so a step
+// with a prefill row stores the rest of its context eagerly first (:480-482). Each case is
+// the drafter's host share: the step's host time less the same step's target-only host
+// time (the target's launches, dispatch included, do not depend on the drafter).
+func TestTheDrafterRunsUnderItsOwnGraphs(t *testing.T) {
+	size := 64
+	draftShare := func(mode string, b kernel.Batch) (got time.Duration, k *Kernel) {
+		t.Helper()
+		in := fixtureInputs(t, v41)
+		e := &in.Deployment.Pools[0].Engine
+		e.CUDAGraphMode, e.MaxCUDAGraphCaptureSize = mode, &size
+		k = build(t, in)
+		_, kernels := k.priceDraft(b, &stepShape{}, &[numResources]float64{})
+		host := k.StepTime(b).PerResource[kernel.ResourceHost]
+		target := k.targetHost(b, 0) + seconds(k.launchSeconds(b, kernels))
+		return host - target, k
+	}
+	d := func(k *Kernel) *price.DraftPlan { return k.plan.Draft }
+	// A decode of 4 requests drafts 20 tokens: one replay under FULL_AND_PIECEWISE, every
+	// launch eager under PIECEWISE, whose decode mode is not FULL.
+	dec := decodeBatch(4, 6, 90000)
+	if got, k := draftShare("FULL_AND_PIECEWISE", dec); got != k.replayPerStep {
+		t.Errorf("FULL_AND_PIECEWISE decode: drafter host %v, want one replay %v", got,
+			k.replayPerStep)
+	}
+	got, k := draftShare("PIECEWISE", dec)
+	all := d(k).Kernels + d(k).ContextKernels + 5*d(k).SequentialKernels
+	if want := time.Duration(all) * k.launchEager; got != want {
+		t.Errorf("PIECEWISE decode: drafter host %v, want %d eager launches, %v", got, all,
+			want)
+	}
+	// A decode plus one prefill chunk that completes its prompt: the draft still replays,
+	// and its context kernels beyond the graph's rows launch eagerly.
+	mixed := dec
+	mixed.Reqs = append(append([]kernel.ReqShape{}, dec.Reqs...),
+		kernel.ReqShape{Scheduled: 1808, Computed: 88192, PromptLen: 90000})
+	got, k = draftShare("FULL_AND_PIECEWISE", mixed)
+	if want := k.replayPerStep + time.Duration(d(k).ContextKernels)*k.launchEager; got != want {
+		t.Errorf("mixed step: drafter host %v, want a replay plus %d eager context "+
+			"launches, %v", got, d(k).ContextKernels, want)
 	}
 }

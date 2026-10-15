@@ -210,6 +210,55 @@ func (k *Kernel) priceDraft(b kernel.Batch, s *stepShape,
 	return overlap, kernels
 }
 
+// draftHasOwnGraphs is whether the drafter runs under its own CUDA graph manager rather than
+// inside the target's forward. A parallel-block drafter does: DSpark subclasses DFlash
+// (vllm/v1/worker/gpu/spec_decode/dspark/speculator.py:22-23, 40), whose speculator builds a
+// DFlashCudaGraphManager of its own (dflash/speculator.py:126-150; dflash/cudagraph.py:74)
+// and replays it apart from the target's step (:506-507).
+//
+// COVERAGE LIMIT: an autoregressive drafter (MTP, EAGLE) is charged under the target's
+// graph mode and ceiling, as before; its own capture under Model Runner V2 is not modelled.
+func (k *Kernel) draftHasOwnGraphs() bool {
+	return k.speculating && k.plan.Draft != nil &&
+		k.plan.Draft.Drafting == model.DraftingParallelBlock
+}
+
+// draftHost is the host cost of a parallel-block drafter's kernels launches in a step, under
+// the drafter's own graphs.
+//
+// Its manager captures FULL graphs only, FULL_DECODE_ONLY when the target's decode mode is
+// FULL and NONE otherwise -- "PIECEWISE cudagraphs are not supported for dflash"
+// (dflash/speculator.py:126-150) -- over the same capture sizes, each rounded to its own
+// uniform query width, num_query_per_req, which is num_speculative_tokens for DSpark's
+// anchor-as-first layout (dspark/speculator.py:51-55) and is the positions priceDraft runs.
+// So its ceiling is its own: at K = 5 under a 64-token capture the target's 6-token decode
+// rows graph up to 10 requests and the drafter's 5-token rows up to 12. Every request in the
+// batch is drafted (num_query_tokens = num_reqs x num_query_per_req, :363) and dispatched on
+// that count (:448-458); past every captured size it runs eagerly (_generate_draft, :509-517).
+//
+// A replay is one graph replay, which also covers the context rows of one verify per request
+// (_num_graph_context_tokens, :309-311); a step scheduling more target tokens than that --
+// any step with a prefill row -- stores the rest eagerly before the replay
+// (_precompute_context_kv, :480-482), so its context kernels are charged as eager launches.
+func (k *Kernel) draftHost(b kernel.Batch, kernels int) time.Duration {
+	n := k.numSpecTokens()
+	reqs := 0
+	for _, r := range b.Reqs {
+		if r.Computed+r.Scheduled > 0 {
+			reqs++
+		}
+	}
+	tokens := reqs * n
+	if k.graphDecode != graphModeFull || tokens == 0 || tokens > k.captureTokens {
+		return time.Duration(float64(k.launchEager) * float64(kernels))
+	}
+	host := k.replayPerStep
+	if b.Tokens() > reqs*(n+1) {
+		host += time.Duration(float64(k.launchEager) * float64(k.plan.Draft.ContextKernels))
+	}
+	return host
+}
+
 // liftStepTerms resolves the step terms construction can settle once: recurrent prefill
 // forms, per-role attention forms, the host gather rate and where engram tables live, the
 // FlashMLA head padding, and the regions a model breaks out of its own capture.
