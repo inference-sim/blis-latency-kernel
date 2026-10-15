@@ -70,6 +70,10 @@ the model has a layer of that kind.
 | `host_link_bandwidth` | An offload transfer is not capped at the host link's rate |
 | `host_admission_per_token`, `host_admission_per_request`, `host_output_token`, `host_completion`, `host_launch_eager_per_layer`, `host_launch_per_kernel`, `host_replay_graph_per_step` | That host cost is charged at zero |
 
+The eager launch cost is read as `host_launch_eager_per_kernel` where a set carries it, and as
+`host_launch_eager_per_layer` otherwise; both are charged per kernel. A model-scoped entry
+under either name is taken over a part-wide one.
+
 ## Evidence
 
 `Evidence()` returns three things: how many entries of `Provenance` rest on evidence (method
