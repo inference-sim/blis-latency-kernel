@@ -1543,6 +1543,18 @@ func (k *Kernel) modeHost(mode graphMode, kernels int) time.Duration {
 // 2.3 microseconds, which is the conventional captured-graph dispatch figure the registry
 // already cites for a single launch.
 //
+// IT IS CHARGED UNDER A FULL REPLAY TOO, and that is not a second charge of the replay. A
+// FULL replay makes no per-kernel CPU launch: vLLM v0.31.0 calls one graph.replay() for the
+// whole step (CudaGraphManager.run_fullgraph, vllm/v1/worker/gpu/cudagraph_utils.py:531-544),
+// which replayPerStep prices. What this term carries is the per-node cost the GPU still pays
+// inside a replayed graph, the gap between one node's end and the next's start: the registry
+// defines and would measure it that way ("the gap between kernel end and next kernel start,
+// summed over the step", blis-registry cost-model-host-overheads.yaml,
+// host_launch_per_kernel), and backed it out of single-request decode steps that ran FULL
+// graphs. Dropping it under FULL would remove the term from the steps it was fitted on.
+// Under NONE it is charged beside the eager launch, additively, which is the composition
+// DeepSeek-V4.1's model-scoped eager constant was derived on.
+//
 // It does NOT overlap with device work, and that is the point rather than a simplification:
 // a dispatch that has not happened cannot have its kernel running. At large batch the
 // device work per kernel dwarfs it and it vanishes into the noise, which is why a model

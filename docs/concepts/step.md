@@ -165,7 +165,8 @@ the engine decides that per batch. The kernel follows vLLM v0.31.0's choice:
   captured size is never charged less than the same batch captured, so adding a request
   never lowers the price.
 - A model whose own code breaks the capture, as DeepSeek-V4.1 does around every layer's
-  attention, replays one piece per captured region even in full capture.
+  attention, replays one piece per captured region under piecewise capture. Full capture is
+  unaffected: inside it the breaks are not taken, and the step is one replay.
 
 - A parallel-block drafter (DSpark) has CUDA graphs of its own, captured only when the
   target's decode mode is full, and its own ceiling: its rows are `num_spec_tokens` wide, not
