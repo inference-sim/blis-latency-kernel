@@ -144,13 +144,14 @@ With expert parallelism off and prefill-context parallelism on, each rank is cha
 
 *Known over-charge, in `(*Kernel).engineBufferBytes` in [`new.go`](https://github.com/inference-sim/blis-latency-kernel/blob/main/new.go).*
 
-DeepSeek-V4.1's prefill gather workspace is charged in full beside the registry's activation scratch. vLLM holds it in one shared scratch buffer that its MoE kernels also grow, so the engine reserves the larger of the two where the kernel charges their sum.
+DeepSeek-V4.1's prefill gather workspace and its indexer's logits stand-in are charged in full beside the registry's activation scratch. vLLM holds the workspace in one shared scratch buffer that its MoE kernels also grow, and the stand-in is a transient at the profile peak, so the engine reserves the larger of each pair where the kernel charges their sum.
 
 ??? quote "The note in the source"
     KNOWN over-charge: the workspace manager's buffer is shared scratch, and the MoE modular
     kernels grow the same one (workspace.py:49-56), so the engine holds the larger of the two
     where this adds the attention's request to an activation multiple that already allows for
-    MoE intermediates.
+    MoE intermediates; and the indexer's logits stand-in is a transient that this adds to the
+    activation multiple's own transients rather than to their peak.
 
 ### Choosing the sparse attention backend
 

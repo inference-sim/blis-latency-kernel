@@ -909,26 +909,31 @@ func TestUnderDCPAMixedStepGetsNoOneLaunchRebate(t *testing.T) {
 // DeepSeek-V4.1's engine buffers are charged beside the registry's activation scratch, at
 // the figures its model code allocates (engineBufferBytes; inference-sim/blis-latency-kernel
 // #52). At the fixture -- tp 8, 8,192 batched tokens, a 131,072-token context, DSpark -- they
-// are the issue's ~1 GiB: a 591,953,920 B gather workspace (4 x (131,072 + 128 + 8,192) x 512
-// BF16, 8,192 x 640 and 8,192 int32 indices), two 16,777,216 B top-k buffers (target and
-// DSpark), a 67,108,864 B candidate-block buffer and DSpark's 335,544,320 B hidden-state
-// buffer.
+// are:
+//   - the target's workspace, the indexer's 693,108,736 B request (40 x 131,072 entries of
+//     128 FP8 values and 4 scale bytes, and 1 MiB of radix top-k), which exceeds the
+//     attention's 591,953,920 B (4 x (131,072 + 128 + 8,192) x 512 BF16 and its indices);
+//   - DSpark's workspace in its own lane, 38,305,792 B (4 x (128 + 8,192) x 512 BF16,
+//     8,192 x 128 and 8,192 int32);
+//   - the indexer's 536,870,912 B logits stand-in;
+//   - two 16,777,216 B top-k buffers (target and DSpark), a 67,108,864 B candidate-block
+//     buffer and DSpark's 335,544,320 B hidden-state buffer.
 func TestV41EngineBuffersAreChargedAtTheEnginesFigures(t *testing.T) {
 	in := fixtureInputs(t, v41)
 	k := build(t, in)
 	generic := math.Max(
 		registryValue(t, in, k, "activation_buffer_count_moe_8rank")*8192*5120*2,
 		registryValue(t, in, k, "activation_scratch_floor_bytes"))
-	const buffers = 591953920 + 2*16777216 + 67108864 + 335544320
+	const buffers = 693108736 + 38305792 + 536870912 + 2*16777216 + 67108864 + 335544320
 	if got := k.FixedBytes().ActivationPeak; got != int64(generic)+buffers {
 		t.Errorf("activation %d B, want the registry's %d plus %d of engine buffers",
 			got, int64(generic), buffers)
 	}
 }
 
-// The buffers scale as vLLM sizes them: the gather workspace with the context bound, at 4 x
-// 512 BF16 a token of context on a ratio-1 layer, and the drafter's hidden-state and top-k
-// buffers only while the deployment speculates.
+// The buffers scale as vLLM sizes them: the indexer's gather with the context bound, at 40 x
+// 132 B a token of context on a ratio-1 layer, and the drafter's hidden-state and top-k
+// buffers and its workspace lane only while the deployment speculates.
 func TestV41EngineBuffersFollowTheContextBoundAndSpeculation(t *testing.T) {
 	with := func(edit func(*deployment.Engine)) *Kernel {
 		in := fixtureInputs(t, v41)
@@ -937,14 +942,15 @@ func TestV41EngineBuffersFollowTheContextBoundAndSpeculation(t *testing.T) {
 	}
 	base := with(func(*deployment.Engine) {})
 	longer := with(func(e *deployment.Engine) { e.MaxModelLen = 262144 })
-	if d := longer.FixedBytes().ActivationPeak - base.FixedBytes().ActivationPeak; d != 4*131072*512*2 {
+	if d := longer.FixedBytes().ActivationPeak - base.FixedBytes().ActivationPeak; d != 40*131072*132 {
 		t.Errorf("doubling the context bound to 262,144 moved the activation by %d B, want "+
-			"the gather workspace's 4 x 131,072 x 512 x 2 = %d", d, 4*131072*512*2)
+			"the indexer gather's 40 x 131,072 x 132 = %d", d, 40*131072*132)
 	}
 	plain := with(func(e *deployment.Engine) { e.Speculative = nil })
-	if d := base.FixedBytes().ActivationPeak - plain.FixedBytes().ActivationPeak; d != 8192*20480*2+8192*512*4 {
+	const drafter = 8192*20480*2 + 8192*512*4 + 38305792
+	if d := base.FixedBytes().ActivationPeak - plain.FixedBytes().ActivationPeak; d != drafter {
 		t.Errorf("speculation adds %d B of buffers, want DSpark's hidden-state and top-k "+
-			"buffers, %d", d, 8192*20480*2+8192*512*4)
+			"buffers and its workspace lane, %d", d, drafter)
 	}
 }
 

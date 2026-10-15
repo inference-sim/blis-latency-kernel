@@ -31,10 +31,11 @@ var summaries = map[string]struct{ title, summary string }{
 	},
 	"new.go|(*Kernel).engineBufferBytes|Known over-charge": {
 		"DeepSeek-V4.1's prefill workspace beside the activation scratch",
-		"DeepSeek-V4.1's prefill gather workspace is charged in full beside the registry's " +
-			"activation scratch. vLLM holds it in one shared scratch buffer that its MoE kernels " +
-			"also grow, so the engine reserves the larger of the two where the kernel charges " +
-			"their sum.",
+		"DeepSeek-V4.1's prefill gather workspace and its indexer's logits stand-in are charged " +
+			"in full beside the registry's activation scratch. vLLM holds the workspace in one " +
+			"shared scratch buffer that its MoE kernels also grow, and the stand-in is a " +
+			"transient at the profile peak, so the engine reserves the larger of each pair " +
+			"where the kernel charges their sum.",
 	},
 	"caches.go|(*Kernel).maxInFlightTokens|Coverage limit": {
 		"Window admission under pipeline parallelism",
