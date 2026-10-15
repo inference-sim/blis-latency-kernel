@@ -83,6 +83,16 @@ Each expert is priced as three matrices, a gated MLP. An expert with no gate, su
     that says which an expert is, so such a model's experts are over-stated by
     half.
 
+### A young window ring's trailing page
+
+*Known over-charge, in `(*Kernel).SequenceBoundedBytesAt` in [`kernel.go`](https://github.com/inference-sim/blis-latency-kernel/blob/main/kernel.go).*
+
+Before a request has computed a window's worth of tokens, its window ring is charged one page more than vLLM holds, as the window is sized as if it might start part-way through a page. At most one page a ring, and none once the request is past its window.
+
+??? quote "The note in the source"
+    KNOWN over-charge: a ring that has not yet outgrown its window starts on a page edge,
+    so its trailing page is charged though vLLM holds none, at most one page a ring.
+
 ### Mamba-2 groups widened past the tensor-parallel width
 
 *Coverage limit, in `(*Kernel).recurrentRankBytes` in [`kernel.go`](https://github.com/inference-sim/blis-latency-kernel/blob/main/kernel.go).*
@@ -233,4 +243,4 @@ Under tensor parallelism each rank is charged the arithmetic of whole routed exp
     that are pure TP. The BYTES do divide by it (routedWeightBytes, below), so the
     two terms disagree about the same experts.
 
-*15 notes: 1 known divergence, 2 known over-charges, 12 coverage limits.*
+*16 notes: 1 known divergence, 3 known over-charges, 12 coverage limits.*

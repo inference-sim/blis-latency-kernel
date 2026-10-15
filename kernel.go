@@ -310,6 +310,47 @@ func (k *Kernel) SequenceAdmissionBytes() int64 {
 	return k.sequenceBoundedBytes(k.cacheAdmissionBytes())
 }
 
+// SequenceBoundedBytes returns the per-sequence bytes of a request's bounded state with
+// inFlightTokens scheduled but not yet settled: each window ring at
+// cdiv(window - 1 + extra_retained + inFlightTokens, block) + 1 pages in whole pool blocks
+// (SlidingWindowSpec.max_admission_blocks_per_request, vllm/v1/kv_cache_interface.py:840-866
+// at v0.31.0), the state caches and the recurrent state as SequenceFixedBytes holds them.
+// At 1 + num_spec_tokens it is SequenceFixedBytes, the steady decode hold, wherever the
+// drafter retains no extra tokens (all but multi-module MTP); at the engine's
+// max_in_flight_tokens it is SequenceAdmissionBytes. A simulator that grows a sequence's
+// window reservation with the tokens it actually has in flight, as vLLM's scheduler does,
+// charges this per step instead of holding the admission cap for the sequence's life.
+func (k *Kernel) SequenceBoundedBytes(inFlightTokens int) int64 {
+	return k.sequenceBoundedBytes(k.cacheBoundedBytes(max(inFlightTokens, 0),
+		k.extraRetainedTokens()))
+}
+
+// SequenceBoundedBytesAt is SequenceBoundedBytes for a request that has computed only
+// computedTokens: a window ring holds no page for a token it has not seen, so each ring
+// pages min(computedTokens + inFlightTokens, window - 1 + extra_retained +
+// inFlightTokens) tokens, plus the rules pack's page for a window that does not start on a
+// page edge. That is the hold vLLM's allocate_slots reaches after remove_skipped_blocks:
+// blocks wholly before the window's trailing edge are freed (get_num_skipped_tokens,
+// SlidingWindowManager, vllm/v1/core/single_type_kv_cache_manager.py:1153-1175, applied by
+// remove_skipped_blocks, :687-725), and new ones are allocated only for the tokens
+// scheduled (get_num_blocks_to_allocate, :178-238). Past the window it equals
+// SequenceBoundedBytes.
+//
+// KNOWN over-charge: a ring that has not yet outgrown its window starts on a page edge,
+// so its trailing page is charged though vLLM holds none, at most one page a ring.
+func (k *Kernel) SequenceBoundedBytesAt(computedTokens, inFlightTokens int) int64 {
+	inFlight := max(inFlightTokens, 0)
+	seen := max(computedTokens, 0) + inFlight
+	if k.maxModelLen > 0 {
+		seen = min(seen, k.maxModelLen)
+	}
+	if seen == 0 {
+		seen = -1
+	}
+	return k.sequenceBoundedBytes(k.cacheBoundedBytesUpTo(inFlight, k.extraRetainedTokens(),
+		seen))
+}
+
 // sequenceBoundedBytes adds the recurrent state a request holds whatever its length to the
 // stated bounded caches' bytes.
 func (k *Kernel) sequenceBoundedBytes(caches float64) int64 {

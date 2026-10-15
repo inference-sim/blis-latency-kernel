@@ -73,6 +73,13 @@ var summaries = map[string]struct{ title, summary string }{
 			"that width exceeds the layer's group count, vLLM widens the groups so every head's " +
 			"shard has one, which holds a little more state than this charges.",
 	},
+	"kernel.go|(*Kernel).SequenceBoundedBytesAt|Known over-charge": {
+		"A young window ring's trailing page",
+		"Before a request has computed a window's worth of tokens, its window ring is charged " +
+			"one page more than vLLM holds, as the window is sized as if it might start part-way " +
+			"through a page. At most one page a ring, and none once the request is past its " +
+			"window.",
+	},
 	"kernel.go|(*Kernel).pdTransferBytes|Coverage limit": {
 		"P/D handoffs between pools of different widths",
 		"Each decode rank's pull is priced as one rank's transfer at one rank's link rate. That " +

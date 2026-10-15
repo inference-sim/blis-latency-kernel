@@ -45,12 +45,14 @@ its arguments and safe to call from many goroutines at once.
 | `Resolved()` | The configuration after resolution, with every override. [Resolved](provenance.md#resolved). |
 | `Deployment()` | The pool as the document stated it. A deep copy: writing to it changes nothing in the kernel. |
 
-And eight that are not on the interface:
+And ten that are not on the interface:
 
 | Method | What it does |
 |---|---|
 | `Evidence()` | How many of the values in `Provenance` rest on evidence, of how many, and which were assumed. [Evidence](provenance.md#evidence). |
 | `SequenceAdmissionBytes()` | What the engine reserves for one request whatever its length when it admits it: `SequenceFixedBytes` with each window ring at vLLM's admission cap, which grows with `max_num_batched_tokens`, rather than its steady decode hold. vLLM's reported KV capacity sizes a request with it. [Memory](../concepts/memory.md#what-each-request-holds-regardless-of-length). |
+| `SequenceBoundedBytes(inFlight)` | A request's bounded state with `inFlight` tokens scheduled but not settled: each window ring at the pages that many in-flight tokens hold, in whole pool blocks. At 1 + num_spec_tokens it is `SequenceFixedBytes`; at the engine's max in-flight tokens it is `SequenceAdmissionBytes`. |
+| `SequenceBoundedBytesAt(computed, inFlight)` | The same for a request that has computed only `computed` tokens: a ring holds pages only for tokens it has seen, as vLLM allocates them. Past the window it equals `SequenceBoundedBytes(inFlight)`. |
 | `PreSnapshotBytes()` | What a rank holds before vLLM measures its `gpu_memory_utilization` budget: the communicator reservation and the engine workspace. `FixedBytes` leaves it out of its total. [Memory](../concepts/memory.md). |
 | `CaptureTokens()` | The largest step, in tokens, a captured CUDA graph covers: the stated `max_cudagraph_capture_size` or `cudagraph_capture_sizes` as vLLM resolves them, or its default. A larger step runs with no graph. Zero when nothing is captured. |
 | `GraphModes()` | The CUDA graph mode a uniform decode step runs under and the one every other step runs under (`FULL`, `PIECEWISE` or `NONE`), after the engine's overrides. |
