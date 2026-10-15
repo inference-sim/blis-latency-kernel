@@ -195,7 +195,7 @@ vLLM holds about 9 GiB a rank more than the kernel charges for DeepSeek-V4.1-Fla
 ??? quote "The note in the source"
     COVERAGE LIMIT: on DeepSeek-V4.1-Flash with expert parallelism, vLLM v0.31.0's
     "Model loading took" figure exceeds what this charges by about 9 GiB a rank, at TP 8 and
-    TP 4 alike. curvebender's H200 sizing gives 45.81 and 81.49 GiB, so a fit of R + S/tp has
+    TP 4 alike. our calibration runs' H200 sizing gives 45.81 and 81.49 GiB, so a fit of R + S/tp has
     R = 10.1 GiB replicated and S = 285.4 GiB sharded, against this kernel's 1.0 and 286.1.
     The sharded weights agree, and the gap does not scale with TP; about 2 GiB of it comes
     with DSpark (42.64 GiB without it). The parameter and buffer paths read at v0.31.0 --
@@ -203,7 +203,7 @@ vLLM holds about 9 GiB a rank more than the kernel charges for DeepSeek-V4.1-Fla
     drafter's MoE, the embedding and LM head, Engram's host tables, the init-time buffers
     and the rotary caches -- do not account for it. Until a per-module memory dump on the
     part localizes it, capacity under expert parallelism is overstated by that much a rank
-    (TestCurvebenderH200ArmsAreTheEnginesFigures).
+    (TestInternalH200ArmsAreTheEnginesFigures).
 
 ### DeepSeek-V4.1's prefill workspace beside the activation scratch
 

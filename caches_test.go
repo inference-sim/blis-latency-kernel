@@ -421,12 +421,11 @@ func engineCapacity(k *Kernel, gib float64, maxModelLen int) (tokens, slack floa
 	return tokens, tokens * 0.005 * (1 << 30) / float64(block) / float64(pool)
 }
 
-// GOLDEN, from the engine's own log, H200. curvebender's DeepSeek-V4.1-Flash deployment on
-// 8x H200 under vLLM v0.31.0 (curvebender-tools deployments/deepseek-v4.1-flash/scc-h200/
-// model-server/deepseek-v4.1-flash.yaml: TP 8 with --enable-expert-parallel, DSpark K=5,
-// --max-model-len 1048576, --max-num-batched-tokens 8192, --block-size 64,
+// GOLDEN, from the engine's own log, H200. An internal DSV4.1 H200 deployment on
+// 8x H200 under vLLM v0.31.0 (our calibration runs: TP 8 with --enable-expert-parallel,
+// DSpark K=5, --max-model-len 1048576, --max-num-batched-tokens 8192, --block-size 64,
 // max_cudagraph_capture_size 64) reported 61.18 GiB of KV cache and 28,706,997 tokens
-// (vllm:cache_config_info; reports/deepseek-v4.1-flash/deepseek-v4.1-flash-h200-vllm.html,
+// (vllm:cache_config_info of our calibration runs,
 // and inference-sim/blis-latency-kernel#46). From the same 61.18 GiB the kernel's figures give
 // the same count, to the rounding of the logged GiB; sized at the steady decode hold they
 // would give 25% more.
@@ -443,16 +442,15 @@ func TestKVCapacityIsTheEnginesOwnFigureOnH200(t *testing.T) {
 	}
 }
 
-// GOLDEN, the five arms of curvebender's H200 sizing table under vLLM v0.31.0
-// (reports/deepseek-v4.1-flash/deepseek-v4.1-flash-h200-vllm.html, "Sizing", from vLLM boot
-// logs and vllm:cache_config_info; the baseline is the deployment above). Each arm's capacity
-// follows from its own logged KV pool: without DSpark its 40 window rings fill seven groups,
+// GOLDEN, the five arms of our calibration runs' H200 sizing table under vLLM v0.31.0
+// (from vLLM boot logs and vllm:cache_config_info; the baseline is the deployment
+// above). Each arm's capacity follows from its own logged KV pool: without DSpark its 40 window rings fill seven groups,
 // not eight; at TP 4 a request's caches are the same, since a latent cache is not divided
 // across tensor parallelism. The weights move between TP 8 and TP 4 as the kernel's sharded
 // weights do, to 0.3%: 81.49 - 45.81 = 35.68 GiB measured. The weights themselves are not
 // asserted: vLLM holds about 9 GiB more than the kernel at both widths, a term that does
 // not scale with TP and that the kernel does not yet account for (see computeFixedBytes).
-func TestCurvebenderH200ArmsAreTheEnginesFigures(t *testing.T) {
+func TestInternalH200ArmsAreTheEnginesFigures(t *testing.T) {
 	type arm struct {
 		name       string
 		tp         int
