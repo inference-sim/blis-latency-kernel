@@ -11,7 +11,10 @@ Each entry is a `kernel.CoefficientOrigin`: a name, the set it came from, the me
 produced it, and its scope. Most entries are registry coefficients: every entry of the
 scenario's sets whose scope covers this chip and model, whether or not this deployment's
 steps use it. Their set is the registry set that supplied them, such as
-`cost-model-primitives`. The registry's
+`cost-model-primitives`. Their scope names the deployment's part, the model where the entry is
+scoped to one, and, for a `copied` entry, the scope it was copied from: DeepSeek-V4.1's eager
+launch cost on h100 reads `hardware: h100, model: deepseek-v4.1-flash; copied from
+hardware=h200,model=deepseek-v4.1-flash`. The registry's
 documentation describes each set and method.
 
 Entries the kernel supplied itself carry the set `blis-latency-kernel` (the constant

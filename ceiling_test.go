@@ -6,8 +6,10 @@ import (
 
 	"github.com/inference-sim/blis-schemas/kernel"
 	"github.com/inference-sim/blis-schemas/spec/coefficient"
+	"github.com/inference-sim/blis-schemas/vocab"
 
 	"github.com/inference-sim/blis-latency-kernel/internal/price"
+	"github.com/inference-sim/blis-latency-kernel/internal/resolve"
 )
 
 // THE CAPTURE CEILING FOLLOWS THE ENGINE'S DEFAULT, on every input that sets it. vLLM v0.31.0
@@ -284,5 +286,102 @@ func TestTheDrafterRunsUnderItsOwnGraphs(t *testing.T) {
 	if want := k.replayPerStep + time.Duration(d(k).ContextKernels)*k.launchEager; got != want {
 		t.Errorf("mixed step: drafter host %v, want a replay plus %d eager context "+
 			"launches, %v", got, d(k).ContextKernels, want)
+	}
+}
+
+// vendoredHostEntries replicates blis-registry c45c71c's cost-model-host-overheads.yaml order
+// for the entries DeepSeek-V4.1 scopes (docs/COEFF_CONTRACT.md v2.1): each model-scoped entry
+// follows its part-wide namesake in the file, and the eager constant is derived on h200
+// (assumed) and copied to the other eight parts (copied).
+func vendoredHostEntries() []coefficient.Entry {
+	all := []string{"a100-80", "a100-sxm", "b200", "b300", "gb200-nvl72", "gb300", "h100",
+		"h200", "l40s"}
+	others := []string{"a100-80", "a100-sxm", "b200", "b300", "gb200-nvl72", "gb300", "h100",
+		"l40s"}
+	m := []string{"deepseek-v4.1-flash"}
+	e := func(name string, v float64, units, method string, hw, model []string) coefficient.Entry {
+		x := coefficient.Entry{Name: name, Value: v, Units: vocab.Unit(units),
+			Method: vocab.Method(method), Scope: coefficient.Scope{Hardware: hw, Model: model}}
+		switch method {
+		case "measured":
+			x.Sources = []coefficient.Source{{Kind: "discussion", Cite: "test", Role: "primary"}}
+		default:
+			x.Rationale = "test"
+		}
+		if method == "copied" {
+			x.CopiedFrom = "hardware=h200,model=deepseek-v4.1-flash"
+		}
+		return x
+	}
+	return []coefficient.Entry{
+		e("host_admission_per_request", 40000, "us_per_request", "assumed", all, nil),
+		e("host_admission_per_request", 0, "us_per_request", "not_charged", all, m),
+		e("host_admission_per_token", 0.35, "us_per_token", "assumed", all, nil),
+		e("host_admission_per_token", 2.67, "us_per_token", "measured", all, m),
+		e("host_launch_eager_per_layer", 7, "us_per_layer", "assumed", all, nil),
+		e("host_launch_eager_per_kernel", 93.8, "us_per_transfer", "assumed", []string{"h200"}, m),
+		e("host_launch_eager_per_kernel", 93.8, "us_per_transfer", "copied", others, m),
+	}
+}
+
+// THE TWO RESOLUTION RULES AGREE ON THE VENDORED SET, AND A COPY SAYS IT IS ONE. The registry
+// resolves last-in-file wins with model-scoped placed last; the kernel never lets a part-wide
+// entry displace a model-scoped one. On the vendored order the two must pick the same entry
+// for every name on every part, for this model and another. And Provenance must carry the
+// resolved entry's method and where a copy came from, so a report can show h100's eager
+// constant as copied from h200.
+func TestTheVendoredHostSetResolvesTheSameUnderBothRules(t *testing.T) {
+	set := &coefficient.Set{Kind: "CoefficientSet", Name: "cost-model-host-overheads",
+		Coefficients: vendoredHostEntries()}
+	for _, chip := range []string{"h100", "h200", "b200"} {
+		for _, model := range []string{"deepseek-v4.1-flash", "kimi-k3"} {
+			scope := resolve.Scope{Hardware: chip, Model: model}
+			got, err := resolve.Load([]*coefficient.Set{set}, scope)
+			if err != nil {
+				t.Fatal(err)
+			}
+			last := map[string]coefficient.Entry{}
+			for _, e := range set.Coefficients {
+				if scope.Admits(e.Scope) {
+					last[e.Name] = e
+				}
+			}
+			for name, want := range last {
+				r, ok := got.Entry(name)
+				if !ok || r.Entry.Value != want.Value || r.Entry.Method != want.Method ||
+					r.Entry.CopiedFrom != want.CopiedFrom {
+					t.Errorf("%s/%s %s: kernel resolved %+v, last-in-file gives %+v", chip,
+						model, name, r.Entry, want)
+				}
+			}
+		}
+	}
+	for _, c := range []struct{ chip, method, scope string }{
+		{"h200", "assumed", "hardware: h200, model: deepseek-v4.1-flash"},
+		{"h100", "copied", "hardware: h100, model: deepseek-v4.1-flash; copied from " +
+			"hardware=h200,model=deepseek-v4.1-flash"},
+	} {
+		in := fixtureInputs(t, v41)
+		if c.chip != "h200" {
+			in.Chip, in.Scenario.Cluster.Hardware = chipInputs(t, c.chip), c.chip
+		}
+		in.Coefficients = append(append([]*coefficient.Set{}, in.Coefficients...), set)
+		k := build(t, in)
+		if want := time.Duration(93.8 * float64(time.Microsecond)); k.launchEager != want {
+			t.Errorf("%s: eager launch %v, want the model's %v", c.chip, k.launchEager, want)
+		}
+		found := false
+		for _, o := range k.Provenance() {
+			if o.Name == "host_launch_eager_per_kernel" {
+				found = true
+				if o.Method != c.method || o.Scope != c.scope {
+					t.Errorf("%s: Provenance records %s %q, want %s %q", c.chip, o.Method,
+						o.Scope, c.method, c.scope)
+				}
+			}
+		}
+		if !found {
+			t.Errorf("%s: host_launch_eager_per_kernel is not in Provenance", c.chip)
+		}
 	}
 }
