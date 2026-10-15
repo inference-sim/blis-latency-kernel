@@ -17,6 +17,19 @@ A window cache's admission reservation is sized for one more batch in flight tha
     pipeline parallelism, one fewer than this; the kernel cannot see which runner the engine
     picks, and at pp 1 both hold two.
 
+### Draft passes not padded under data-parallel lockstep
+
+*Coverage limit, in `(*Kernel).priceDraft` in [`draft.go`](https://github.com/inference-sim/blis-latency-kernel/blob/main/draft.go).*
+
+A data-parallel rank's pad tokens run the target model's forward but not the drafter's passes. vLLM pads the draft passes across the group too, to a count set by every rank's draft batch, which one rank's batch does not state, so a padded rank's draft work is under-stated by its pad.
+
+??? quote "The note in the source"
+    COVERAGE LIMIT: the draft passes run at the requests' own draft rows, without the
+    data-parallel lockstep pad (Batch.PadTokens). vLLM's drafters coordinate their own
+    padded count across the data-parallel group (coordinate\_batch\_across\_dp, e.g.
+    vllm/v1/spec\_decode/dflash.py:230-261 at v0.31.0), which depends on every rank's draft
+    batch, and a batch states only this rank's pad for the target's forward.
+
 ### KV cache layouts not sized
 
 *Coverage limit, in `KVBytesPerToken` in [`internal/price/memory.go`](https://github.com/inference-sim/blis-latency-kernel/blob/main/internal/price/memory.go).*
@@ -174,4 +187,4 @@ Under tensor parallelism each rank is charged the arithmetic of whole routed exp
     that are pure TP. The BYTES do divide by it (routedWeightBytes, below), so the
     two terms disagree about the same experts.
 
-*11 notes: 2 known over-charges, 9 coverage limits.*
+*12 notes: 2 known over-charges, 10 coverage limits.*

@@ -46,6 +46,7 @@ Build a `kernel.Batch` from the requests the scheduler formed:
 | `CachedTokens` | Not read by this kernel |
 | `DecodeThreshold` | The engine's decode threshold; see [Price a batch from Go](go.md) |
 | `SMBudget` | The SMs available this step, if fewer than the chip's; zero means all |
+| `PadTokens` | Under data-parallel lockstep, the tokens this rank pads its step with to the group's largest count; zero means none. Pad tokens run the GEMMs, the MoE dispatch and the experts, but no attention and no LM head, and the capture ceiling is met at the padded count. A rank with nothing scheduled sends an empty `Reqs` and its pad. Do not add pad tokens as requests, which would charge them attention and logits |
 
 Call `StepTime` and advance the clock by `NoOverlap`. inference-sim converts it to its
 microsecond tick and never lets a step take less than one tick.

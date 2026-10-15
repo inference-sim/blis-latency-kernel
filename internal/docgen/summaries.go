@@ -44,6 +44,13 @@ var summaries = map[string]struct{ title, summary string }{
 			"parallelism on, and the kernel cannot see which runs, so such a deployment's " +
 			"SequenceAdmissionBytes is up to one token budget a window group high.",
 	},
+	"draft.go|(*Kernel).priceDraft|Coverage limit": {
+		"Draft passes not padded under data-parallel lockstep",
+		"A data-parallel rank's pad tokens run the target model's forward but not the " +
+			"drafter's passes. vLLM pads the draft passes across the group too, to a count set " +
+			"by every rank's draft batch, which one rank's batch does not state, so a padded " +
+			"rank's draft work is under-stated by its pad.",
+	},
 	"kernel.go|(*Kernel).pdTransferBytes|Coverage limit": {
 		"P/D handoffs between pools of different widths",
 		"Each decode rank's pull is priced as one rank's transfer at one rank's link rate. That " +
