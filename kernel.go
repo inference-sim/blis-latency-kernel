@@ -1475,11 +1475,12 @@ func (k *Kernel) hostPerStepWith(b kernel.Batch, draftKernels int) time.Duration
 	if len(b.Reqs) == 0 || b.UniformDecode(k.uniformDecodeWidth) {
 		mode = k.graphDecode
 	}
-	captured := k.modeHost(mode, draftKernels)
+	kernels := k.stepKernels(b) + draftKernels
+	captured := k.modeHost(mode, kernels)
 	// The graph is dispatched at the padded count (gpu_model_runner.py:4407-4413).
 	if b.PaddedTokens() > k.captureTokens && mode != graphModeEager {
 		// Past every captured size: the engine runs this step with no graph.
-		eager := k.modeHost(graphModeEager, draftKernels)
+		eager := k.modeHost(graphModeEager, kernels)
 		if eager < captured {
 			eager = captured
 		}
@@ -1488,8 +1489,9 @@ func (k *Kernel) hostPerStepWith(b kernel.Batch, draftKernels int) time.Duration
 	return captured
 }
 
-// modeHost is one step's launch-and-replay host cost under a graph mode.
-func (k *Kernel) modeHost(mode graphMode, draftKernels int) time.Duration {
+// modeHost is one step's launch-and-replay host cost under a graph mode, for a step that
+// launches kernels kernels (stepKernels plus the drafter's).
+func (k *Kernel) modeHost(mode graphMode, kernels int) time.Duration {
 	switch mode {
 	case graphModeFull:
 		return k.replayPerStep
@@ -1506,8 +1508,7 @@ func (k *Kernel) modeHost(mode graphMode, draftKernels int) time.Duration {
 		}
 		return time.Duration(float64(k.replayPerStep) * float64(k.plan.PiecewiseSegments()))
 	default:
-		return time.Duration(float64(k.launchEager) *
-			float64(k.plan.TotalKernels+draftKernels))
+		return time.Duration(float64(k.launchEager) * float64(kernels))
 	}
 }
 
@@ -1534,8 +1535,21 @@ func (k *Kernel) modeHost(mode graphMode, draftKernels int) time.Duration {
 // a dispatch that has not happened cannot have its kernel running. At large batch the
 // device work per kernel dwarfs it and it vanishes into the noise, which is why a model
 // fitted only at high concurrency would miss it.
-func (k *Kernel) launchSeconds(draftKernels int) float64 {
-	return k.launchPerKernel.Seconds() * float64(k.plan.TotalKernels+draftKernels)
+func (k *Kernel) launchSeconds(b kernel.Batch, draftKernels int) float64 {
+	return k.launchPerKernel.Seconds() * float64(k.stepKernels(b)+draftKernels)
+}
+
+// stepKernels is how many of the target's kernels a step launches: every planned kernel
+// when a request in it prefills, and all but the graph's prefill-only ones otherwise
+// (price.PlannedLayer.PrefillOnlyKernels). A request prefills on the rule shapeOf uses:
+// more scheduled tokens than the batch's decode threshold.
+func (k *Kernel) stepKernels(b kernel.Batch) int {
+	for _, r := range b.Reqs {
+		if r.Computed+r.Scheduled > 0 && r.Scheduled > b.DecodeThreshold {
+			return k.plan.TotalKernels
+		}
+	}
+	return k.plan.TotalKernels - k.plan.PrefillOnlyKernels
 }
 
 // graphMode is how much of a step a captured graph covers.

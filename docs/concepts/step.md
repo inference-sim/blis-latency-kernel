@@ -167,7 +167,9 @@ the engine decides that per batch. The kernel follows vLLM v0.31.0's choice:
 - A model whose own code breaks the capture, as DeepSeek-V4.1 does around every layer's
   attention, replays one piece per captured region even in full capture.
 
-On top of that, every kernel the step runs costs a fixed dispatch time. For a single request
+On top of that, every kernel the step runs costs a fixed dispatch time. A step with no
+prefill row does not run the nodes the model graph marks `phase: prefill`, so it neither
+launches nor dispatches them. For a single request
 the host can be the largest resource, as the figure above shows.
 
 A step costs microseconds to price, because everything that does not depend on the batch is
