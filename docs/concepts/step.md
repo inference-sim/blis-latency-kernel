@@ -76,6 +76,17 @@ window plus the positions its indexer selects, at most its top-k, or, where it s
 nothing, its whole compressed stream, in decode and in prefill alike; and a sparse layer's
 indexer scan is priced in both phases.
 
+Where the registry carries a model's own measured prefill form for a kind of attention or for
+an indexer (DeepSeek-V4.1's sparse latent attention and its block-index scorer), prefill is
+priced with it instead: a fixed cost, a cost per prefill request and per prefill token, and the
+bytes the kernel reads in its own blocks at a measured rate. Each such form is used only when
+every one of its terms is present.
+
+**Hyper-connections.** DeepSeek-V4.1's mHC kernels are priced, where the registry has their
+measured form, as a fixed cost plus the residual streams' bytes at a measured rate for each of
+their two halves, in place of the bytes the graph states and of the small mixing GEMM the
+measured kernel already includes. Without it they are charged as memory traffic, as before.
+
 **Arithmetic rates.** Each matrix multiply runs at the rate of the format it computes in:
 BF16 weights at the BF16 rate, FP32 weights at the TF32 rate, MXFP8 on Hopper and four-bit
 weights on any part without a four-bit peak at the BF16 rate of the weight-only kernels vLLM

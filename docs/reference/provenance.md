@@ -24,6 +24,7 @@ reason. They are of two kinds.
 
 | Name | Recorded when |
 |---|---|
+| `attention_prefill_<kind>` | A measured prefill family for an attention kind (`sparse_mla`) or a scorer's role (`block_index_scores`) is only partly in the scenario's sets, so it is not used, and prefill is priced as without it. Value `fallback`. |
 | `block_size` | The deployment states no block size. 64 for a DSA sparse-attention model, whose indexer accepts only 64; for a DeepSeek-V4-family model the one kernel block its sparse backends accept on the part (for DeepSeek-V4.1 64 on SM90 and 128 on SM100; for DeepSeek-V4 256 on every part); otherwise vLLM's default of 16. |
 | `cache_record` | A graph states a cache with no record listed under the cache data type that runs, so the cache is sized at its base record. |
 | `compute_rate_<kind>` | A GEMM's weights are in a format whose rate the catalog does not state: FP32 weights run at the TF32 rate, taken as half the dense BF16 peak. |
@@ -43,6 +44,8 @@ reason. They are of two kinds.
 | `max_num_batched_tokens` | No token budget per step is stated. vLLM's default for the chip's memory size. |
 | `max_num_seqs` | No limit on concurrent requests is stated. vLLM's default for the chip's memory size. |
 | `modality` | The graph prices the text decoder of a multimodal model; its vision or audio tower is not priced. |
+| `mhc` | Only one of the mHC pre and post forms resolves, so neither is used. Value `fallback`. |
+| `mhc_<kind>` | An mHC component's rate (`pre` or `post`) is in the scenario's sets without its floor, so the measured mHC form is not used. Value `fallback`. |
 | `mla_context_chunk` | Decode-context parallelism is on for a latent-attention model and no context length is stated, so the chunk in which a prefill gathers its cached context is taken at its largest. |
 | `num_spec_tokens` | The deployment drafts a different number of tokens a step from the graph's speculator, so what the graph sizes at its own count is taken as stated. |
 | `recurrent_prefill_rate_<kind>` | A recurrent mixer has no measured prefill form, so its prefill tokens are priced as the chunked scan's FLOPs on the BF16 ramp rather than at the decode scan's rate. |
@@ -64,6 +67,8 @@ the model has a layer of that kind.
 | `attention_decode_rate_<kind>` | The chip-wide attention pair is used for that kind; for a scorer named by its role, its attention kind's pair |
 | `attention_decode_floor_<kind>` | A scorer with its own rate inherits the part-wide attention floor |
 | `attention_prefill_floor`, `attention_prefill_work_scale` | Prefill attention is charged on the plain efficiency ramp, with no floor |
+| `attention_prefill_rate_<kind>` | Prefill of that attention kind (`sparse_mla`) or scorer role (`block_index_scores`) is priced with the part-wide prefill pair on its FLOPs, not with its own measured floor, per-request, per-token and byte terms |
+| `mhc_rate_<kind>` | The mHC nodes running that component (`pre`, `post`) are charged their stated bytes at memory bandwidth, and, without the `pre` form, the `hc_*fn` GEMMs on the dense ramp |
 | `recurrent_decode_floor_<kind>`, `recurrent_decode_rate_<kind>` | The recurrent mixer's decode term is not charged |
 | `recurrent_prefill_floor_<kind>` | A recurrent mixer with a measured prefill rate is charged no prefill floor |
 | `moe_routing_imbalance_median` | Experts are priced as evenly loaded |
