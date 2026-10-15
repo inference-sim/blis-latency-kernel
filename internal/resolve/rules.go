@@ -50,4 +50,8 @@ type EngineRules interface {
 	// KVCacheGroups groups a model's stated caches into the KV cache groups that share
 	// the engine's block pool, and gives the bytes one pool block costs.
 	KVCacheGroups(in rules.KVCacheGroupsInput) (rules.KVCacheGrouping, error)
+
+	// CUDAGraphCaptureSizes resolves the capture sizes a deployment's stated knobs give,
+	// reporting false when it states none.
+	CUDAGraphCaptureSizes(e deployment.Engine) (rules.CUDAGraphCapture, bool, error)
 }

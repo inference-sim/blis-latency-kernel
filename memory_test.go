@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -975,6 +976,116 @@ func TestFixedOccupancyIsMonotoneInTheTokenBudgetAndContextBound(t *testing.T) {
 					scenario, mml, got, prev)
 			}
 			prev = total(8192, mml)
+		}
+	}
+}
+
+// A STATED CAPTURE SIZE IS THE CEILING (inference-sim/blis-latency-kernel#54). vLLM v0.31.0
+// captures up to max_cudagraph_capture_size and runs a larger step with no graph
+// (vllm/v1/worker/gpu/cudagraph_utils.py:499-529). Stated at 64 with DSpark's K = 5, a
+// uniform decode of n requests verifies 6n tokens, so ten requests replay a graph and eleven
+// run eager, pricing like cudagraph_mode NONE.
+func TestAStatedCaptureSizeIsTheCeiling(t *testing.T) {
+	with := func(edit func(*deployment.Engine)) *Kernel {
+		in := fixtureInputs(t, v41)
+		edit(&in.Deployment.Pools[0].Engine)
+		return build(t, in)
+	}
+	size := 64
+	stated := with(func(e *deployment.Engine) { e.MaxCUDAGraphCaptureSize = &size })
+	none := with(func(e *deployment.Engine) { e.CUDAGraphMode = "NONE" })
+	if got := stated.CaptureTokens(); got != 64 {
+		t.Fatalf("CaptureTokens() = %d with 64 stated", got)
+	}
+	if hasAssumption(stated, "max_cudagraph_capture_size") {
+		t.Error("a stated capture size is still recorded as an assumption")
+	}
+	host := func(k *Kernel, n int) time.Duration {
+		return k.StepTime(decodeBatch(n, 6, 8192)).PerResource[kernel.ResourceHost]
+	}
+	if host(stated, 10) == host(none, 10) {
+		t.Error("ten requests verify 60 tokens, within the stated 64, yet run eager")
+	}
+	if a, b := host(stated, 11), host(none, 11); a != b {
+		t.Errorf("eleven requests verify 66 tokens, past the stated 64: %v of host time, "+
+			"want NONE's %v", a, b)
+	}
+}
+
+// METAMORPHIC: stating the default capture size prices every step as leaving it unstated;
+// only Provenance changes, as nothing was assumed.
+func TestStatingTheDefaultCaptureSizeChangesNoPrice(t *testing.T) {
+	unstated := build(t, fixtureInputs(t, v41))
+	def := unstated.CaptureTokens()
+	in := fixtureInputs(t, v41)
+	in.Deployment.Pools[0].Engine.MaxCUDAGraphCaptureSize = &def
+	stated := build(t, in)
+	for _, b := range []kernel.Batch{decodeBatch(1, 6, 8192), decodeBatch(85, 6, 8192),
+		decodeBatch(86, 6, 8192), prefillOf(512, 0), prefillOf(8192, 90000)} {
+		if a, s := unstated.StepTime(b), stated.StepTime(b); !reflect.DeepEqual(a, s) {
+			t.Errorf("%d tokens: stating the default %d priced %v against %v", b.Tokens(), def,
+				s.NoOverlap, a.NoOverlap)
+		}
+	}
+	if !hasAssumption(unstated, "max_cudagraph_capture_size") {
+		t.Error("an unstated capture size is not recorded as an assumption")
+	}
+}
+
+// The stated knobs resolve as the engine resolves them: a maximum above the token budget is
+// capped at it, and reported; a maximum that is not the largest of the stated sizes is
+// refused, as vLLM refuses it at startup.
+func TestStatedCaptureSizesResolveAsTheEngineDoes(t *testing.T) {
+	in := fixtureInputs(t, v41)
+	big := 100000
+	in.Deployment.Pools[0].Engine.MaxCUDAGraphCaptureSize = &big
+	k := build(t, in)
+	if got := k.CaptureTokens(); got != 8192 {
+		t.Errorf("a stated 100,000 runs as %d, want the 8,192-token budget", got)
+	}
+	reported := false
+	for _, o := range k.Resolved().Overrides {
+		reported = reported || (o.Field == "max_cudagraph_capture_size" && o.Resolved == "8192")
+	}
+	if !reported {
+		t.Error("the cap at max_num_batched_tokens is not reported as an override")
+	}
+	in = fixtureInputs(t, v41)
+	m := 64
+	in.Deployment.Pools[0].Engine.MaxCUDAGraphCaptureSize = &m
+	in.Deployment.Pools[0].Engine.CUDAGraphCaptureSizes = []int{8, 16, 32}
+	if _, err := New(in); err == nil {
+		t.Error("a maximum of 64 over sizes up to 32 was priced; vLLM refuses it")
+	}
+}
+
+// GraphModes reports the modes that run, after the engine's own overrides.
+func TestGraphModesAreTheResolvedOnes(t *testing.T) {
+	for _, c := range []struct {
+		mode, decode, other string
+		edit                func(*Inputs)
+	}{
+		{"", "FULL", "PIECEWISE", nil},
+		{"PIECEWISE", "PIECEWISE", "PIECEWISE", nil},
+		{"NONE", "NONE", "NONE", nil},
+		{"FULL_AND_PIECEWISE", "NONE", "NONE", func(in *Inputs) {
+			pl := &in.Deployment.Pools[0].Parallel
+			pl.TP, pl.DP, pl.EnableExpertParallel = 4, 2, true
+			in.Deployment.Pools[0].Engine.All2AllBackend = "deepep_high_throughput"
+		}},
+	} {
+		in := fixtureInputs(t, v41)
+		in.Deployment.Pools[0].Engine.CUDAGraphMode = c.mode
+		if c.edit != nil {
+			c.edit(&in)
+		}
+		k := build(t, in)
+		if d, o := k.GraphModes(); d != c.decode || o != c.other {
+			t.Errorf("mode %q: GraphModes() = %s, %s; want %s, %s", c.mode, d, o, c.decode,
+				c.other)
+		}
+		if (c.decode == "NONE") != (k.CaptureTokens() == 0) {
+			t.Errorf("mode %q: CaptureTokens() = %d", c.mode, k.CaptureTokens())
 		}
 	}
 }
