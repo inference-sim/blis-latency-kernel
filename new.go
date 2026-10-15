@@ -2486,7 +2486,7 @@ func (k *Kernel) buildProvenance(c *resolve.Coefficients) {
 		}
 		k.origins = append(k.origins, kernel.CoefficientOrigin{
 			Name: name, Set: r.Set, Method: string(r.Entry.Method),
-			Scope: scopeString(r.Entry.Scope),
+			Scope: scopeString(r.Entry, k.chip.Name),
 		})
 	}
 	k.origins = append(k.origins, k.assumptions...)
@@ -2565,14 +2565,36 @@ func (k *Kernel) assume(name, value, reason string) {
 	})
 }
 
-func scopeString(s coefficient.Scope) string {
+// scopeString is an entry's scope as Provenance records it: the part (the deployment's, where
+// the entry lists several), its model where it states one, and the scope a copied value came
+// from, so a reader can tell a model's own value, and a copy of another part's, from a
+// part-wide one.
+func scopeString(e coefficient.Entry, chip string) string {
+	s := e.Scope
+	part := ""
 	if len(s.Hardware) > 0 {
-		return "hardware: " + s.Hardware[0]
+		part = s.Hardware[0]
+		for _, h := range s.Hardware {
+			if h == chip {
+				part = h
+			}
+		}
 	}
-	if len(s.Model) > 0 {
-		return "model: " + s.Model[0]
+	var out string
+	switch {
+	case part != "" && len(s.Model) > 0:
+		out = "hardware: " + part + ", model: " + s.Model[0]
+	case part != "":
+		out = "hardware: " + part
+	case len(s.Model) > 0:
+		out = "model: " + s.Model[0]
+	default:
+		out = "unscoped"
 	}
-	return "unscoped"
+	if e.CopiedFrom != "" {
+		out += "; copied from " + e.CopiedFrom
+	}
+	return out
 }
 
 // Evidence reports how much of the resolved coefficient set rests on measurement, so a
