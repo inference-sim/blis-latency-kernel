@@ -1490,6 +1490,17 @@ const (
 	graphModeFull
 )
 
+// String is the mode's vLLM name.
+func (m graphMode) String() string {
+	switch m {
+	case graphModePiecewise:
+		return "PIECEWISE"
+	case graphModeFull:
+		return "FULL"
+	}
+	return "NONE"
+}
+
 // TierTime prices one transfer between GPU and an offload tier.
 func (k *Kernel) TierTime(tier string, dir kernel.Direction, bytes int64,
 	queueDepth int) time.Duration {
@@ -1672,6 +1683,20 @@ func (k *Kernel) DecodeContextParallelWidth() int { return max(k.layout.DCP, 1) 
 //
 // Interim for the same reason as DecodeContextParallelWidth.
 func (k *Kernel) PrefillContextParallelWidth() int { return max(k.layout.PCP, 1) }
+
+// CaptureTokens returns the largest step, in tokens, a captured CUDA graph covers: the
+// deployment's max_cudagraph_capture_size or cudagraph_capture_sizes as vLLM v0.31.0 resolves
+// them, or its default where neither is stated (see Provenance). A step of more tokens runs
+// with no graph whatever the mode. Zero when the resolved mode captures nothing.
+func (k *Kernel) CaptureTokens() int { return k.captureTokens }
+
+// GraphModes returns the CUDA graph mode the engine runs a uniform decode step under and the
+// one it runs every other step under, as vLLM names them -- "FULL", "PIECEWISE" or "NONE" --
+// after the overrides Resolved reports. A step above CaptureTokens runs with no graph under
+// either.
+func (k *Kernel) GraphModes() (decode, other string) {
+	return k.graphDecode.String(), k.graphOther.String()
+}
 
 // Resource indices for the hot path's fixed array. A map allocation per step would show
 // up in a simulator calling this millions of times, so the accumulation is positional and

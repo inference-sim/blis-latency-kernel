@@ -3,6 +3,7 @@ package latencykernel
 import (
 	"fmt"
 	"math"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -702,6 +703,13 @@ func clonePool(p deployment.Pool) deployment.Pool {
 		v := *e.Speculative
 		e.Speculative = &v
 	}
+	if e.MaxCUDAGraphCaptureSize != nil {
+		v := *e.MaxCUDAGraphCaptureSize
+		e.MaxCUDAGraphCaptureSize = &v
+	}
+	if e.CUDAGraphCaptureSizes != nil {
+		e.CUDAGraphCaptureSizes = slices.Clone(e.CUDAGraphCaptureSizes)
+	}
 	return p
 }
 
@@ -1042,14 +1050,17 @@ func (k *Kernel) lift(c *resolve.Coefficients, g *model.Graph, cacheBytes float6
 	// The largest batch a captured graph covers. vLLM v0.31.0 captures token counts up to
 	// max_cudagraph_capture_size and runs anything larger with no graph at all, whatever the
 	// mode (vllm/v1/worker/gpu/cudagraph_utils.py:499-529; V1's
-	// vllm/v1/cudagraph_dispatcher.py:270-279). Unstated, that ceiling is
-	// min(max_num_seqs x decode_query_len x 2, 512), or 1024 on a data-center Blackwell part
-	// (VllmConfig._set_cudagraph_sizes, vllm/config/vllm.py:2442-2460). With speculation the
-	// uniform decode sizes are appended only up to that same ceiling
-	// (`n * query_len <= max_cudagraph_capture_size`, :2531-2538), so a decode step has no
-	// higher one. The ceiling is then capped at max_num_batched_tokens (:2541-2542), which
-	// no step exceeds, so that cap changes no verdict here. blis-schemas has no field for an
-	// explicit capture size, so this is always the default.
+	// vllm/v1/cudagraph_dispatcher.py:270-279). A deployment that states the maximum or the
+	// sizes is resolved as the engine resolves them, through the rules pack
+	// (rules.Pack.CUDAGraphCaptureSizes, blis-schemas#72; VllmConfig._set_cudagraph_sizes,
+	// vllm/config/vllm.py:2388-2660): capped at max_num_batched_tokens, and expanded on the
+	// 1, 2, 4, step-8, step-16 ladder, so the ceiling is the largest size that runs.
+	// Unstated, it is min(max_num_seqs x decode_query_len x 2, 512), or 1024 on a
+	// data-center Blackwell part (:2442-2460). With speculation the uniform decode sizes are
+	// appended only up to that same ceiling (`n * query_len <= max_cudagraph_capture_size`,
+	// :2531-2538), so a decode step has no higher one. The default is then capped at
+	// max_num_batched_tokens (:2541-2542), which no step exceeds, so that cap changes no
+	// verdict here.
 	//
 	// The catalog records no compute capability, so a data-center Blackwell part is
 	// recognised by native NVFP4 support, which among the catalog's parts is exactly the
@@ -1063,16 +1074,46 @@ func (k *Kernel) lift(c *resolve.Coefficients, g *model.Graph, cacheBytes float6
 				"the cudagraph capture ceiling and the MLA context-gather chunk")
 	}
 	if k.graphDecode != graphModeEager || k.graphOther != graphModeEager {
-		platform := 512
-		if k.chip.NVFP4Peak > 0 {
-			platform = 1024
+		e := k.pool.Engine
+		e.CUDAGraphMode = mode
+		if e.MaxNumBatchedTokens <= 0 {
+			e.MaxNumBatchedTokens = defaultMaxNumBatchedTokens(k.chip)
 		}
-		k.captureTokens = min(seqs*k.uniformDecodeWidth*2, platform)
-		k.assume("max_cudagraph_capture_size", strconv.Itoa(k.captureTokens),
-			"vLLM v0.31.0's default, min(max_num_seqs x decode_query_len x 2, "+
-				strconv.Itoa(platform)+") (VllmConfig._set_cudagraph_sizes, "+
-				"vllm/config/vllm.py:2442-2460); blis-schemas has no field to state it, and "+
-				"a step above it runs with no graph")
+		capture, stated, err := k.rules.CUDAGraphCaptureSizes(e)
+		if err != nil {
+			return fmt.Errorf("resolving the CUDA graph capture sizes: %w", err)
+		}
+		if stated {
+			k.captureTokens = capture.Max
+			if m := k.pool.Engine.MaxCUDAGraphCaptureSize; m != nil && *m != capture.Max {
+				k.layout.Overrides = append(k.layout.Overrides, resolve.Override{
+					Field: "max_cudagraph_capture_size", Requested: strconv.Itoa(*m),
+					Resolved: strconv.Itoa(capture.Max),
+					Reason: "vLLM v0.31.0 caps the capture at max_num_batched_tokens and " +
+						"captures only the sizes on its ladder (1, 2, 4, every 8 below 256, " +
+						"every 16 from it), so the largest graph that runs is this",
+				})
+			}
+			if len(capture.Dropped) > 0 {
+				k.layout.Overrides = append(k.layout.Overrides, resolve.Override{
+					Field: "cudagraph_capture_sizes", Requested: fmt.Sprint(
+						k.pool.Engine.CUDAGraphCaptureSizes), Resolved: fmt.Sprint(capture.Sizes),
+					Reason: "vLLM v0.31.0 drops the sizes above max_num_batched_tokens",
+				})
+			}
+		} else {
+			platform := 512
+			if k.chip.NVFP4Peak > 0 {
+				platform = 1024
+			}
+			k.captureTokens = min(seqs*k.uniformDecodeWidth*2, platform)
+			k.assume("max_cudagraph_capture_size", strconv.Itoa(k.captureTokens),
+				"vLLM v0.31.0's default, min(max_num_seqs x decode_query_len x 2, "+
+					strconv.Itoa(platform)+") (VllmConfig._set_cudagraph_sizes, "+
+					"vllm/config/vllm.py:2442-2460), as the deployment states neither "+
+					"max_cudagraph_capture_size nor cudagraph_capture_sizes; a step above it "+
+					"runs with no graph")
+		}
 	}
 
 	// The rows one chunk of an MLA prefill's context gather covers:

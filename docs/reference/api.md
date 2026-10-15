@@ -45,12 +45,14 @@ its arguments and safe to call from many goroutines at once.
 | `Resolved()` | The configuration after resolution, with every override. [Resolved](provenance.md#resolved). |
 | `Deployment()` | The pool as the document stated it. A deep copy: writing to it changes nothing in the kernel. |
 
-And five that are not on the interface:
+And seven that are not on the interface:
 
 | Method | What it does |
 |---|---|
 | `Evidence()` | How many of the values in `Provenance` rest on evidence, of how many, and which were assumed. [Evidence](provenance.md#evidence). |
 | `SequenceAdmissionBytes()` | What the engine reserves for one request whatever its length when it admits it: `SequenceFixedBytes` with each window ring at vLLM's admission cap, which grows with `max_num_batched_tokens`, rather than its steady decode hold. vLLM's reported KV capacity sizes a request with it. [Memory](../concepts/memory.md#what-each-request-holds-regardless-of-length). |
+| `CaptureTokens()` | The largest step, in tokens, a captured CUDA graph covers: the stated `max_cudagraph_capture_size` or `cudagraph_capture_sizes` as vLLM resolves them, or its default. A larger step runs with no graph. Zero when nothing is captured. |
+| `GraphModes()` | The CUDA graph mode a uniform decode step runs under and the one every other step runs under (`FULL`, `PIECEWISE` or `NONE`), after the engine's overrides. |
 | `DecodeContextParallelWidth()` | How many ranks shard the decode KV cache. |
 | `PrefillContextParallelWidth()` | How many ranks split a prefill. |
 | `StepTimeInto(batch, per)` | `StepTime`, writing the per-resource breakdown into a map the caller reuses instead of allocating one. |

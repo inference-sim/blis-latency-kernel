@@ -38,7 +38,7 @@ reason. They are of two kinds.
 | `hybrid_kv_cache_manager` | A graph states window caches and the deployment runs a KV connector, which can turn the hybrid KV cache manager off and the window rings into full-length caches. |
 | `kv_cache_grouping` | A graph states its caches and the rules pack cannot group them into the engine's shared block pool, so each cache is sized at its own page rather than in whole pool blocks. The reason names what the pack does not model. |
 | `mamba_cache_mode` | A model with recurrent layers states no recurrent cache mode: `align` with prefix caching on, `none` with it off. |
-| `max_cudagraph_capture_size` | Any CUDA graph is captured. The largest batch a graph covers cannot be stated in a deployment, so it is always vLLM's default. |
+| `max_cudagraph_capture_size` | Any CUDA graph is captured and the deployment states neither `max_cudagraph_capture_size` nor `cudagraph_capture_sizes`: vLLM's default ceiling, above which a step runs with no graph. |
 | `max_model_len` | The deployment states no context length, or states `auto`: the bound is the model's context window from the graph (for `auto`, the most the engine can fit it to). |
 | `max_num_batched_tokens` | No token budget per step is stated. vLLM's default for the chip's memory size. |
 | `max_num_seqs` | No limit on concurrent requests is stated. vLLM's default for the chip's memory size. |
@@ -94,7 +94,10 @@ these:
 | `allreduce_backend` | The custom all-reduce was requested at a tensor-parallel width it does not support, or across nodes on a chip without multi-node NVLink. NCCL runs instead. |
 | `cache_dtype` | A sparse-attention model's KV cache is stored in a packed format its backend chooses, such as `fp8_ds_mla` for a stated `fp8` on Hopper, or DeepSeek-V4.1's `nvfp4_ds_mla` for a stated `fp8` on SM100. |
 | `cp_kv_cache_interleave_size` | Decode-context parallelism is on, the interleave is unstated, the block size is above one, and a NIXL connector is configured, so vLLM sets the interleave to the block size. |
+| `cudagraph_capture_sizes` | Stated capture sizes above `max_num_batched_tokens`, which vLLM drops. |
+| `cudagraph_mode` | DeepEP high-throughput with dp above one, or MoonEP where its all-to-all runs: the engine cannot capture the dispatch and runs with no CUDA graphs. |
 | `mamba_cache_mode` | A hybrid model states `none` with prefix caching on, which vLLM runs as `align`. |
+| `max_cudagraph_capture_size` | A stated maximum that vLLM lowers: capped at `max_num_batched_tokens`, or off the sizes it captures (1, 2, 4, every 8 below 256, every 16 from it). The largest size that runs is the ceiling. |
 
 The two context-parallel widths are not yet fields of `kernel.Resolution`. Until blis-schemas
 adds them, read them from `DecodeContextParallelWidth()` and `PrefillContextParallelWidth()`.
