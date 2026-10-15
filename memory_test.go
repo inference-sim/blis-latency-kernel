@@ -917,14 +917,17 @@ func TestUnderDCPAMixedStepGetsNoOneLaunchRebate(t *testing.T) {
 //     8,192 x 128 and 8,192 int32);
 //   - the indexer's 536,870,912 B logits stand-in;
 //   - two 16,777,216 B top-k buffers (target and DSpark), a 67,108,864 B candidate-block
-//     buffer and DSpark's 335,544,320 B hidden-state buffer.
+//     buffer and DSpark's 335,544,320 B hidden-state buffer;
+//   - two 268,435,456 B rotary caches, plain and YaRN, at the model's 1,048,576-position
+//     window x 64 FP32 values, whatever the context bound.
 func TestV41EngineBuffersAreChargedAtTheEnginesFigures(t *testing.T) {
 	in := fixtureInputs(t, v41)
 	k := build(t, in)
 	generic := math.Max(
 		registryValue(t, in, k, "activation_buffer_count_moe_8rank")*8192*5120*2,
 		registryValue(t, in, k, "activation_scratch_floor_bytes"))
-	const buffers = 693108736 + 38305792 + 536870912 + 2*16777216 + 67108864 + 335544320
+	const buffers = 693108736 + 38305792 + 536870912 + 2*16777216 + 67108864 + 335544320 +
+		2*268435456
 	if got := k.FixedBytes().ActivationPeak; got != int64(generic)+buffers {
 		t.Errorf("activation %d B, want the registry's %d plus %d of engine buffers",
 			got, int64(generic), buffers)
