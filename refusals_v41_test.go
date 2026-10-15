@@ -160,8 +160,8 @@ func TestUncapturableDispatchRunsEager(t *testing.T) {
 	}
 	full, none := layout("FULL_AND_PIECEWISE"), layout("NONE")
 	b := decodeBatch(16, 6, 8192)
-	if f, n := full.StepTime(b).PerResource[kernel.ResourceHost],
-		none.StepTime(b).PerResource[kernel.ResourceHost]; f != n {
+	if f, n := hostBusy(full, b),
+		hostBusy(none, b); f != n {
 		t.Errorf("a captured mode prices %v of host time and NONE %v; DeepEP "+
 			"high-throughput at dp 2 runs eager either way", f, n)
 	}

@@ -380,8 +380,8 @@ func TestPadTokensRunTheForwardAndMeetTheCeiling(t *testing.T) {
 	eager := build(t, in)
 	b := decodeBatch(1, 500, 500)
 	b.PadTokens = 13
-	if a, e := k.StepTime(b).PerResource[kernel.ResourceHost],
-		eager.StepTime(b).PerResource[kernel.ResourceHost]; a != e {
+	if a, e := hostBusy(k, b),
+		hostBusy(eager, b); a != e {
 		t.Errorf("513 padded tokens priced %v of host time, want NONE's %v", a, e)
 	}
 }

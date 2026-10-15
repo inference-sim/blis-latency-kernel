@@ -1,6 +1,7 @@
 package latencykernel
 
 import (
+	"math"
 	"testing"
 	"time"
 
@@ -41,7 +42,7 @@ func TestTheCaptureCeilingFollowsTheEngineDefault(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		return k.StepTime(b).PerResource[kernel.ResourceHost]
+		return hostBusy(k, b)
 	}
 	prefill := func(tokens int) kernel.Batch { return decodeBatch(1, tokens, tokens) }
 	for _, c := range []struct {
@@ -165,8 +166,8 @@ func TestADecodeStepDoesNotLaunchPrefillOnlyNodes(t *testing.T) {
 		mixed := dec
 		mixed.Reqs = append(append([]kernel.ReqShape{}, dec.Reqs...),
 			kernel.ReqShape{Scheduled: 512, Computed: 1024, PromptLen: 8192})
-		got := k.StepTime(mixed).PerResource[kernel.ResourceHost] -
-			k.StepTime(dec).PerResource[kernel.ResourceHost]
+		got := hostBusy(k, mixed) -
+			hostBusy(k, dec)
 		per := k.launchEager + k.launchPerKernel
 		if d := got - time.Duration(want)*per; d < -time.Nanosecond || d > time.Nanosecond {
 			t.Errorf("%s: a prefill row added %v of host time; its %d prefill-only "+
@@ -208,7 +209,7 @@ func TestAModelScopedEagerCostWinsWhateverItsOrder(t *testing.T) {
 		}
 		k := build(t, in)
 		b := decodeBatch(1, 6, 90000)
-		host := k.StepTime(b).PerResource[kernel.ResourceHost]
+		host := hostBusy(k, b)
 		_, draft := k.priceDraft(b, &stepShape{}, &[numResources]float64{})
 		n := time.Duration(k.stepKernels(b) + draft)
 		return host/n - k.launchPerKernel
@@ -259,7 +260,7 @@ func TestTheDrafterRunsUnderItsOwnGraphs(t *testing.T) {
 		e.CUDAGraphMode, e.MaxCUDAGraphCaptureSize = mode, &size
 		k = build(t, in)
 		_, kernels := k.priceDraft(b, &stepShape{}, &[numResources]float64{})
-		host := k.StepTime(b).PerResource[kernel.ResourceHost]
+		host := hostBusy(k, b)
 		target := k.targetHost(b, 0) + seconds(k.launchSeconds(b, kernels))
 		return host - target, k
 	}
@@ -383,5 +384,89 @@ func TestTheVendoredHostSetResolvesTheSameUnderBothRules(t *testing.T) {
 		if !found {
 			t.Errorf("%s: host_launch_eager_per_kernel is not in Provenance", c.chip)
 		}
+	}
+}
+
+// hostBusy is the host's whole busy time over b: its launches, replays and dispatch gaps,
+// before any eager launch hides behind device work. PerResource reports only the part the
+// step pays.
+func hostBusy(k *Kernel, b kernel.Batch) time.Duration {
+	busy, _ := hostBusySplit(k, b)
+	return busy
+}
+
+// hostBusySplit is hostBusy with its eager launches, the part that can hide.
+func hostBusySplit(k *Kernel, b kernel.Batch) (busy, eager time.Duration) {
+	draft := 0
+	if k.speculating && len(b.Reqs) > 0 {
+		_, draft = k.priceDraft(b, &stepShape{}, &[numResources]float64{})
+	}
+	host, eager := k.hostSplit(b, draft)
+	return host + seconds(k.launchSeconds(b, draft)), eager
+}
+
+// eagerKernel is the V4.1 fixture on chip under mode with the vendored host entries, its
+// model-scoped eager constant set to eager microseconds, and a 512-token capture ceiling.
+func eagerKernel(t *testing.T, chip, mode string, spec bool, eager float64) *Kernel {
+	t.Helper()
+	in := fixtureInputs(t, v41)
+	if chip != "h200" {
+		in.Chip, in.Scenario.Cluster.Hardware = chipInputs(t, chip), chip
+	}
+	e := &in.Deployment.Pools[0].Engine
+	e.CUDAGraphMode = mode
+	if !spec {
+		e.Speculative = nil
+	}
+	capture := 512
+	e.MaxCUDAGraphCaptureSize = &capture
+	entries := vendoredHostEntries()
+	for i := range entries {
+		if entries[i].Name == "host_launch_eager_per_kernel" {
+			entries[i].Value = eager
+		}
+	}
+	in.Coefficients = append(append([]*coefficient.Set{}, in.Coefficients...),
+		&coefficient.Set{Kind: "CoefficientSet", Name: "test-eager", Coefficients: entries})
+	return build(t, in)
+}
+
+// EAGER LAUNCHES HIDE BEHIND DEVICE WORK, AND ONLY THERE. vLLM v0.31.0 enqueues an eager
+// step's kernels asynchronously, so a step costs about max(launches, device). A
+// single-request decode step under NONE is launch-bound: it costs its launches x (eager +
+// dispatch) whatever its device time, so the eager constant backed out of the h200 TP8 decode
+// anchor, 96.56 ms over 972 launches, reproduces it. A large prefill chunk past the capture
+// ceiling is device-bound: its eager launches hide behind the chunk's device time and add
+// almost nothing, where an additive charge would add about 94 ms.
+func TestEagerLaunchesHideBehindDeviceWork(t *testing.T) {
+	const anchor = 96.56e-3
+	dec := decodeBatch(1, 1, 90000)
+	probe := eagerKernel(t, "h200", "NONE", false, 90)
+	n := probe.stepKernels(dec)
+	eager := (anchor/float64(n) - probe.launchPerKernel.Seconds()) * 1e6
+	k := eagerKernel(t, "h200", "NONE", false, eager)
+	est := k.StepTime(dec)
+	if d := est.NoOverlap.Seconds()/anchor - 1; math.Abs(d) > 1e-5 {
+		t.Errorf("decode anchor: step %v at %.2f us a launch over %d launches, want %.2f ms",
+			est.NoOverlap, eager, n, anchor*1e3)
+	}
+	if busy := hostBusy(k, dec); est.NoOverlap != busy {
+		t.Errorf("decode: step %v, want the launch-bound host time %v", est.NoOverlap, busy)
+	}
+
+	k = eagerKernel(t, "h100", "FULL_AND_PIECEWISE", true, eager)
+	chunk := kernel.Batch{DecodeThreshold: 6, Reqs: []kernel.ReqShape{
+		{Scheduled: 8192, Computed: 81808, PromptLen: 90000}}}
+	est = k.StepTime(chunk)
+	busy, launches := hostBusySplit(k, chunk)
+	if launches < 50*time.Millisecond {
+		t.Fatalf("the chunk launches %v eagerly; it should be past the ceiling", launches)
+	}
+	if exposed := est.PerResource[kernel.ResourceHost]; exposed > busy-launches+time.Microsecond {
+		t.Errorf("chunk: %v of host time is exposed of %v, %v of it eager launches that "+
+			"the chunk's device time should hide", exposed, busy, launches)
+	}
+	if est.Overlap > est.NoOverlap {
+		t.Errorf("chunk: Overlap %v above NoOverlap %v", est.Overlap, est.NoOverlap)
 	}
 }

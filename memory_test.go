@@ -728,7 +728,7 @@ func TestABatchPastTheCaptureCeilingRunsWithNoGraph(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		return k.StepTime(decodeBatch(1, tokens, tokens)).PerResource[kernel.ResourceHost]
+		return hostBusy(k, decodeBatch(1, tokens, tokens))
 	}
 	for _, mode := range []string{"PIECEWISE", "FULL_AND_PIECEWISE"} {
 		if a, b := host(mode, 512), host("PIECEWISE", 512); a != b {
@@ -1014,7 +1014,7 @@ func TestAStatedCaptureSizeIsTheCeiling(t *testing.T) {
 		t.Error("a stated capture size is still recorded as an assumption")
 	}
 	host := func(k *Kernel, n int) time.Duration {
-		return k.StepTime(decodeBatch(n, 6, 8192)).PerResource[kernel.ResourceHost]
+		return hostBusy(k, decodeBatch(n, 6, 8192))
 	}
 	if host(stated, 10) == host(none, 10) {
 		t.Error("ten requests verify 60 tokens, within the stated 64, yet run eager")
