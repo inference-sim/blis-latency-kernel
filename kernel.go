@@ -1685,6 +1685,25 @@ func (k *Kernel) DecodeContextParallelWidth() int { return max(k.layout.DCP, 1) 
 // Interim for the same reason as DecodeContextParallelWidth.
 func (k *Kernel) PrefillContextParallelWidth() int { return max(k.layout.PCP, 1) }
 
+// PreSnapshotBytes returns what a rank holds before vLLM measures the memory its
+// gpu_memory_utilization budget is drawn from: the collective library's communicator
+// reservation and the engine workspace -- NVIDIA's lumped allowance for the CUDA context,
+// cuBLAS and allocator slack (blis-registry nccl_communicator_bytes_<N>rank,
+// engine_workspace_bytes). vLLM v0.31.0 initializes the device and the distributed
+// environment, NCCL included, and only then takes the snapshot both its requested memory
+// (total x gpu_memory_utilization) and its non-KV figure are measured against
+// (Worker.init_device, vllm/v1/worker/gpu_worker.py:466-493; request_memory,
+// vllm/v1/worker/utils.py:539-557; memory_profiling, vllm/utils/mem_utils.py:300-330). So
+// these take their room from the part's memory beyond the budget, not from the KV cache,
+// and FixedBytes leaves them out of its Total. A consumer checking that the deployment
+// starts at all compares gpu_memory_utilization x memory + PreSnapshotBytes with the part.
+//
+// KNOWN DIVERGENCE: the workspace allowance is one lumped figure, and the part of it that
+// arises after the snapshot -- cuBLAS and other library workspaces made at the first
+// forward -- is charged against the KV cache by vLLM and is left out here with the rest;
+// the registry states no split.
+func (k *Kernel) PreSnapshotBytes() int64 { return k.commBytes + k.workspaceBytes }
+
 // CaptureTokens returns the largest step, in tokens, a captured CUDA graph covers: the
 // deployment's max_cudagraph_capture_size or cudagraph_capture_sizes as vLLM v0.31.0 resolves
 // them, or its default where neither is stated (see Provenance). A step of more tokens runs

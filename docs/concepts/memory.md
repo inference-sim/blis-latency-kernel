@@ -57,8 +57,12 @@ EPLB replicas
     than added to it, so the total counts them once. Zero when it is off.
 
 Communication buffers
-:   What the collective library reserves for the communicator, plus the engine's own
-    workspace.
+:   Zero. The collective library's communicator reservation and the engine's own workspace
+    (CUDA context, cuBLAS, allocator slack) are reported by `PreSnapshotBytes` instead,
+    outside the total. vLLM starts the device and the collective library before it measures
+    the memory its `gpu_memory_utilization` budget is drawn from, so they take room beyond
+    that budget, not from the KV cache. A deployment starts only if the budget plus
+    `PreSnapshotBytes` fits the part.
 
 The weights and the replicas are computed from the model graph. The other magnitudes come
 from the registry: the activation and CUDA graph figures from its `cost-model-memory` set,
@@ -75,9 +79,10 @@ deployment on [Pricing a step](step.md):
 weights       78.2 GiB
 activations    1.1 GiB
 CUDA graphs    0.8 GiB
-comm buffers   3.9 GiB
+comm buffers   0.0 GiB
 EPLB           0.0 GiB
-total         84.0 GiB per rank
+total         80.1 GiB per rank
+before the budget  3.9 GiB
 a 4,096-token request: 137 MiB of KV cache per rank
 ```
 

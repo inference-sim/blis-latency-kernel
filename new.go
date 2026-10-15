@@ -2183,12 +2183,10 @@ func (k *Kernel) computeFixedBytes(g *model.Graph) kernel.MemoryBreakdown {
 		ActivationPeak: int64(act),
 		CUDAGraph:      k.captureBytes,
 		EPLBRedundant:  int64(eplb),
-		// The collective-buffer reservation AND the engine workspace. blis-schemas v0.3.0's
-		// MemoryBreakdown has no field for the workspace -- NVIDIA's misc.other_mem: CUDA
-		// context, cuBLAS workspace and allocator slack -- so it is reported here rather
-		// than left out of Total, which is what a capacity verdict reads. Provenance names
-		// both coefficients, so the split is recoverable.
-		CommBuffers: k.commBytes + k.workspaceBytes,
+		// The collective-buffer reservation and the engine workspace are not here: vLLM
+		// holds them before the memory snapshot its budget is measured from, so they are
+		// outside gpu_memory_utilization (PreSnapshotBytes).
+		CommBuffers: 0,
 	}
 }
 

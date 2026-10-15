@@ -39,7 +39,7 @@ func TestFixedBytesAccountsForTheWholeModelAcrossRanks(t *testing.T) {
 	if fixed.ActivationPeak <= 0 {
 		t.Error("no activation scratch reported; a batch needs somewhere to land")
 	}
-	if fixed.CommBuffers <= 0 {
+	if k.PreSnapshotBytes() <= 0 {
 		t.Error("a multi-rank deployment reserves communicator buffers")
 	}
 }
