@@ -293,13 +293,22 @@ func (k *Kernel) cacheAdmissionBytes() float64 {
 // circular-buffer group holds one block a request (CircularBufferSpec.max_memory_usage_bytes,
 // vllm/v1/kv_cache_interface.py:904-907).
 func (k *Kernel) cacheBoundedBytes(inFlight, extraRetained int) float64 {
+	return k.cacheBoundedBytesUpTo(inFlight, extraRetained, k.maxModelLen)
+}
+
+// cacheBoundedBytesUpTo is cacheBoundedBytes for a request whose window has seen only
+// tokens context tokens: WindowPagesPerRequest's own min() then caps each ring at those. A
+// negative count is a request that has seen none, whose rings hold no page.
+func (k *Kernel) cacheBoundedBytesUpTo(inFlight, extraRetained, tokens int) float64 {
 	if p := k.kvPool; p != nil {
 		var blocks int
 		for _, g := range p.groups {
 			switch g.cache.Kind {
 			case model.CacheWindow:
-				blocks += k.rules.WindowPagesPerRequest(g.cache, k.blockSize, inFlight,
-					extraRetained, k.maxModelLen)
+				if tokens >= 0 {
+					blocks += k.rules.WindowPagesPerRequest(g.cache, k.blockSize, inFlight,
+						extraRetained, tokens)
+				}
 			case model.CacheState:
 				blocks++
 			}
@@ -313,8 +322,11 @@ func (k *Kernel) cacheBoundedBytes(inFlight, extraRetained int) float64 {
 		}
 		switch t.cache.Kind {
 		case model.CacheWindow:
+			if tokens < 0 {
+				continue
+			}
 			p := k.rules.WindowPagesPerRequest(t.cache, k.blockSize, inFlight, extraRetained,
-				k.maxModelLen)
+				tokens)
 			total += float64(p) * t.pageBytes * float64(t.count)
 		case model.CacheState:
 			total += float64(t.cache.Entries*t.entryBytes) * float64(t.count)

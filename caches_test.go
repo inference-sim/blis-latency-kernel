@@ -563,3 +563,58 @@ func TestAnUngroupedPoolIsRecorded(t *testing.T) {
 			k.SequenceFixedBytes(), pooled.SequenceFixedBytes())
 	}
 }
+
+// THE BOUNDED HOLD AS A FUNCTION OF WHAT IS IN FLIGHT. SequenceBoundedBytes(1 + K) is the
+// steady decode hold and SequenceBoundedBytes(max_in_flight_tokens) the admission cap; the
+// hold never falls as tokens in flight or tokens computed grow; and once a request has
+// computed a window's worth, what it has computed no longer matters, as vLLM frees every
+// block wholly behind the window (SlidingWindowManager.get_num_skipped_tokens and
+// remove_skipped_blocks, vllm/v1/core/single_type_kv_cache_manager.py:687-725, 1153-1175 at
+// v0.31.0). A request that has seen nothing holds only its compressor rings.
+func TestSequenceBoundedBytesProperties(t *testing.T) {
+	k := build(t, fixtureInputs(t, v41))
+	if got, want := k.SequenceBoundedBytes(6), k.SequenceFixedBytes(); got != want {
+		t.Errorf("SequenceBoundedBytes(1 + K) = %d, want SequenceFixedBytes %d", got, want)
+	}
+	if got, want := k.SequenceBoundedBytes(2*8192), k.SequenceAdmissionBytes(); got != want {
+		t.Errorf("SequenceBoundedBytes(max_in_flight_tokens) = %d, want "+
+			"SequenceAdmissionBytes %d", got, want)
+	}
+	// A ring crosses a page edge where window - 1 + in flight passes a multiple of 32:
+	// 33 in flight page 160 tokens in 5 pages + 1, 34 page 161 in 6 + 1, one more block in
+	// each of the eight window groups.
+	if d := k.SequenceBoundedBytes(34) - k.SequenceBoundedBytes(33); d != 8*v41PoolBlock {
+		t.Errorf("the 34th token in flight adds %d B, want one block in each of 8 window "+
+			"groups, %d", d, 8*v41PoolBlock)
+	}
+	const window = 128
+	prevFlight := int64(-1)
+	for _, f := range []int{0, 1, 6, 31, 32, 33, 512, 8192, 16384, 65536} {
+		b := k.SequenceBoundedBytes(f)
+		if b < prevFlight {
+			t.Errorf("%d tokens in flight hold %d B, below fewer tokens' %d", f, b, prevFlight)
+		}
+		prevFlight = b
+		prevComputed := int64(-1)
+		for _, c := range []int{0, 1, 31, 64, 127, 128, 129, 1000, 100000} {
+			at := k.SequenceBoundedBytesAt(c, f)
+			if at < prevComputed {
+				t.Errorf("(%d computed, %d in flight) holds %d B, below fewer computed's %d",
+					c, f, at, prevComputed)
+			}
+			prevComputed = at
+			if c >= window && at != b {
+				t.Errorf("(%d computed, %d in flight) holds %d B; past the window it must be "+
+					"SequenceBoundedBytes(%d) = %d", c, f, at, f, b)
+			}
+			if at > b {
+				t.Errorf("(%d computed, %d in flight) holds %d B, above the window's cap %d",
+					c, f, at, b)
+			}
+		}
+	}
+	if got, want := k.SequenceBoundedBytesAt(0, 0), int64(v41PoolBlock); got != want {
+		t.Errorf("a request that has seen nothing holds %d B, want its ring group's one "+
+			"block, %d", got, want)
+	}
+}
