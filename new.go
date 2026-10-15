@@ -1114,6 +1114,19 @@ func (k *Kernel) lift(c *resolve.Coefficients, g *model.Graph, cacheBytes float6
 			experts = max(experts, l.Experts)
 		}
 	}
+	// A stated dispatch backend that cannot take effect: with expert parallelism on and
+	// none of dp > 1, pcp > 1 or a sequence-parallel MoE input, use_all2all_kernels is false
+	// and no backend's kernels are built (vllm/model_executor/layers/fused_moe/
+	// config.py:1024-1027, all2all_utils.py:188-214), so every backend prices the same.
+	if b := k.pool.Engine.All2AllBackend; b != "" && experts > 0 &&
+		k.pool.Parallel.EnableExpertParallel && !k.layout.MoEDispatches() {
+		k.layout.Overrides = append(k.layout.Overrides, resolve.Override{
+			Field: "all2all_backend", Requested: b, Resolved: "none",
+			Reason: "expert parallelism with dp 1, pcp 1 and no sequence-parallel MoE input " +
+				"runs no dispatch in vLLM v0.31.0: the experts run on the replicated tokens " +
+				"and the tensor-parallel all-reduce combines them",
+		})
+	}
 	// How an expert's weights are divided, which depends on whether expert parallelism
 	// is on. vLLM gives a rank whole experts when it is (ep_size the group width, tp_size 1)
 	// and a tensor slice of every expert when it is not (ep_size 1)

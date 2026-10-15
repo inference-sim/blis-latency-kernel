@@ -148,6 +148,28 @@ func TestEmitsUnderEachLayout(t *testing.T) {
 				model.EmitTensorParallelUnlessSequenceParallelMoE: false,
 			},
 		},
+		{
+			what:   "expert parallel at dp 1: the experts run on replicated tokens, no dispatch",
+			layout: Layout{TP: 8, DP: 1, ExpertWidth: 8},
+			want: map[model.EmitCondition]bool{
+				model.EmitTensorParallel: true,
+				model.EmitExpertParallel: false,
+			},
+		},
+		{
+			what:   "expert parallel at dp 1 under the model's own sequence parallelism dispatches",
+			layout: Layout{TP: 8, DP: 1, ExpertWidth: 8, ModelSequenceParallel: true},
+			want: map[model.EmitCondition]bool{
+				model.EmitExpertParallel: true,
+			},
+		},
+		{
+			what:   "no expert parallelism at dp 2: the naive dispatch runs over the dp ranks",
+			layout: Layout{TP: 4, DP: 2, ExpertWidth: 1, MoEGroupWidth: 8},
+			want: map[model.EmitCondition]bool{
+				model.EmitExpertParallel: true,
+			},
+		},
 	}
 	for _, c := range cases {
 		t.Run(c.what, func(t *testing.T) {

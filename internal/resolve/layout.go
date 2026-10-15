@@ -67,6 +67,30 @@ func (l Layout) MoEGroup() int {
 	return l.ExpertWidth
 }
 
+// MoEDispatches reports whether an MoE layer runs a dispatch and combine at all.
+//
+// With expert parallelism on, vLLM v0.31.0 runs its all-to-all kernels only when
+// use_all2all_kernels holds: use_ep and (dp > 1, pcp > 1, or a sequence-parallel MoE input)
+// (vllm/model_executor/layers/fused_moe/config.py:1024-1027). Otherwise
+// maybe_make_prepare_finalize builds the no-DP prepare/finalize, which moves nothing
+// (all2all_utils.py:188-214), the experts run on the replicated tokens, and the runner's
+// tensor-parallel all-reduce combines them (fused_moe/runner/moe_runner.py:506-512) -- the
+// graphs' mlp_out reduction. The input is sequence-parallel under the engine's rule
+// (SequenceParallelMoE, which needs dp > 1) or the model's own (DeepSeek-V4.1 passes its
+// _use_sequence_parallel to FusedMoE as is_sequence_parallel, so sp_size = tp,
+// vllm/models/deepseek_v4/nvidia/model.py:912 and fused_moe/layer.py:55). With expert
+// parallelism on, ExpertWidth is tp x pcp x dp, so dp or pcp above one is ExpertWidth
+// above TP, which keeps a Layout built field by field, as a test does, answering the same.
+//
+// With it off, the naive all-gather/reduce-scatter dispatch runs when dp exceeds one
+// (do_naive_dispatch_combine, moe_runner.py:797-800; MoEGroupWidth).
+func (l Layout) MoEDispatches() bool {
+	if l.ExpertWidth > 1 {
+		return l.ExpertWidth > max(l.TP, 1) || l.SequenceParallelMoE || l.ModelSequenceParallel
+	}
+	return l.MoEGroupWidth > 1
+}
+
 // Override is one declined request, with the reason.
 type Override struct {
 	Field     string
@@ -209,10 +233,9 @@ func (l Layout) Emits(c model.EmitCondition) bool {
 		return l.TP > 1
 	case model.EmitExpertParallel:
 		// The MoE dispatch and combine. blis-schemas words the condition as the
-		// expert-parallel width exceeding one; vLLM also dispatches with expert
-		// parallelism off when dp exceeds one (see MoEGroupWidth), and the engine is
-		// what this answers for.
-		return l.MoEGroup() > 1
+		// expert-parallel width exceeding one; the engine is what this answers for, and
+		// it dispatches only where MoEDispatches says.
+		return l.MoEDispatches()
 	case model.EmitTensorParallelUnlessSequenceParallelMoE:
 		return l.TP > 1 && !l.SequenceParallelMoE
 	case model.EmitSequenceParallel:

@@ -1,6 +1,7 @@
 package latencykernel
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 
@@ -170,6 +171,52 @@ func TestUncapturableDispatchRunsEager(t *testing.T) {
 	}
 	if !overridden {
 		t.Error("the engine's switch to eager is not reported as an override")
+	}
+}
+
+// Expert parallelism at dp 1 with no sequence-parallel MoE input runs no dispatch
+// (use_all2all_kernels, vllm/model_executor/layers/fused_moe/config.py:1024-1027), so every
+// all2all backend prices the same step, and a stated one is reported as not taking effect.
+// At tp 4 dp 2 the dispatch runs and the backend still decides its volume.
+func TestAnAll2AllBackendTakesEffectOnlyWhereTheEngineDispatches(t *testing.T) {
+	layout := func(tp, dp int, backend string) *Kernel {
+		in := fixtureInputs(t, v41)
+		pl := &in.Deployment.Pools[0].Parallel
+		pl.TP, pl.DP, pl.EnableExpertParallel = tp, dp, true
+		in.Deployment.Pools[0].Engine.All2AllBackend = backend
+		return build(t, in)
+	}
+	batches := []kernel.Batch{decodeBatch(1, 6, 100000), decodeBatch(128, 6, 100000),
+		prefillOf(8192, 90000)}
+	backends := []string{"allgather_reducescatter", "deepep_low_latency",
+		"deepep_high_throughput"}
+	base := layout(8, 1, "")
+	for _, b := range backends {
+		k := layout(8, 1, b)
+		for i, batch := range batches {
+			if got, want := k.StepTime(batch), base.StepTime(batch); !reflect.DeepEqual(got, want) {
+				t.Errorf("tp8 dp1, %s, batch %d: %v against %v unstated; no dispatch runs",
+					b, i, got.NoOverlap, want.NoOverlap)
+			}
+		}
+		reported := false
+		for _, o := range k.Resolved().Overrides {
+			reported = reported || (o.Field == "all2all_backend" && o.Requested == b &&
+				o.Resolved == "none")
+		}
+		if !reported {
+			t.Errorf("tp8 dp1: the stated %s cannot take effect and no override says so", b)
+		}
+	}
+	ll, ag := layout(4, 2, "deepep_low_latency"), layout(4, 2, "allgather_reducescatter")
+	b := prefillOf(8192, 90000)
+	if ll.StepTime(b).NoOverlap == ag.StepTime(b).NoOverlap {
+		t.Error("tp4 dp2: DeepEP and all-gather/reduce-scatter price the same dispatch")
+	}
+	for _, o := range ll.Resolved().Overrides {
+		if o.Field == "all2all_backend" {
+			t.Errorf("tp4 dp2: the backend takes effect, yet an override says %q", o.Reason)
+		}
 	}
 }
 

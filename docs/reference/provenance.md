@@ -89,6 +89,7 @@ these:
 
 | Field | When |
 |---|---|
+| `all2all_backend` | An MoE dispatch backend is stated for an expert-parallel layout that runs no dispatch: dp 1, pcp 1 and no sequence-parallel MoE input, where vLLM's `use_all2all_kernels` is false. The experts run on the replicated tokens and the tensor-parallel all-reduce combines them, so the backend is resolved as `none` and every backend prices the same step. |
 | `allreduce_backend` | The custom all-reduce was requested at a tensor-parallel width it does not support, or across nodes on a chip without multi-node NVLink. NCCL runs instead. |
 | `cache_dtype` | A sparse-attention model's KV cache is stored in a packed format its backend chooses, such as `fp8_ds_mla` for a stated `fp8` on Hopper, or DeepSeek-V4.1's `nvfp4_ds_mla` for a stated `fp8` on SM100. |
 | `cp_kv_cache_interleave_size` | Decode-context parallelism is on, the interleave is unstated, the block size is above one, and a NIXL connector is configured, so vLLM sets the interleave to the block size. |

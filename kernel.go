@@ -579,6 +579,11 @@ func (k *Kernel) routedAll2All() bool {
 		// (vllm/model_executor/layers/fused_moe/all2all_utils.py:202-214 at v0.31.0).
 		return false
 	}
+	if !k.layout.MoEDispatches() {
+		// use_all2all_kernels is false, so no backend's kernels run
+		// (vllm/model_executor/layers/fused_moe/config.py:1024-1027).
+		return false
+	}
 	// The backend that runs: the release's default for an unstated one, and the
 	// replacement for a renamed one -- pplx and naive both run as allgather_reducescatter
 	// in v0.31.0 (vllm/config/parallel.py; rules.Pack.EffectiveAll2AllBackend).
