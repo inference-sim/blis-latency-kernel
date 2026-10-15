@@ -72,9 +72,10 @@ func TestFixedOccupancyIsTheRegistrysComposition(t *testing.T) {
 		if tp > 1 {
 			comm += v(fmt.Sprintf("nccl_communicator_bytes_%drank", tp))
 		}
-		if got.CommBuffers != int64(comm) {
-			t.Errorf("tp=%d: CommBuffers %d, want %d (communicator + workspace)",
-				tp, got.CommBuffers, int64(comm))
+		// Held before vLLM's memory snapshot, so outside the budget and out of Total.
+		if pre := k.PreSnapshotBytes(); pre != int64(comm) || got.CommBuffers != 0 {
+			t.Errorf("tp=%d: PreSnapshotBytes %d and CommBuffers %d, want %d "+
+				"(communicator + workspace) and 0", tp, pre, got.CommBuffers, int64(comm))
 		}
 		if want := int64(v("cudagraph_capture_bytes_piecewise")); got.CUDAGraph != want {
 			t.Errorf("tp=%d: CUDAGraph %d, want the piecewise capture %d", tp, got.CUDAGraph, want)
@@ -93,19 +94,20 @@ func TestFixedOccupancyIsTheRegistrysComposition(t *testing.T) {
 // supposed to break this, and the commit that does so says why.
 //
 //	at tp=8: activation 1,174,405,120  capture 858,783,744  communicator 411,041,792
-//	         workspace 3,758,096,384 -- 6,202,327,040 of fixed occupancy beside weights
+//	         workspace 3,758,096,384 -- 2,033,188,864 of fixed occupancy beside weights
+//	         inside the budget, and 4,169,138,176 held before vLLM's memory snapshot
 //	at tp=2: the communicator is 358,612,992, not the 411,041,792 a constant gave
 func TestFixedOccupancyMatchesTheFiguresTheIssueStates(t *testing.T) {
 	k := fixture(t, memoryFixture)
 	got := k.FixedBytes()
 	if got.ActivationPeak != 1174405120 || got.CUDAGraph != 858783744 ||
-		got.CommBuffers != 411041792+3758096384 {
+		k.PreSnapshotBytes() != 411041792+3758096384 {
 		t.Errorf("tp=8: activation %d, capture %d, communicator+workspace %d; want "+
 			"1174405120, 858783744 and 4169138176", got.ActivationPeak, got.CUDAGraph,
-			got.CommBuffers)
+			k.PreSnapshotBytes())
 	}
-	if nonWeight := got.Total() - got.Weights - got.EPLBRedundant; nonWeight != 6202327040 {
-		t.Errorf("tp=8: %d bytes of fixed occupancy beside weights, want 6202327040", nonWeight)
+	if nonWeight := got.Total() - got.Weights - got.EPLBRedundant; nonWeight != 2033188864 {
+		t.Errorf("tp=8: %d bytes of fixed occupancy beside weights, want 2033188864", nonWeight)
 	}
 	in := fixtureInputs(t, memoryFixture)
 	in.Deployment.Pools[0].Parallel.TP = 2
@@ -113,7 +115,7 @@ func TestFixedOccupancyMatchesTheFiguresTheIssueStates(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if comm := at2.FixedBytes().CommBuffers - 3758096384; comm != 358612992 {
+	if comm := at2.PreSnapshotBytes() - 3758096384; comm != 358612992 {
 		t.Errorf("tp=2: communicator %d bytes, want 358612992", comm)
 	}
 }

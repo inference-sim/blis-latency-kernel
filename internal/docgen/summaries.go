@@ -52,6 +52,14 @@ var summaries = map[string]struct{ title, summary string }{
 			"by every rank's draft batch, which one rank's batch does not state, so a padded " +
 			"rank's draft work is under-stated by its pad.",
 	},
+	"kernel.go|(*Kernel).PreSnapshotBytes|Known divergence": {
+		"The engine workspace is all outside the memory budget",
+		"The registry's engine workspace is one lumped allowance for the CUDA context, cuBLAS " +
+			"and allocator slack, and the kernel reports all of it outside the " +
+			"gpu_memory_utilization budget, with the communicator. vLLM charges the part that " +
+			"arises after its memory snapshot, library workspaces made at the first forward, " +
+			"against the KV cache, which the kernel leaves out.",
+	},
 	"kernel.go|(*Kernel).pdTransferBytes|Coverage limit": {
 		"P/D handoffs between pools of different widths",
 		"Each decode rank's pull is priced as one rank's transfer at one rank's link rate. That " +

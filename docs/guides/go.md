@@ -85,9 +85,10 @@ kernel it returned.
 weights       78.2 GiB
 activations    1.1 GiB
 CUDA graphs    0.8 GiB
-comm buffers   3.9 GiB
+comm buffers   0.0 GiB
 EPLB           0.0 GiB
-total         84.0 GiB per rank
+total         80.1 GiB per rank
+before the budget  3.9 GiB
 a 4,096-token request: 137 MiB of KV cache per rank
 ```
 
