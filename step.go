@@ -291,11 +291,31 @@ func (k *Kernel) stepTime(b kernel.Batch,
 		overlapSeconds += draft
 	}
 
-	// The host is additive against everything: the CPU is a resource that cannot overlap
-	// with itself, and its work is not hidden behind a stage the way device work is. Per
-	// kernel dispatch joins it, for the same reason — a kernel cannot run before it has
-	// been dispatched.
-	host := k.hostPerStepWith(b, draftKernels) + seconds(k.launchSeconds(b, draftKernels))
+	// The host is additive against everything but eager launches (below): the CPU is a
+	// resource that cannot overlap with itself, and its work is not hidden behind a stage
+	// the way device work is. Per kernel dispatch joins it, for the same reason — a kernel
+	// cannot run before it has been dispatched.
+	hostLaunch, eager := k.hostSplit(b, draftKernels)
+	host := hostLaunch + seconds(k.launchSeconds(b, draftKernels))
+	// EAGER LAUNCHES HIDE BEHIND DEVICE WORK. With no graph the CPU enqueues each kernel
+	// asynchronously while the GPU runs the ones before it, so a step costs about
+	// sum_i max(launch_i, kernel_i): the launches when kernels are short (decode), the
+	// device time when they are long (a large prefill chunk). At v0.31.0 DeepSeek-V4.1 runs
+	// uncompiled (vllm/config/vllm.py:79-125), the V2 runner's forward has no host
+	// synchronize (vllm/v1/worker/gpu/model_runner.py syncs only in profile_run and
+	// shutdown), and async scheduling is on by default (vllm/config/vllm.py:1576-1635).
+	// Without per-kernel device times this is bounded at the step, max(eager, device): the
+	// host is charged less the smaller of the two, so a launch-bound step costs its
+	// launches and a device-bound one hides them. Replays and the per-kernel dispatch gap
+	// stay additive. An op that syncs the host mid-step would expose more than this.
+	var device float64
+	for i, v := range perResource {
+		if i != idxHost {
+			device += v
+		}
+	}
+	hidden := min(eager, seconds(device))
+	host -= hidden
 	perResource[idxHost] = host.Seconds()
 
 	// The breakdown map is the only thing that can allocate here. A caller that supplied
@@ -313,6 +333,8 @@ func (k *Kernel) stepTime(b kernel.Batch,
 	}
 	noOverlap, bottleneck := summarize(&perResource, per)
 	overlap := seconds(overlapSeconds) + host
+	// The Overlap edge hides the same launches behind its own, smaller device time.
+	overlap += hidden - min(eager, seconds(overlapSeconds))
 
 	if overlap > noOverlap {
 		// Per-layer composition can exceed the sum of per-resource totals only through
