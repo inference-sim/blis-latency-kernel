@@ -33,6 +33,10 @@ Activations
     16-bit even when the weights are served in fp8 or fp4, because quantized matrix
     multiplies return their results at the input's width.
 
+    The engine's profile run also samples once from dummy logits, one row per request,
+    up to `max_num_seqs`. The peak is the larger of that pass and the forward. The pass
+    holds the logits in the model dtype and an fp32 copy, over the whole vocabulary.
+
     A model whose own code allocates buffers at the token budget adds them here, because
     the registry's buffer count is generic and knows no model's buffers. vLLM's memory
     profiler counts everything allocated before the KV cache, so these buffers take room
@@ -49,7 +53,13 @@ Activations
     rank, against 2.1 GiB at 131,072 and 8,192.
 
 CUDA graphs
-:   The memory a captured graph holds, for the capture mode the deployment runs in.
+:   The memory a captured graph holds, for the capture mode the deployment runs in. vLLM
+    subtracts its own estimate of it from the KV budget. That estimate grows with the
+    largest graph in each family: the capture ceiling for the mixed graphs, and for the
+    uniform-decode graphs the largest size that `max_num_seqs` requests of 1 + K tokens
+    fill. Where the registry states a floor and a per-token cost for each family, the
+    kernel charges floor + cost × ceiling for each one. Otherwise it charges the mode's
+    flat figure.
 
 EPLB replicas
 :   The redundant copies of popular experts that expert-parallel load balancing (EPLB)

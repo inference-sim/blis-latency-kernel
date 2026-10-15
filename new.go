@@ -1088,6 +1088,7 @@ func (k *Kernel) lift(c *resolve.Coefficients, g *model.Graph, cacheBytes float6
 				"(EngineArgs.get_batch_defaults, vllm/engine/arg_utils.py:2858-2887); it sets "+
 				"the cudagraph capture ceiling and the MLA context-gather chunk")
 	}
+	k.maxNumSeqs = seqs
 	if k.graphDecode != graphModeEager || k.graphOther != graphModeEager {
 		e := k.pool.Engine
 		e.CUDAGraphMode = mode
@@ -1100,6 +1101,7 @@ func (k *Kernel) lift(c *resolve.Coefficients, g *model.Graph, cacheBytes float6
 		}
 		if stated {
 			k.captureTokens = capture.Max
+			k.captureSizes = capture.Sizes
 			if m := k.pool.Engine.MaxCUDAGraphCaptureSize; m != nil && *m != capture.Max {
 				k.layout.Overrides = append(k.layout.Overrides, resolve.Override{
 					Field: "max_cudagraph_capture_size", Requested: strconv.Itoa(*m),
@@ -1122,6 +1124,11 @@ func (k *Kernel) lift(c *resolve.Coefficients, g *model.Graph, cacheBytes float6
 				platform = 1024
 			}
 			k.captureTokens = min(seqs*k.uniformDecodeWidth*2, platform)
+			defaulted := e
+			defaulted.MaxCUDAGraphCaptureSize = &k.captureTokens
+			if d, _, err := k.rules.CUDAGraphCaptureSizes(defaulted); err == nil {
+				k.captureSizes = d.Sizes
+			}
 			k.assume("max_cudagraph_capture_size", strconv.Itoa(k.captureTokens),
 				"vLLM v0.31.0's default, min(max_num_seqs x decode_query_len x 2, "+
 					strconv.Itoa(platform)+") (VllmConfig._set_cudagraph_sizes, "+
@@ -1401,7 +1408,7 @@ func (k *Kernel) liftMemory(c *resolve.Coefficients, g *model.Graph) error {
 	if err != nil {
 		return err
 	}
-	k.captureBytes = int64(capture)
+	k.captureBytes = k.captureMemory(c, capture)
 
 	// The activation multiple is keyed by whether the model routes tokens to experts,
 	// which is the only family distinction the kernel can draw without a model name.
@@ -1428,6 +1435,98 @@ func (k *Kernel) liftMemory(c *resolve.Coefficients, g *model.Graph) error {
 				"the offline LLM class defaults higher on every part below 160 GiB")
 	}
 	return nil
+}
+
+// captureMemory is the CUDA-graph memory vLLM v0.31.0 takes from the KV budget: the
+// estimate determine_available_memory subtracts (vllm/v1/worker/gpu_worker.py:628-676),
+// which profile_cudagraph_memory measures by capturing every PIECEWISE and drafter graph and
+// the two largest FULL graphs, extrapolating the rest (vllm/v1/worker/gpu/
+// cudagraph_utils.py:854-968). Each family's cost grows with its largest captured shape: the
+// mixed (PIECEWISE) family's is the capture ceiling, the uniform-decode FULL family's is
+// bounded by max_num_seqs as well (decodeCaptureTokens), and the drafter's FULL graphs follow
+// the decode family's request counts (dflash/speculator.py:126-150).
+//
+// The form is
+//
+//	cudagraph_capture_floor_bytes_<mode>
+//	    + cudagraph_capture_bytes_per_mixed_token_<mode>  x mixed ceiling
+//	    + cudagraph_capture_bytes_per_decode_token_<mode> x decode ceiling
+//
+// with a family's term present only where the mode captures it. It is all or none: with
+// any needed entry absent the flat cudagraph_capture_bytes_<mode> stands, as before, and a
+// partial set is recorded as a fallback.
+func (k *Kernel) captureMemory(c *resolve.Coefficients, flat float64) int64 {
+	if k.captureTokens == 0 {
+		return int64(flat)
+	}
+	mode := k.graphModeName
+	floorName := "cudagraph_capture_floor_bytes_" + mode
+	terms := map[string]float64{}
+	if k.graphOther != graphModeEager {
+		terms["cudagraph_capture_bytes_per_mixed_token_"+mode] = float64(k.captureTokens)
+	}
+	if k.graphDecode == graphModeFull && k.graphOther != graphModeFull {
+		terms["cudagraph_capture_bytes_per_decode_token_"+mode] =
+			float64(k.decodeCaptureTokens())
+	}
+	names := []string{floorName}
+	for n := range terms {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	var have, missing []string
+	for _, n := range names {
+		if c.Has(n) {
+			have = append(have, n)
+		} else {
+			missing = append(missing, n)
+		}
+	}
+	if len(missing) > 0 {
+		if len(have) > 0 {
+			k.assume(floorName, "fallback", strings.Join(missing, ", ")+" absent beside "+
+				strings.Join(have, ", ")+", so the capture is charged the flat "+
+				"cudagraph_capture_bytes_"+mode)
+		}
+		return int64(flat)
+	}
+	bytes := c.ValueOr(floorName, 0)
+	for _, n := range names {
+		if n != floorName {
+			bytes += c.ValueOr(n, 0) * terms[n]
+		}
+	}
+	return int64(bytes)
+}
+
+// decodeCaptureTokens is the largest uniform-decode FULL graph vLLM v0.31.0 captures: each
+// capture size rounded up to a multiple of the decode query length, kept where it is within
+// max_num_seqs requests and the capture ceiling (_init_candidates,
+// vllm/v1/worker/gpu/cudagraph_utils.py:313-327).
+func (k *Kernel) decodeCaptureTokens() int {
+	q := max(k.uniformDecodeWidth, 1)
+	best := 0
+	for _, s := range k.captureSizes {
+		r := (s + q - 1) / q * q
+		if r <= k.captureTokens && r <= k.maxNumSeqs*q {
+			best = max(best, r)
+		}
+	}
+	return best
+}
+
+// samplerPeakBytes is the profile run's dummy sampler pass (gpu/model_runner.py:942-954,
+// sample/sampler.py:239): logits for one row per dummy request in the head dtype, the
+// model's, and the sampler's FP32 copy of them, over the whole vocabulary, which
+// compute_logits gathers on every rank. The dummy batch holds min(max_num_batched_tokens,
+// max_num_seqs) requests, fewer where a parallel-block drafter's query rows would overrun
+// the token budget (_dummy_run, :785-830).
+func (k *Kernel) samplerPeakBytes(g *model.Graph) float64 {
+	reqs := min(k.batchedTokens, k.maxNumSeqs)
+	if d := k.plan.Draft; d != nil && k.speculating && d.Drafting == model.DraftingParallelBlock {
+		reqs = min(reqs, k.batchedTokens/max(k.numSpecTokens(), 1))
+	}
+	return float64(reqs) * float64(g.Global.VocabSize) * (price.ActivationBytes + 4)
 }
 
 // activationWidth is h in the activation form: num_attention_heads x head_dim.
@@ -2183,9 +2282,12 @@ func (k *Kernel) computeFixedBytes(g *model.Graph) kernel.MemoryBreakdown {
 	// buffers stay bf16. Sizing it at the served width would halve this term on an fp8
 	// deployment and understate its occupancy.
 	const activationBytes = price.ActivationBytes
-	act := math.Max(
+	//
+	// The profile run's peak is the larger of the forward's and the dummy sampler's, which
+	// runs after the forward has released its activations (samplerPeakBytes).
+	act := math.Max(math.Max(
 		k.activationBuffers*float64(k.batchedTokens)*k.activationWidth*activationBytes,
-		k.activationFloor) + k.engineBufferBytes(g)
+		k.activationFloor), k.samplerPeakBytes(g)) + k.engineBufferBytes(g)
 
 	// EPLB's redundant replicas, reported apart from the weights rather than on top of
 	// them. expertsPerRank is the PHYSICAL count -- the model's experts plus the redundant

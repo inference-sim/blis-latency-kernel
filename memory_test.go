@@ -1131,3 +1131,179 @@ func TestRecurrentStateIsShardedByTensorParallelism(t *testing.T) {
 			"doubling of the width must halve it", two, four, eight)
 	}
 }
+
+// captureContract is docs/COEFF_CONTRACT.md v2.3's capture entries for FULL_AND_PIECEWISE,
+// at test magnitudes: a floor and a per-token cost for each graph family.
+func captureContract(drop ...string) []coefficient.Entry {
+	var out []coefficient.Entry
+	for name, v := range map[string]float64{
+		"cudagraph_capture_floor_bytes_full_and_piecewise":            256 << 20,
+		"cudagraph_capture_bytes_per_mixed_token_full_and_piecewise":  1 << 20,
+		"cudagraph_capture_bytes_per_decode_token_full_and_piecewise": 8 << 20,
+	} {
+		skip := false
+		for _, d := range drop {
+			skip = skip || d == name
+		}
+		if !skip {
+			out = append(out, coefficient.Entry{Name: name, Value: v, Units: "bytes_per_rank",
+				Method: "assumed", Rationale: "test", Scope: coefficient.Scope{
+					Hardware: []string{"h200"}, Model: []string{"deepseek-v4.1-flash"}}})
+		}
+	}
+	return out
+}
+
+// v41Engine is the V4.1 fixture at the stated engine knobs, with entries appended as their
+// own set.
+func v41Engine(t *testing.T, entries []coefficient.Entry, seqs, mnbt, capture int) *Kernel {
+	t.Helper()
+	in := fixtureInputs(t, v41)
+	e := &in.Deployment.Pools[0].Engine
+	e.MaxNumSeqs, e.MaxNumBatchedTokens, e.MaxCUDAGraphCaptureSize = seqs, mnbt, &capture
+	if len(entries) > 0 {
+		in.Coefficients = append(append([]*coefficient.Set{}, in.Coefficients...),
+			&coefficient.Set{Kind: "CoefficientSet", Name: "test-capture", Coefficients: entries})
+	}
+	return build(t, in)
+}
+
+// THE UNIFORM-DECODE CEILING IS vLLM's. Each capture size is rounded up to a multiple of
+// 1 + K and kept within max_num_seqs requests and the capture ceiling
+// (vllm/v1/worker/gpu/cudagraph_utils.py:313-327 at v0.31.0). K = 5: at 56 requests and a
+// 512 ceiling the largest is 336 tokens; with requests to spare it is 498, from the 496
+// size, since 512 rounds to 516 and is dropped.
+func TestTheDecodeCaptureCeilingIsTheEnginesRounding(t *testing.T) {
+	for _, c := range []struct{ seqs, capture, want int }{
+		{56, 512, 336}, {48, 512, 288}, {256, 512, 498}, {2, 16, 12}, {16, 64, 60},
+		{1024, 1024, 1008},
+	} {
+		if got := v41Engine(t, nil, c.seqs, 8192, c.capture).decodeCaptureTokens(); got != c.want {
+			t.Errorf("max_num_seqs %d, capture %d: decode ceiling %d tokens, want %d",
+				c.seqs, c.capture, got, c.want)
+		}
+	}
+}
+
+// WITHOUT THE v2.3 ENTRIES THE CAPTURE IS THE FLAT FIGURE, whatever the capture size or
+// max_num_seqs, so a registry without them prices byte-identically; a partial set falls back
+// to it and says so.
+func TestCaptureMemoryFallsBackToTheFlatFigure(t *testing.T) {
+	flat := v41Engine(t, nil, 256, 8192, 512).FixedBytes().CUDAGraph
+	for _, c := range [][2]int{{2, 16}, {56, 512}, {1024, 1024}} {
+		if got := v41Engine(t, nil, c[0], 8192, c[1]).FixedBytes().CUDAGraph; got != flat {
+			t.Errorf("max_num_seqs %d, capture %d: %d B without the entries, want the flat %d",
+				c[0], c[1], got, flat)
+		}
+	}
+	k := v41Engine(t, captureContract("cudagraph_capture_bytes_per_decode_token_full_and_piecewise"),
+		56, 8192, 512)
+	if got := k.FixedBytes().CUDAGraph; got != flat {
+		t.Errorf("a partial set charges %d B, want the flat %d", got, flat)
+	}
+	if !hasFallback(k, "cudagraph_capture_floor_bytes_full_and_piecewise") {
+		t.Error("a partial capture set fell back with nothing recorded")
+	}
+}
+
+// THE FORM. floor + per-mixed-token x capture ceiling + per-decode-token x decode ceiling:
+// at 56 requests and a 512 ceiling, 256 MiB + 512 MiB + 336 x 8 MiB.
+func TestCaptureMemoryIsTheContractsForm(t *testing.T) {
+	got := v41Engine(t, captureContract(), 56, 8192, 512).FixedBytes().CUDAGraph
+	if want := int64(256<<20 + 512<<20 + 336*8<<20); got != want {
+		t.Errorf("capture %d B, want %d", got, want)
+	}
+}
+
+// PROPERTY: the KV pool never grows as max_num_seqs, the capture ceiling or the token
+// budget grows, with the v2.3 entries present and without them: every term vLLM sizes from
+// them is at least as large (decodeCaptureTokens, samplerPeakBytes, the activation form).
+func TestTheKVPoolIsNonIncreasingInSeqsCaptureAndBudget(t *testing.T) {
+	for _, entries := range [][]coefficient.Entry{nil, captureContract()} {
+		total := func(seqs, mnbt, capture int) int64 {
+			return v41Engine(t, entries, seqs, mnbt, capture).FixedBytes().Total()
+		}
+		check := func(what string, xs []int, at func(int) int64) {
+			prev := int64(0)
+			for _, x := range xs {
+				got := at(x)
+				if got < prev {
+					t.Errorf("entries %v: %s %d holds %d B, fewer than a smaller one's %d",
+						entries != nil, what, x, got, prev)
+				}
+				prev = got
+			}
+		}
+		check("max_num_seqs", []int{1, 2, 8, 32, 56, 128, 1024, 4096},
+			func(x int) int64 { return total(x, 8192, 512) })
+		check("capture", []int{8, 16, 64, 256, 512, 1024, 2048},
+			func(x int) int64 { return total(256, 8192, x) })
+		check("max_num_batched_tokens", []int{1024, 2048, 4096, 8192, 32768},
+			func(x int) int64 { return total(256, x, min(x, 512)) })
+	}
+	k := func(seqs, capture int) int64 {
+		return v41Engine(t, captureContract(), seqs, 8192, capture).FixedBytes().CUDAGraph
+	}
+	if k(56, 512) <= k(48, 512) {
+		t.Error("with the entries, more requests under the same ceiling capture no more")
+	}
+	if k(1024, 512) <= k(1024, 256) {
+		t.Error("with the entries, a higher ceiling captures no more")
+	}
+}
+
+// THE DUMMY SAMPLER can set the profile peak: at a small token budget and many requests its
+// logits outgrow the forward's scratch, and then the peak follows max_num_seqs. DSpark's K
+// query rows a request bound the dummy batch at max_num_batched_tokens / K requests.
+func TestTheDummySamplerRunCanSetTheActivationPeak(t *testing.T) {
+	act := func(seqs int) int64 { return v41Engine(t, nil, seqs, 2048, 512).FixedBytes().ActivationPeak }
+	if act(16) != act(64) {
+		t.Errorf("at 16 and 64 requests the forward's scratch binds, yet the peak moves: %d, %d",
+			act(16), act(64))
+	}
+	if act(409) <= act(64) {
+		t.Errorf("409 requests' logits do not raise the peak: %d against %d", act(409), act(64))
+	}
+	if act(409) != act(4096) {
+		t.Errorf("past 2,048 / 5 = 409 dummy requests the peak still moves: %d, %d",
+			act(409), act(4096))
+	}
+}
+
+// METAMORPHIC, TP: per GPU, the weights are R + S/tp, and nothing else this occupancy
+// charges divides by tensor parallelism -- the capture is measured per rank, and the
+// engine buffers are per rank -- so from TP 8 to TP 4 the non-weight occupancy moves only
+// by the activation multiple's own TP key.
+func TestTPScalesOnlyTheShardedWeightsAndTheActivationKey(t *testing.T) {
+	at := func(tp int) (kernel.MemoryBreakdown, *Kernel, *model.Graph) {
+		in := fixtureInputs(t, v41)
+		in.Deployment.Pools[0].Parallel.TP = tp
+		e := &in.Deployment.Pools[0].Engine
+		capture := 512
+		e.MaxNumSeqs, e.MaxCUDAGraphCaptureSize = 56, &capture
+		in.Coefficients = append(append([]*coefficient.Set{}, in.Coefficients...),
+			&coefficient.Set{Kind: "CoefficientSet", Name: "test-capture",
+				Coefficients: captureContract()})
+		k := build(t, in)
+		return k.FixedBytes(), k, in.Model
+	}
+	f4, k4, g := at(4)
+	f8, k8, _ := at(8)
+	if f4.CUDAGraph != f8.CUDAGraph {
+		t.Errorf("capture %d B at TP 4 and %d at TP 8; it is per rank", f4.CUDAGraph, f8.CUDAGraph)
+	}
+	if s := float64(f4.Weights - f8.Weights); s <= 0 {
+		t.Errorf("TP 4 holds no more weights a rank than TP 8: %d, %d", f4.Weights, f8.Weights)
+	} else if r := float64(8*f8.Weights-4*f4.Weights) / 4; r < 0 || r > float64(f8.Weights) {
+		t.Errorf("the replicated part R = %.0f B is outside [0, W8]", r)
+	}
+	scratch := func(k *Kernel) float64 {
+		return math.Max(math.Max(k.activationBuffers*float64(k.batchedTokens)*
+			k.activationWidth*2, k.activationFloor), k.samplerPeakBytes(g))
+	}
+	b4 := float64(f4.Total()-f4.Weights) - scratch(k4)
+	b8 := float64(f8.Total()-f8.Weights) - scratch(k8)
+	if math.Abs(b4-b8) > 1 {
+		t.Errorf("non-weight, non-scratch occupancy %.0f B at TP 4 and %.0f at TP 8; it is per rank", b4, b8)
+	}
+}
