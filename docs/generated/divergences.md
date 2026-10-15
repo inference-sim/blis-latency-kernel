@@ -116,6 +116,18 @@ With expert parallelism off and prefill-context parallelism on, each rank is cha
     runs over the wider slice is not, so dividing by pcp alone would make a PCP step's
     experts cheaper than the engine runs them.
 
+### DeepSeek-V4.1's prefill workspace beside the activation scratch
+
+*Known over-charge, in `(*Kernel).engineBufferBytes` in [`new.go`](https://github.com/inference-sim/blis-latency-kernel/blob/main/new.go).*
+
+DeepSeek-V4.1's prefill gather workspace is charged in full beside the registry's activation scratch. vLLM holds it in one shared scratch buffer that its MoE kernels also grow, so the engine reserves the larger of the two where the kernel charges their sum.
+
+??? quote "The note in the source"
+    KNOWN over-charge: the workspace manager's buffer is shared scratch, and the MoE modular
+    kernels grow the same one (workspace.py:49-56), so the engine holds the larger of the two
+    where this adds the attention's request to an activation multiple that already allows for
+    MoE intermediates.
+
 ### Choosing the sparse attention backend
 
 *Coverage limit, in `sparseMLABackend` in [`sparse_mla.go`](https://github.com/inference-sim/blis-latency-kernel/blob/main/sparse_mla.go).*
@@ -151,4 +163,4 @@ Under tensor parallelism each rank is charged the arithmetic of whole routed exp
     that are pure TP. The BYTES do divide by it (routedWeightBytes, below), so the
     two terms disagree about the same experts.
 
-*9 notes: 1 known over-charge, 8 coverage limits.*
+*10 notes: 2 known over-charges, 8 coverage limits.*

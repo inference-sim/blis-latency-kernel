@@ -29,6 +29,13 @@ var summaries = map[string]struct{ title, summary string }{
 			"Nemotron-H's relu2 experts, holds two, and blis-schemas has no field saying which an " +
 			"expert is, so such a model's expert weights and arithmetic are over-stated by half.",
 	},
+	"new.go|(*Kernel).engineBufferBytes|Known over-charge": {
+		"DeepSeek-V4.1's prefill workspace beside the activation scratch",
+		"DeepSeek-V4.1's prefill gather workspace is charged in full beside the registry's " +
+			"activation scratch. vLLM holds it in one shared scratch buffer that its MoE kernels " +
+			"also grow, so the engine reserves the larger of the two where the kernel charges " +
+			"their sum.",
+	},
 	"kernel.go|(*Kernel).pdTransferBytes|Coverage limit": {
 		"P/D handoffs between pools of different widths",
 		"Each decode rank's pull is priced as one rank's transfer at one rank's link rate. That " +

@@ -2117,7 +2117,7 @@ func (k *Kernel) computeFixedBytes(g *model.Graph) kernel.MemoryBreakdown {
 	const activationBytes = price.ActivationBytes
 	act := math.Max(
 		k.activationBuffers*float64(k.batchedTokens)*k.activationWidth*activationBytes,
-		k.activationFloor)
+		k.activationFloor) + k.engineBufferBytes(g)
 
 	// EPLB's redundant replicas, reported apart from the weights rather than on top of
 	// them. expertsPerRank is the PHYSICAL count -- the model's experts plus the redundant
@@ -2149,6 +2149,106 @@ func (k *Kernel) computeFixedBytes(g *model.Graph) kernel.MemoryBreakdown {
 		// both coefficients, so the split is recoverable.
 		CommBuffers: k.commBytes + k.workspaceBytes,
 	}
+}
+
+// DeepSeek-V4.1 sizes three of its engine buffers from config.json values its graph does not
+// state: hc_mult, which widens the residual stream to hc_mult x hidden_size
+// (vllm/models/deepseek_v41/nvidia/model.py:639), and candidate_topk_blocks, the width of the
+// candidate-block buffer (model.py:665-675). The prefill chunk is the attention class's own
+// constant (vllm/models/deepseek_v41/attention.py:197).
+const (
+	dsv41HCMult              = 4
+	dsv41CandidateTopKBlocks = 2048
+	dsv41PrefillChunkSize    = 4
+)
+
+// engineBufferBytes is what DeepSeek-V4.1's model code allocates beside its weights at the
+// token budget and the context bound, none of which the registry's generic activation
+// multiple can hold, since NVIDIA's coefficient knows no model's buffers. vLLM v0.31.0 counts
+// all of it against the KV cache: the profiler's non-KV figure is everything consumed since
+// the instance was created plus the profile run's transient peak (memory_profiling,
+// vllm/utils/mem_utils.py:300-330; determine_available_memory, vllm/v1/worker/
+// gpu_worker.py:612-676). The buffers below are allocated in the model's __init__, inside
+// load_model; the gather workspace is reserved by the profile run itself, which both model
+// runners run with no attention metadata (vllm/v1/worker/gpu_model_runner.py:6468-6470,
+// gpu/model_runner.py:973-977), so forward_mqa takes its warmup branch and asks the workspace
+// manager for exactly what a prefill would, and the manager keeps it
+// (vllm/v1/worker/workspace.py:178-260).
+//
+// Per rank, none divided by tensor parallelism:
+//   - the gather workspace, the largest any layer reserves, since the manager holds one
+//     buffer it grows to the largest request: PREFILL_CHUNK_SIZE x (cdiv(max_model_len,
+//     compress_ratio) + window + max_num_batched_tokens) x head_dim in BF16, beside
+//     max_num_batched_tokens x round_up(index_topk + window, 128) and max_num_batched_tokens
+//     int32 indices, each rounded to 256 B (vllm/models/deepseek_v41/nvidia/flashmla.py:
+//     94-117 and flash_mla_mega_attn.py:305-319 on SM100). A window-only layer gathers no
+//     compressed context and selects no top-k;
+//   - the indexers' shared top-k buffer, max_num_batched_tokens x index_topk int32
+//     (nvidia/model.py:656-660), and DSpark's own while it speculates (nvidia/dspark.py:
+//     110-114);
+//   - the candidate-block buffer, where a layer publishes candidates (model.py:665-675);
+//   - the drafter's hidden-state buffer, max_num_batched_tokens x hc_mult x hidden_size in
+//     the model dtype, whenever the deployment speculates, as DSpark is an EAGLE-family
+//     method (model.py:773-784; use_eagle, vllm/config/speculative.py:1938-1942).
+//
+// KNOWN over-charge: the workspace manager's buffer is shared scratch, and the MoE modular
+// kernels grow the same one (workspace.py:49-56), so the engine holds the larger of the two
+// where this adds the attention's request to an activation multiple that already allows for
+// MoE intermediates.
+func (k *Kernel) engineBufferBytes(g *model.Graph) float64 {
+	if g.Global.Architecture != rules.ArchDeepseekV41 {
+		return 0
+	}
+	tokens := float64(k.batchedTokens)
+	aligned := func(b float64) float64 { return math.Ceil(b/256) * 256 }
+	topk := 0
+	layers := append([]price.PlannedLayer{}, k.plan.Layers...)
+	if d := k.plan.Draft; d != nil && k.speculating {
+		layers = append(layers, d.Layers...)
+	}
+	for _, l := range layers {
+		topk = max(topk, l.AttnIndexTopK)
+	}
+	var workspace float64
+	for _, l := range layers {
+		if l.AttnQHeads <= 0 || l.AttnHeadDim <= 0 {
+			continue
+		}
+		context, selected := 0, 0
+		if r := l.AttnCompressRatio; r > 0 {
+			context, selected = (k.maxModelLen+r-1)/r, topk
+		}
+		rows := float64(context + l.AttnWindow + k.batchedTokens)
+		combined := float64((selected + l.AttnWindow + 127) / 128 * 128)
+		workspace = math.Max(workspace,
+			aligned(dsv41PrefillChunkSize*rows*float64(l.AttnHeadDim)*2)+
+				aligned(tokens*combined*4)+aligned(tokens*4))
+	}
+	indexBuffers := 1.0
+	if k.speculating {
+		indexBuffers++
+	}
+	total := workspace + indexBuffers*tokens*float64(topk)*4
+	for _, lk := range g.LayerKinds {
+		if hasRole(lk.Nodes, "candidate_block_scores") {
+			total += tokens * dsv41CandidateTopKBlocks * 4
+			break
+		}
+	}
+	if k.speculating {
+		total += tokens * dsv41HCMult * float64(g.Global.HiddenSize) * price.ActivationBytes
+	}
+	return total
+}
+
+// hasRole reports whether any of nodes carries the role.
+func hasRole(nodes []model.Node, role string) bool {
+	for _, n := range nodes {
+		if n.Role == role {
+			return true
+		}
+	}
+	return false
 }
 
 // expertGeom is how one MoE layer's routed experts divide over the expert group: the physical
