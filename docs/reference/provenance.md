@@ -36,6 +36,7 @@ reason. They are of two kinds.
 | `gemm_eps_max_<kind>` | A weight-only kernel (Marlin W8A16 MXFP8, W4A16 grouped) has no efficiency ramp in the registry for the part, so it is priced on the BF16 ramp at the BF16 peak it computes at. |
 | `host_gather_rate_uva` | A table lookup reads a host-resident table (an Engram table under `cpu_offload`) and the registry has no rate for that gather, so its rows are read at the host link's rate. |
 | `hybrid_kv_cache_manager` | A graph states window caches and the deployment runs a KV connector, which can turn the hybrid KV cache manager off and the window rings into full-length caches. |
+| `kv_cache_grouping` | A graph states its caches and the rules pack cannot group them into the engine's shared block pool, so each cache is sized at its own page rather than in whole pool blocks. The reason names what the pack does not model. |
 | `mamba_cache_mode` | A model with recurrent layers states no recurrent cache mode: `align` with prefix caching on, `none` with it off. |
 | `max_cudagraph_capture_size` | Any CUDA graph is captured. The largest batch a graph covers cannot be stated in a deployment, so it is always vLLM's default. |
 | `max_model_len` | The deployment states no context length, or states `auto`: the bound is the model's context window from the graph (for `auto`, the most the engine can fit it to). |

@@ -36,6 +36,14 @@ var summaries = map[string]struct{ title, summary string }{
 			"also grow, so the engine reserves the larger of the two where the kernel charges " +
 			"their sum.",
 	},
+	"caches.go|(*Kernel).maxInFlightTokens|Coverage limit": {
+		"Window admission under pipeline parallelism",
+		"A window cache's admission reservation is sized for one more batch in flight than " +
+			"the pipeline-parallel width, as vLLM's default model runner holds under " +
+			"asynchronous scheduling. Its older runner holds one fewer with pipeline " +
+			"parallelism on, and the kernel cannot see which runs, so such a deployment's " +
+			"SequenceAdmissionBytes is up to one token budget a window group high.",
+	},
 	"kernel.go|(*Kernel).pdTransferBytes|Coverage limit": {
 		"P/D handoffs between pools of different widths",
 		"Each decode rank's pull is priced as one rank's transfer at one rank's link rate. That " +

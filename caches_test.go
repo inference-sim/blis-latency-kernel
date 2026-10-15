@@ -1,14 +1,17 @@
 package latencykernel
 
 import (
+	"errors"
 	"math/rand"
 	"testing"
 
 	"github.com/inference-sim/blis-schemas/kernel"
+	"github.com/inference-sim/blis-schemas/rules"
 	"github.com/inference-sim/blis-schemas/spec/deployment"
 	"github.com/inference-sim/blis-schemas/spec/model"
 
 	"github.com/inference-sim/blis-latency-kernel/internal/price"
+	"github.com/inference-sim/blis-latency-kernel/internal/resolve"
 )
 
 // Per-layer caches, as a graph states them (blis-schemas model.Cache), checked through
@@ -370,5 +373,108 @@ func TestTheDefaultCacheRecordIsNotAnAssumption(t *testing.T) {
 		if recorded(build(t, in), "cache_record") {
 			t.Errorf("%s: the default cache dtype's record was recorded as an assumption", chip)
 		}
+	}
+}
+
+// vLLM's block for DeepSeek-V4.1-Flash on SM90 at block 64 under fp8_ds_mla: the full-attention
+// group's pages, 3 x 19,008 + 37,440 + 3 x 4,608 + 8,640 B, which every group's block costs
+// (_get_kv_cache_bytes_per_block, vllm/v1/core/kv_cache_utils.py:1606-1632). It is the figure
+// vLLM's own functions return for the same layers in blis-schemas' golden vectors
+// (rules/testdata/kvgroups), where the 43 window layers fall into 8 groups of at most six.
+const v41PoolBlock = 116928
+
+// The stated caches are sized in whole blocks of the engine's shared pool, group by group: a
+// sequence grows one block per 64 tokens of context, and holds in steady decode six pages in
+// each of the eight window groups and one in the compressor-ring group, 49 blocks
+// (inference-sim/blis-latency-kernel#46). At admission each window group holds its cap,
+// cdiv(127 + 2 x 8,192, 32) + 1 = 517 pages, the two batches asynchronous scheduling keeps in
+// flight (vllm/config/vllm.py:592-613; vllm/v1/kv_cache_interface.py:840-866).
+func TestStatedCachesAreSizedInWholePoolBlocks(t *testing.T) {
+	k := build(t, fixtureInputs(t, v41))
+	if got := k.SequenceVariableBytes(64); got != v41PoolBlock {
+		t.Errorf("64 tokens hold %d B, want one pool block of %d", got, v41PoolBlock)
+	}
+	if got := k.SequenceVariableBytes(131072); got != 2048*v41PoolBlock {
+		t.Errorf("131,072 tokens hold %d B, want 2,048 pool blocks", got)
+	}
+	if got := k.SequenceFixedBytes(); got != (8*6+1)*v41PoolBlock {
+		t.Errorf("steady decode holds %d B a sequence, want 49 pool blocks, %d", got,
+			(8*6+1)*v41PoolBlock)
+	}
+	if got := k.SequenceAdmissionBytes(); got != (8*517+1)*v41PoolBlock {
+		t.Errorf("admission reserves %d B a sequence, want 4,137 pool blocks, %d", got,
+			(8*517+1)*v41PoolBlock)
+	}
+}
+
+// GOLDEN, from the engine's own log: DeepSeek-V4.1-Flash on 8x H200 under vLLM v0.31.0 --
+// DSpark K=5, a 1,048,576-token context, 8,192 batched tokens -- reported 61.18 GiB of KV
+// cache and "GPU KV cache size: 28,706,997 tokens" (vllm:cache_config_info, in the
+// measurement on inference-sim/blis-latency-kernel#46). vLLM's figure is the pool's blocks
+// over a request's blocks at max_model_len, times max_model_len (get_kv_cache_capacity,
+// vllm/v1/core/kv_cache_utils.py:2444-2471). From the same 61.18 GiB the kernel's figures give
+// the same count, to the rounding of the logged GiB; sized at the steady decode hold they
+// would give 25% more.
+func TestKVCapacityIsTheEnginesOwnFigure(t *testing.T) {
+	in := fixtureInputs(t, v41)
+	in.Deployment.Pools[0].Engine.MaxModelLen = 1 << 20
+	k := build(t, in)
+	logged := 61.18 // GiB
+	pool := int64(logged*(1<<30)) / k.SequenceVariableBytes(64)
+	perRequest := (k.SequenceAdmissionBytes() + k.SequenceVariableBytes(1<<20)) /
+		k.SequenceVariableBytes(64)
+	tokens := float64(pool) / float64(perRequest) * (1 << 20)
+	const engine = 28706997
+	// 0.005 GiB, the log's rounding, is 46 blocks: about 2,350 tokens.
+	if d := tokens - engine; d > 2400 || d < -2400 {
+		t.Errorf("the kernel sizes %.0f tokens in vLLM's 61.18 GiB, against its logged %d",
+			tokens, engine)
+	}
+}
+
+// PROPERTIES of the admission reservation: never below the steady decode hold, growing
+// with the token budget, and the same as it for a model with no window cache.
+func TestAdmissionReservationProperties(t *testing.T) {
+	prev := int64(0)
+	for _, mnbt := range []int{2048, 8192, 16384, 32768} {
+		in := fixtureInputs(t, v41)
+		in.Deployment.Pools[0].Engine.MaxNumBatchedTokens = mnbt
+		k := build(t, in)
+		adm := k.SequenceAdmissionBytes()
+		if adm < k.SequenceFixedBytes() {
+			t.Errorf("mnbt %d: admission %d B below the steady hold %d", mnbt, adm,
+				k.SequenceFixedBytes())
+		}
+		if adm <= prev {
+			t.Errorf("mnbt %d: admission %d B, not above a smaller budget's %d", mnbt, adm, prev)
+		}
+		prev = adm
+	}
+	v3 := fixture(t, memoryFixture)
+	if v3.SequenceAdmissionBytes() != v3.SequenceFixedBytes() {
+		t.Errorf("deepseek-v3 states no window cache, yet admits at %d B against %d",
+			v3.SequenceAdmissionBytes(), v3.SequenceFixedBytes())
+	}
+}
+
+// ungroupedRules is a rules pack that cannot group stated caches.
+type ungroupedRules struct{ resolve.EngineRules }
+
+func (ungroupedRules) KVCacheGroups(rules.KVCacheGroupsInput) (rules.KVCacheGrouping, error) {
+	return rules.KVCacheGrouping{}, errors.New("not transcribed")
+}
+
+// Where the rules pack cannot group the stated caches, each is sized at its own page, and
+// that is recorded rather than silent.
+func TestAnUngroupedPoolIsRecorded(t *testing.T) {
+	in := fixtureInputs(t, v41)
+	in.Rules = ungroupedRules{in.Rules}
+	k := build(t, in)
+	if !recorded(k, "kv_cache_grouping") {
+		t.Error("the caches were sized per cache with nothing in Provenance saying so")
+	}
+	if pooled := build(t, fixtureInputs(t, v41)); k.SequenceFixedBytes() >= pooled.SequenceFixedBytes() {
+		t.Errorf("per-cache pages hold %d B a sequence, not less than the pool's %d",
+			k.SequenceFixedBytes(), pooled.SequenceFixedBytes())
 	}
 }

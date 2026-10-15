@@ -71,8 +71,11 @@ type Kernel struct {
 
 	// layerKV is each target layer's cache view, caches every cache a layer owns with its
 	// paging resolved (caches.go), and draftLayerKV the drafter's layers' views.
-	layerKV      []layerKV
-	caches       []cacheTerm
+	layerKV []layerKV
+	caches  []cacheTerm
+	// kvPool is the engine's shared block pool the stated caches are drawn from, nil where
+	// the graph states none or the grouping could not be resolved (caches.go).
+	kvPool       *kvPool
 	draftLayerKV []layerKV
 	// draftContextKV is the drafter's context stack's views.
 	draftContextKV []layerKV
@@ -283,7 +286,34 @@ func (k *Kernel) FixedBytes() kernel.MemoryBreakdown { return k.fixed }
 // recurrent state, where the model has it and the cache mode keeps it bounded, and the
 // bounded caches a graph states -- window rings and fixed state (cacheFixedBytes).
 func (k *Kernel) SequenceFixedBytes() int64 {
-	total := k.cacheFixedBytes()
+	return k.sequenceBoundedBytes(k.cacheFixedBytes())
+}
+
+// SequenceAdmissionBytes returns the per-sequence bytes the engine reserves for a request's
+// bounded state at admission: SequenceFixedBytes with each window ring at vLLM's admission
+// cap rather than its steady decode hold -- cdiv(window - 1 + extra_retained +
+// max_in_flight_tokens, block) + 1 pages, max_in_flight_tokens being the concurrent batches
+// times max_num_batched_tokens (vllm/v1/kv_cache_interface.py:840-866;
+// vllm/config/vllm.py:592-613) -- in whole blocks of the shared pool.
+//
+// It is what vLLM sizes a request at when it reports its KV capacity: the engine's
+// "GPU KV cache size" is the pool's blocks over SequenceAdmissionBytes plus
+// SequenceVariableBytes(max_model_len), in blocks, times max_model_len
+// (get_kv_cache_capacity, vllm/v1/core/kv_cache_utils.py:2444-2471), and its runtime
+// admission gate clamps a request's window reservation to the same cap
+// (vllm/v1/core/single_type_kv_cache_manager.py:216-229). It grows with
+// max_num_batched_tokens: on DeepSeek-V4.1-Flash at 8,192 tokens, 517 pages in each of eight
+// window groups against the six SequenceFixedBytes holds. A caller charging every resident
+// sequence the engine's reservation charges this; one charging the steady decode hold
+// charges SequenceFixedBytes. It equals SequenceFixedBytes for a model with no window cache.
+func (k *Kernel) SequenceAdmissionBytes() int64 {
+	return k.sequenceBoundedBytes(k.cacheAdmissionBytes())
+}
+
+// sequenceBoundedBytes adds the recurrent state a request holds whatever its length to the
+// stated bounded caches' bytes.
+func (k *Kernel) sequenceBoundedBytes(caches float64) int64 {
+	total := caches
 	mode := k.recurrentCacheMode
 	if mode.ProportionalToContext() {
 		// Under this mode the state scales with the context bound, so it belongs in the

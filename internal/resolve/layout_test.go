@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/inference-sim/blis-schemas/rules"
 	"github.com/inference-sim/blis-schemas/spec/deployment"
 	"github.com/inference-sim/blis-schemas/spec/model"
 	"github.com/inference-sim/blis-schemas/spec/scenario"
@@ -35,7 +36,10 @@ func (r stubRules) ResolveCacheDType(_ string, _, _ int, requested string) strin
 	return requested
 }
 func (r stubRules) WindowPagesPerRequest(model.Cache, int, int, int, int) int { return 0 }
-func (r stubRules) CustomAllReduceSupportsWidth(tp int) bool                  { return r.customWidths[tp] }
+func (r stubRules) KVCacheGroups(rules.KVCacheGroupsInput) (rules.KVCacheGrouping, error) {
+	return rules.KVCacheGrouping{}, nil
+}
+func (r stubRules) CustomAllReduceSupportsWidth(tp int) bool { return r.customWidths[tp] }
 func (r stubRules) TritonFetchWithholdsSMs(pageBytes int) int {
 	if pageBytes > 0 && pageBytes < 28*1024 {
 		return 12

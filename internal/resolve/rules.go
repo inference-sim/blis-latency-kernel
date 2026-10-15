@@ -1,6 +1,7 @@
 package resolve
 
 import (
+	"github.com/inference-sim/blis-schemas/rules"
 	"github.com/inference-sim/blis-schemas/spec/deployment"
 	"github.com/inference-sim/blis-schemas/spec/model"
 )
@@ -45,4 +46,8 @@ type EngineRules interface {
 
 	// WindowPagesPerRequest is how many pages of a window cache one request holds.
 	WindowPagesPerRequest(c model.Cache, engineBlock, inFlight, extraRetained, maxModelLen int) int
+
+	// KVCacheGroups groups a model's stated caches into the KV cache groups that share
+	// the engine's block pool, and gives the bytes one pool block costs.
+	KVCacheGroups(in rules.KVCacheGroupsInput) (rules.KVCacheGrouping, error)
 }

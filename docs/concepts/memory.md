@@ -123,6 +123,15 @@ every other layer keeps the formula above, so a graph opts in node by node.
 - **A window cache is a bounded ring.** It is counted in `SequenceFixedBytes`, at the pages
   a request holds in steady decode: the window less one, plus the tokens one decode step has
   in flight (one, plus the speculative tokens), rounded up to pages, plus one page.
+- **Every cache is drawn from one shared pool.** vLLM groups the layers' caches into KV cache
+  groups and gives every group's block the size of the widest group's, so a group of
+  narrower pages wastes the rest of each block. The kernel groups the stated caches as the
+  release does, through the rules pack, and sizes a request in whole pool blocks in every
+  group. DeepSeek-V4.1-Flash on H200 has a 116,928-byte block: its compressed and index
+  caches fill it, and its 43 window rings share eight groups of at most six, so a request
+  holds 49 blocks in steady decode, 5.73 MB, where its caches' own pages sum to 5.00 MB. A
+  rules pack that cannot group a graph's caches leaves each at its own page, and says so in
+  `Provenance`.
 - **The record follows the chip and the cache data type.** The graph is resolved for the
   chip's GPU generation before it is sized, and a record is looked up under the cache data
   type the attention backend actually runs: DeepSeek-V4.1 serves `fp8` as `fp8_ds_mla` on
@@ -146,6 +155,16 @@ depends on the engine's recurrent cache mode:
 
 vLLM uses `align` whenever prefix caching is on. For a model with no recurrent layers and no
 stated bounded caches, `SequenceFixedBytes` is zero.
+
+`SequenceAdmissionBytes` is the same state at what the engine reserves when it admits a
+request rather than what the request holds in steady decode. vLLM caps a request's window
+ring at the window less one, plus the tokens every step in flight can schedule (two steps of
+`max_num_batched_tokens` under asynchronous scheduling), plus one page, and sizes its
+reported KV capacity with that cap. On DeepSeek-V4.1-Flash at 8,192 batched tokens that is
+517 pages in each window group against the six of steady decode, 484 MB a request, so it
+moves with the token budget. The engine's own "GPU KV cache size" is the pool's blocks over a
+request's blocks at `max_model_len` (this plus `SequenceVariableBytes(max_model_len)`), times
+`max_model_len`.
 
 ## In the source
 

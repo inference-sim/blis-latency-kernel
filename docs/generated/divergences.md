@@ -6,6 +6,17 @@ Known over-charge
 Coverage limit
 :   Engine behavior the kernel does not model, with what it charges instead.
 
+### Window admission under pipeline parallelism
+
+*Coverage limit, in `(*Kernel).maxInFlightTokens` in [`caches.go`](https://github.com/inference-sim/blis-latency-kernel/blob/main/caches.go).*
+
+A window cache's admission reservation is sized for one more batch in flight than the pipeline-parallel width, as vLLM's default model runner holds under asynchronous scheduling. Its older runner holds one fewer with pipeline parallelism on, and the kernel cannot see which runs, so such a deployment's SequenceAdmissionBytes is up to one token budget a window group high.
+
+??? quote "The note in the source"
+    COVERAGE LIMIT: the V1 model runner holds pp batches under asynchronous scheduling with
+    pipeline parallelism, one fewer than this; the kernel cannot see which runner the engine
+    picks, and at pp 1 both hold two.
+
 ### KV cache layouts not sized
 
 *Coverage limit, in `KVBytesPerToken` in [`internal/price/memory.go`](https://github.com/inference-sim/blis-latency-kernel/blob/main/internal/price/memory.go).*
@@ -163,4 +174,4 @@ Under tensor parallelism each rank is charged the arithmetic of whole routed exp
     that are pure TP. The BYTES do divide by it (routedWeightBytes, below), so the
     two terms disagree about the same experts.
 
-*10 notes: 2 known over-charges, 8 coverage limits.*
+*11 notes: 2 known over-charges, 9 coverage limits.*
