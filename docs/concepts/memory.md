@@ -43,8 +43,10 @@ Activations
     entries of 132 bytes), with DSpark's own in a second lane. The indexer also stands in
     512 MiB for its logits. Beside those sit the indexers' top-k buffer (one more for
     DSpark), the candidate-block buffer and, while speculating, DSpark's hidden-state buffer
-    of token budget × 4 × hidden size. At a 1M-token context and a 32,768-token budget they
-    come to 7.4 GiB a rank, against 1.6 GiB at 131,072 and 8,192.
+    of token budget × 4 × hidden size. Model init also builds two rotary caches, plain and
+    YaRN, over the model's whole 1M-position window, 256 MiB each whatever the context
+    bound. At a 1M-token context and a 32,768-token budget all of these come to 7.9 GiB a
+    rank, against 2.1 GiB at 131,072 and 8,192.
 
 CUDA graphs
 :   The memory a captured graph holds, for the capture mode the deployment runs in.

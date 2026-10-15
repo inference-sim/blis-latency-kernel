@@ -2327,6 +2327,33 @@ func (k *Kernel) engineBufferBytes(g *model.Graph) float64 {
 	if k.speculating {
 		total += tokens * dsv41HCMult * float64(g.Global.HiddenSize) * price.ActivationBytes
 	}
+	return total + k.dsv41RopeCacheBytes(g)
+}
+
+// dsv41RopeCacheBytes is DeepSeek-V4.1's rotary cos/sin caches, which model init builds on
+// the device inside load_model, at the model's whole position range and whatever the
+// deployment's context bound: one for the window-only layers, plain RoPE at the config's
+// max_position_embeddings, and one for the compressed layers, YaRN over
+// original_max_position_embeddings x factor -- both the model's context window -- each of
+// qk_rope_head_dim FP32 values a position (cos and sin halves;
+// vllm/models/deepseek_v41/common/rope.py:9-54; DeepseekV4ScalingRotaryEmbedding,
+// vllm/model_executor/layers/rotary_embedding/deepseek_scaling_rope.py:224-255). get_rope
+// shares one instance between every layer of the same parameters, the drafter's and the
+// indexer's included (rotary_embedding/__init__.py:73-83), so there are as many caches as
+// layer types. At a 1,048,576-token window that is 256 MiB each.
+func (k *Kernel) dsv41RopeCacheBytes(g *model.Graph) float64 {
+	types := map[bool]int{}
+	for _, lk := range g.LayerKinds {
+		for _, n := range lk.Nodes {
+			if n.Op == model.OpAttention && n.Role == "" && n.QKRopeHeadDim > 0 {
+				types[n.CompressRatio > 0] = max(types[n.CompressRatio > 0], n.QKRopeHeadDim)
+			}
+		}
+	}
+	var total float64
+	for _, rope := range types {
+		total += float64(g.Global.ContextWindow) * float64(rope) * 4
+	}
 	return total
 }
 
