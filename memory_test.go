@@ -1327,7 +1327,7 @@ func TestTheDrafterCeilingIsTheLargestRoundedSize(t *testing.T) {
 		}
 		stated, none := at(""), at("NONE")
 		host := func(k *Kernel, n int) time.Duration {
-			return k.StepTime(decodeBatch(n, c.k+1, 8192)).PerResource[kernel.ResourceHost]
+			return hostBusy(k, decodeBatch(n, c.k+1, 8192))
 		}
 		d := stated.plan.Draft
 		draft := time.Duration(d.Kernels + d.ContextKernels + c.k*d.SequentialKernels)
