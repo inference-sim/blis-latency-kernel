@@ -88,6 +88,17 @@ type Kernel struct {
 	// attentionByRole holds a secondary attention kernel's measured form where the registry
 	// carries one under its role, as it does for DeepSeek-V4.1's block_index_scores.
 	attentionByRole map[string]floorRate
+	// attentionPrefillByKind and attentionPrefillByRole hold a measured prefill form for a
+	// primary attention kind and for a secondary kernel's role, where the registry carries
+	// the whole family (see liftPrefillForms); otherwise prefill is priced with the
+	// part-wide pair.
+	attentionPrefillByKind map[model.AttentionKind]prefillForm
+	attentionPrefillByRole map[string]prefillForm
+	// mhcPre and mhcPost are the measured mHC components' forms, zero where the registry
+	// carries neither member of the pair (see liftPrefillForms).
+	mhcPre, mhcPost floorRate
+	// hiddenSize is the model's hidden width, which the mHC form's work is counted in.
+	hiddenSize int
 	// recurrentPrefill holds a recurrent kind's measured prefill form, where one exists.
 	recurrentPrefill map[model.RecurrentKind]floorRate
 	// padFlashMLA is a DeepSeek-V4-family model on SM90 under tensor parallelism, whose
@@ -268,6 +279,21 @@ type collKey struct {
 }
 
 // floorRate is a primitive's two-parameter measured form: a fixed setup cost plus a rate.
+// prefillForm is a measured prefill form for one attention kernel, per layer, rank and step
+// that holds a prefill: floor + perRequest x prefill requests + perToken x prefill query
+// tokens + bytes / rate, the bytes counted as the form was fitted (see the callers). The
+// terms are in seconds and rate in bytes per second: float, not time.Duration, because a
+// per-token term of a few nanoseconds (the indexer's is 4.66 ns) would truncate.
+type prefillForm struct {
+	floor, perRequest, perToken, rate float64
+}
+
+// seconds is the form's time for a step with requests prefill requests of tokens query
+// tokens that read bytes.
+func (f prefillForm) seconds(requests, tokens, bytes float64) float64 {
+	return f.floor + requests*f.perRequest + tokens*f.perToken + bytes/f.rate
+}
+
 type floorRate struct {
 	floor time.Duration
 	// rate is tokens per second, converted from the registry's tokens-per-microsecond.

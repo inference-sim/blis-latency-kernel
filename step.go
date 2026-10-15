@@ -396,6 +396,11 @@ func (k *Kernel) priceLayers(layers []price.PlannedLayer, fits [][]gemmFit, kv [
 		// priced on its token ramp, which is what that format always was.
 		for gi := range l.DenseGEMMs {
 			g := &l.DenseGEMMs[gi]
+			// A hyper-connection mixing GEMM is inside the measured mHC pre form, which
+			// times the TF32 prenorm GEMM with the kernel (see mhcSeconds).
+			if g.MHCFn && k.mhcPre.rate > 0 {
+				continue
+			}
 			var fit gemmFit
 			if fits != nil {
 				fit = fits[i][gi]
@@ -629,7 +634,14 @@ func (k *Kernel) priceLayers(layers []price.PlannedLayer, fits [][]gemmFit, kv [
 					attnSMSeconds -= k.attentionPrefillFloor.Seconds()
 				}
 			}
-			if s.prefillRequests > 0 {
+			if pf, ok := k.attentionPrefillByKind[l.AttnKind]; ok && s.prefillRequests > 0 &&
+				primaryRecord(l) > 0 {
+				// The kind's measured prefill form, over FlashMLA's block reads.
+				read := sparsePrefillReadBytes(s.prefillChunks, l.AttnWindow, l.AttnIndexTopK,
+					l.AttnCompressRatio, primaryRecord(l), heads)
+				attnSMSeconds += pf.seconds(float64(s.prefillRequests),
+					float64(s.prefillTokens), read)
+			} else if s.prefillRequests > 0 {
 				sm, fl := k.prefillAttention(layerCausalFLOPs*heads*float64(l.AttnHeadDim), s)
 				attnSMSeconds += sm
 				flops += fl
@@ -654,7 +666,13 @@ func (k *Kernel) priceLayers(layers []price.PlannedLayer, fits [][]gemmFit, kv [
 				// One matmul, not attention's two, so it is half attention's FLOPs a pair.
 				// An earlier form skipped every secondary kernel in a step with no decode,
 				// which made the scan free in prefill.
-				if s.prefillRequests > 0 {
+				if pf, ok := k.attentionPrefillByRole[a.Role]; ok && s.prefillRequests > 0 &&
+					len(a.Caches) > 0 {
+					// The role's measured prefill form, over the index keys each query scores.
+					read := scorerPrefillReadBytes(s.prefillChunks, a.CompressRatio,
+						a.Caches[0].EntryBytes, a.QHeads)
+					attnSMSeconds += pf.seconds(0, float64(s.prefillTokens), read)
+				} else if s.prefillRequests > 0 {
 					// The window bounds the span scored and the ratio how many states that
 					// span holds, as in decode below: min(p, window) / ratio a query.
 					var pairs float64
@@ -756,6 +774,8 @@ func (k *Kernel) priceLayers(layers []price.PlannedLayer, fits [][]gemmFit, kv [
 		} else {
 			elementwise += tokensF * l.ElementwiseTokenShardedBytesPerToken
 		}
+		mhcSM, mhcBytes := k.mhcSeconds(l, s, sp)
+		elementwise = math.Max(elementwise-mhcBytes, 0)
 		elementwise += k.contextBytes(l, s)
 		gatherBytes, hostSeconds := k.gatherTraffic(l, s)
 		elementwise += gatherBytes
@@ -819,7 +839,7 @@ func (k *Kernel) priceLayers(layers []price.PlannedLayer, fits [][]gemmFit, kv [
 		// for a high-top_k MoE model is the least certain part of this kernel.
 		ramp := price.Efficiency(tokensF, k.epsMax, k.mHalf)
 		denseSM := flops/(k.computeFLOPsPerSecond*ramp)*smDerate +
-			denseShapedSeconds*smDerate + recurrentSeconds + attnSMSeconds
+			denseShapedSeconds*smDerate + recurrentSeconds + attnSMSeconds + mhcSM
 		denseHBM := (weightBytes+kvBytes+elementwise)/k.hbmBytesPerSecond + attnSeconds +
 			hostSeconds
 

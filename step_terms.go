@@ -317,6 +317,10 @@ func (k *Kernel) priceHead(head price.PlannedLayer, s *stepShape,
 	} else {
 		elementwise += s.tokensF * head.ElementwiseTokenShardedBytesPerToken
 	}
+	// The final mHC post, where the measured form covers it.
+	mhcSM, mhcBytes := k.mhcSeconds(&head, s, k.layout.ModelSequenceParallel)
+	elementwise = math.Max(elementwise-mhcBytes, 0)
+	headSM += mhcSM
 	for _, g := range head.DenseGEMMs {
 		div := k.tp
 		if g.Replicated {

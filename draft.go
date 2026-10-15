@@ -357,6 +357,8 @@ func (k *Kernel) liftStepTerms(c *resolve.Coefficients, g *model.Graph) error {
 		}
 	}
 
+	k.liftPrefillForms(c, layers, g.Global.HiddenSize)
+
 	k.hostGatherBytesPerSecond = c.ValueOr("host_gather_rate_uva", 0) * 1e6
 	if k.hostGatherBytesPerSecond <= 0 {
 		k.hostGatherBytesPerSecond = k.hostBytesPerSecond
