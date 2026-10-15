@@ -123,3 +123,50 @@ func agRS(in *Inputs) {
 		e.DCPCommBackend, e.DCPQReplicate = "ag_rs", &off
 	}
 }
+
+// A DECODE STEP DOES NOT LAUNCH THE GRAPH'S PREFILL-ONLY NODES. DeepSeek-V4.1 dequantizes and
+// gathers its compressed KV, and its indexer gathers keys, only when the batch has prefills
+// (vllm/models/deepseek_v41/nvidia/flashmla.py:143-165, 305, 317;
+// vllm/model_executor/layers/sparse_attn_indexer.py:416-417, 481), and the graph marks those
+// nodes phase: prefill. With no graph (NONE) every launch is a host charge, so adding one
+// prefill row that samples nothing (no drafter pass joins it) must add exactly the eager plus
+// dispatch cost of those launches, counted here from the graph -- and nothing on a graph
+// that marks no node.
+func TestADecodeStepDoesNotLaunchPrefillOnlyNodes(t *testing.T) {
+	for _, c := range []struct {
+		scenario string
+		prefill  bool
+	}{{v41, true}, {"minimax-m25-h200-tp8.yaml", false}} {
+		in := fixtureInputs(t, c.scenario)
+		in.Deployment.Pools[0].Engine.CUDAGraphMode = "NONE"
+		want := 0
+		for _, id := range in.Model.Stack.Expand() {
+			for _, lk := range in.Model.LayerKinds {
+				if lk.ID != id {
+					continue
+				}
+				for _, n := range lk.Nodes {
+					if n.Context != nil && n.Context.Phase == "prefill" {
+						want++
+					}
+				}
+			}
+		}
+		if (want > 0) != c.prefill {
+			t.Fatalf("%s: %d prefill-only nodes in the graph", c.scenario, want)
+		}
+		k := build(t, in)
+		dec := decodeBatch(4, 6, 90000)
+		mixed := dec
+		mixed.Reqs = append(append([]kernel.ReqShape{}, dec.Reqs...),
+			kernel.ReqShape{Scheduled: 512, Computed: 1024, PromptLen: 8192})
+		got := k.StepTime(mixed).PerResource[kernel.ResourceHost] -
+			k.StepTime(dec).PerResource[kernel.ResourceHost]
+		per := k.launchEager + k.launchPerKernel
+		if d := got - time.Duration(want)*per; d < -time.Nanosecond || d > time.Nanosecond {
+			t.Errorf("%s: a prefill row added %v of host time; its %d prefill-only "+
+				"launches at %v each are %v", c.scenario, got, want, per,
+				time.Duration(want)*per)
+		}
+	}
+}

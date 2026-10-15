@@ -45,6 +45,10 @@ type Plan struct {
 	// The per-kernel dispatch cost multiplies it, and that product dominates a
 	// single-request decode step; eager launches multiply it too.
 	TotalKernels int
+	// PrefillOnlyKernels is how many of TotalKernels belong to nodes the graph marks
+	// phase: prefill, which a step with no prefill row does not launch (see
+	// PlannedLayer.PrefillOnlyKernels).
+	PrefillOnlyKernels int
 
 	// Embedding is the graph's embedding nodes -- the vocabulary lookup and the reduction
 	// that completes it -- planned as one entry run once per step. Its Count is zero when
@@ -238,6 +242,13 @@ type PlannedLayer struct {
 	// the primitives imply. So the count is the primitive count, and the per-launch
 	// constant it multiplies is calibrated against measurement with that in mind.
 	Kernels int
+	// PrefillOnlyKernels is how many of Kernels come from nodes whose context traffic the
+	// graph marks phase: prefill. The engine runs those only when the batch has prefills --
+	// DeepSeek-V4.1's KV dequantize-and-gather (vllm/models/deepseek_v41/nvidia/
+	// flashmla.py:143-165, 305, 317 at v0.31.0) and its indexer's K gather
+	// (vllm/model_executor/layers/sparse_attn_indexer.py:416-417, 481) -- so a decode-only
+	// step launches Kernels minus these.
+	PrefillOnlyKernels int
 
 	// RoutedFormat is the routed experts' compute format, Experts their count, and
 	// RoutedTokenSharded whether they see a token shard under the model's sequence
@@ -526,6 +537,11 @@ func BuildPlanWith(g *model.Graph, em Emitter, o PlanOptions) (*Plan, error) {
 		p.TotalKernels += emb.Kernels
 	}
 
+	p.PrefillOnlyKernels = p.Head.PrefillOnlyKernels + p.Embedding.PrefillOnlyKernels
+	for _, l := range p.Layers {
+		p.PrefillOnlyKernels += l.PrefillOnlyKernels * l.Count
+	}
+
 	if sp := g.Speculator; sp != nil {
 		d := &DraftPlan{Method: sp.Method, NumSpec: sp.NumSpec, Drafting: sp.Drafting}
 		if d.Layers, d.Kernels, err = planStack(sp.Stack, byID, em, o, hidden); err != nil {
@@ -664,10 +680,13 @@ func planNodes(nodes []model.Node, em Emitter, o PlanOptions,
 		}
 		// Every surviving node launches at least one kernel. Counted here, once, so a
 		// conditional node that was resolved away costs no launch either.
-		if launches, ok := kernelsPerPrimitive[n.Op]; ok {
-			pl.Kernels += launches
-		} else {
-			pl.Kernels++
+		launches, ok := kernelsPerPrimitive[n.Op]
+		if !ok {
+			launches = 1
+		}
+		pl.Kernels += launches
+		if n.Context != nil && n.Context.Phase == model.PhasePrefill {
+			pl.PrefillOnlyKernels += launches
 		}
 		// Any node that is not a dense GEMM breaks a fusion chain: the engine fuses
 		// projections of one hidden state, and an op between them consumes that state.

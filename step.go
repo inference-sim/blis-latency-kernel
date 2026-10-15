@@ -295,7 +295,7 @@ func (k *Kernel) stepTime(b kernel.Batch,
 	// with itself, and its work is not hidden behind a stage the way device work is. Per
 	// kernel dispatch joins it, for the same reason — a kernel cannot run before it has
 	// been dispatched.
-	host := k.hostPerStepWith(b, draftKernels) + seconds(k.launchSeconds(draftKernels))
+	host := k.hostPerStepWith(b, draftKernels) + seconds(k.launchSeconds(b, draftKernels))
 	perResource[idxHost] = host.Seconds()
 
 	// The breakdown map is the only thing that can allocate here. A caller that supplied
