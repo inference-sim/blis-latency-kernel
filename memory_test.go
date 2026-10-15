@@ -995,7 +995,9 @@ func TestFixedOccupancyIsMonotoneInTheTokenBudgetAndContextBound(t *testing.T) {
 // captures up to max_cudagraph_capture_size and runs a larger step with no graph
 // (vllm/v1/worker/gpu/cudagraph_utils.py:499-529). Stated at 64 with DSpark's K = 5, a
 // uniform decode of n requests verifies 6n tokens, so ten requests replay a graph and eleven
-// run eager, pricing like cudagraph_mode NONE.
+// run the target eager. The drafter has its own graphs of 5n tokens
+// (dflash/speculator.py:126-150), so at eleven and twelve it still replays one, and only at
+// thirteen does the whole step price like cudagraph_mode NONE.
 func TestAStatedCaptureSizeIsTheCeiling(t *testing.T) {
 	with := func(edit func(*deployment.Engine)) *Kernel {
 		in := fixtureInputs(t, v41)
@@ -1017,8 +1019,18 @@ func TestAStatedCaptureSizeIsTheCeiling(t *testing.T) {
 	if host(stated, 10) == host(none, 10) {
 		t.Error("ten requests verify 60 tokens, within the stated 64, yet run eager")
 	}
-	if a, b := host(stated, 11), host(none, 11); a != b {
-		t.Errorf("eleven requests verify 66 tokens, past the stated 64: %v of host time, "+
+	d := stated.plan.Draft
+	draft := time.Duration(d.Kernels + d.ContextKernels + 5*d.SequentialKernels)
+	for _, n := range []int{11, 12} {
+		want := host(none, n) - draft*stated.launchEager + stated.replayPerStep
+		if got := host(stated, n); got != want {
+			t.Errorf("%d requests verify %d tokens, past the stated 64, and draft %d, "+
+				"within it: %v of host time, want NONE's less the drafter's eager launches "+
+				"plus its replay, %v", n, 6*n, 5*n, got, want)
+		}
+	}
+	if a, b := host(stated, 13), host(none, 13); a != b {
+		t.Errorf("thirteen requests draft 65 tokens, past the stated 64: %v of host time, "+
 			"want NONE's %v", a, b)
 	}
 }

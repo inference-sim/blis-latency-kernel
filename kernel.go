@@ -1469,7 +1469,19 @@ func (k *Kernel) moeDPFunnel() float64 {
 func (k *Kernel) hostPerStep(b kernel.Batch) time.Duration { return k.hostPerStepWith(b, 0) }
 
 // hostPerStepWith is hostPerStep for a step that also runs draftKernels drafter launches.
+// A drafter with its own graphs (draftHasOwnGraphs) is charged apart from the target's,
+// under its own mode and ceiling (draftHost); any other drafter's launches run under the
+// target's.
 func (k *Kernel) hostPerStepWith(b kernel.Batch, draftKernels int) time.Duration {
+	if draftKernels > 0 && k.draftHasOwnGraphs() {
+		return k.targetHost(b, 0) + k.draftHost(b, draftKernels)
+	}
+	return k.targetHost(b, draftKernels)
+}
+
+// targetHost is the target forward's launch-and-replay cost, with draftKernels drafter
+// launches run under the same mode.
+func (k *Kernel) targetHost(b kernel.Batch, draftKernels int) time.Duration {
 	mode := k.graphOther
 	// An empty step runs no forward; it is charged as the decode loop's idle step.
 	if len(b.Reqs) == 0 || b.UniformDecode(k.uniformDecodeWidth) {

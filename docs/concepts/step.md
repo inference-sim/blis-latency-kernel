@@ -167,6 +167,13 @@ the engine decides that per batch. The kernel follows vLLM v0.31.0's choice:
 - A model whose own code breaks the capture, as DeepSeek-V4.1 does around every layer's
   attention, replays one piece per captured region even in full capture.
 
+- A parallel-block drafter (DSpark) has CUDA graphs of its own, captured only when the
+  target's decode mode is full, and its own ceiling: its rows are `num_spec_tokens` wide, not
+  `1 + num_spec_tokens`, so under a 64-token capture with five draft tokens it replays a graph
+  up to 12 requests while the target does up to 10. Past its ceiling, or with no graph, its
+  kernels launch eagerly; a step with a prefill row also stores the drafter's extra context
+  eagerly before the replay.
+
 On top of that, every kernel the step runs costs a fixed dispatch time. A step with no
 prefill row does not run the nodes the model graph marks `phase: prefill`, so it neither
 launches nor dispatches them. For a single request
