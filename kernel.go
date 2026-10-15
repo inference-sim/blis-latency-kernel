@@ -328,13 +328,32 @@ func (k *Kernel) sequenceBoundedBytes(caches float64) int64 {
 		if k.pool.Engine.Speculative != nil {
 			spec = k.pool.Engine.Speculative.NumSpecTokens
 		}
-		per := price.RecurrentStateBytes(l.RecurrentStateBytes, mode,
+		per := price.RecurrentStateBytes(k.recurrentRankBytes(l), mode,
 			k.maxModelLen, k.blockSize, spec, 0)
 		// The state is replicated across context-parallel ranks and sharded by tensor
-		// parallelism through its head count, which the graph already reflects.
+		// parallelism (recurrentRankBytes).
 		total += per * float64(l.Count)
 	}
 	return int64(total)
+}
+
+// recurrentRankBytes is one rank's share of a recurrent layer's state, which the graph
+// states for the whole model. vLLM divides both the convolutional and the temporal state by
+// the tensor-parallel width -- the conv channels and the heads -- for every recurrent family
+// (MambaStateShapeCalculator.mamba2_state_shape, gated_delta_net_state_shape and
+// kda_state_shape, vllm/model_executor/layers/mamba/mamba_utils.py:195-326 at v0.31.0), as
+// the step's recurrent scan already does with the heads. A head is never split, so the
+// divisor is at most the head count.
+//
+// COVERAGE LIMIT: where tp exceeds a Mamba-2 layer's group count, vLLM widens the groups
+// to cover every head's shard (extra_groups_for_head_shards, mamba_utils.py:206-210), which
+// this division leaves out.
+func (k *Kernel) recurrentRankBytes(l price.PlannedLayer) float64 {
+	shards := k.tp
+	if h := float64(l.RecurrentHeads); h > 0 && h < shards {
+		shards = h
+	}
+	return l.RecurrentStateBytes / shards
 }
 
 // SequenceVariableBytes returns per-sequence KV bytes for a token count, quantized to the
@@ -410,7 +429,7 @@ func (k *Kernel) SequenceVariableBytes(tokens int) int64 {
 			if l.RecurrentStateBytes == 0 {
 				continue
 			}
-			total += int64(price.RecurrentStateBytes(l.RecurrentStateBytes, mode,
+			total += int64(price.RecurrentStateBytes(k.recurrentRankBytes(l), mode,
 				tokens, k.blockSize, spec, 0) * float64(l.Count))
 		}
 	}

@@ -83,6 +83,17 @@ Each expert is priced as three matrices, a gated MLP. An expert with no gate, su
     that says which an expert is, so such a model's experts are over-stated by
     half.
 
+### Mamba-2 groups widened past the tensor-parallel width
+
+*Coverage limit, in `(*Kernel).recurrentRankBytes` in [`kernel.go`](https://github.com/inference-sim/blis-latency-kernel/blob/main/kernel.go).*
+
+A Mamba-2 layer's recurrent state is divided by the tensor-parallel width. Where that width exceeds the layer's group count, vLLM widens the groups so every head's shard has one, which holds a little more state than this charges.
+
+??? quote "The note in the source"
+    COVERAGE LIMIT: where tp exceeds a Mamba-2 layer's group count, vLLM widens the groups
+    to cover every head's shard (extra\_groups\_for\_head\_shards, mamba\_utils.py:206-210), which
+    this division leaves out.
+
 ### Hybrid attention under decode-context parallelism
 
 *Coverage limit, in `(*Kernel).SequenceVariableBytes` in [`kernel.go`](https://github.com/inference-sim/blis-latency-kernel/blob/main/kernel.go).*
@@ -222,4 +233,4 @@ Under tensor parallelism each rank is charged the arithmetic of whole routed exp
     that are pure TP. The BYTES do divide by it (routedWeightBytes, below), so the
     two terms disagree about the same experts.
 
-*14 notes: 1 known divergence, 2 known over-charges, 11 coverage limits.*
+*15 notes: 1 known divergence, 2 known over-charges, 12 coverage limits.*

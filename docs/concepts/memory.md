@@ -153,8 +153,9 @@ every other layer keeps the formula above, so a graph opts in node by node.
 
 `SequenceFixedBytes` holds the state that does not grow with the context: the window rings and
 fixed state caches a graph states (above), and the per-request state of recurrent layers
-(Mamba-2, gated delta networks, Kimi delta attention). How much recurrent state a request holds
-depends on the engine's recurrent cache mode:
+(Mamba-2, gated delta networks, Kimi delta attention). Each rank holds its tensor-parallel
+share of that state, as it holds its share of the heads. How much recurrent state a request
+holds depends on the engine's recurrent cache mode:
 
 | Mode | State a request holds | Counted in |
 |---|---|---|
