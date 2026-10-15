@@ -1409,6 +1409,7 @@ func (k *Kernel) liftMemory(c *resolve.Coefficients, g *model.Graph) error {
 		return err
 	}
 	k.captureBytes = k.captureMemory(c, capture)
+	k.draftCaptureTokens = k.uniformCaptureTokens(k.numSpecTokens())
 
 	// The activation multiple is keyed by whether the model routes tokens to experts,
 	// which is the only family distinction the kernel can draw without a model name.
@@ -1503,8 +1504,11 @@ func (k *Kernel) captureMemory(c *resolve.Coefficients, flat float64) int64 {
 // capture size rounded up to a multiple of the decode query length, kept where it is within
 // max_num_seqs requests and the capture ceiling (_init_candidates,
 // vllm/v1/worker/gpu/cudagraph_utils.py:313-327).
-func (k *Kernel) decodeCaptureTokens() int {
-	q := max(k.uniformDecodeWidth, 1)
+func (k *Kernel) decodeCaptureTokens() int { return k.uniformCaptureTokens(k.uniformDecodeWidth) }
+
+// uniformCaptureTokens is decodeCaptureTokens at a uniform query width of q tokens a request.
+func (k *Kernel) uniformCaptureTokens(q int) int {
+	q = max(q, 1)
 	best := 0
 	for _, s := range k.captureSizes {
 		r := (s + q - 1) / q * q

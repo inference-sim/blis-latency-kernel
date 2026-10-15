@@ -231,8 +231,11 @@ func (k *Kernel) draftHasOwnGraphs() bool {
 // (dflash/speculator.py:126-150) -- over the same capture sizes, each rounded to its own
 // uniform query width, num_query_per_req, which is num_speculative_tokens for DSpark's
 // anchor-as-first layout (dspark/speculator.py:51-55) and is the positions priceDraft runs.
-// So its ceiling is its own: at K = 5 under a 64-token capture the target's 6-token decode
-// rows graph up to 10 requests and the drafter's 5-token rows up to 12. Every request in the
+// So its ceiling is its own, the largest capture size rounded up to K that stays within the
+// capture ceiling and max_num_seqs (uniformCaptureTokens; _init_candidates,
+// cudagraph_utils.py:313-327): at K = 5 under a 64-token capture the target's 6-token
+// decode rows graph up to 10 requests and the drafter's 5-token rows up to 12, and under a
+// 512-token one up to 100, not 102, as 512 rounds to 515 and is dropped. Every request in the
 // batch is drafted (num_query_tokens = num_reqs x num_query_per_req, :363) and dispatched on
 // that count (:448-458); past every captured size it runs eagerly (_generate_draft, :509-517).
 //
@@ -249,7 +252,7 @@ func (k *Kernel) draftHost(b kernel.Batch, kernels int) time.Duration {
 		}
 	}
 	tokens := reqs * n
-	if k.graphDecode != graphModeFull || tokens == 0 || tokens > k.captureTokens {
+	if k.graphDecode != graphModeFull || tokens == 0 || tokens > k.draftCaptureTokens {
 		return time.Duration(float64(k.launchEager) * float64(kernels))
 	}
 	host := k.replayPerStep
