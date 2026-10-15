@@ -2196,11 +2196,18 @@ func (k *Kernel) computeFixedBytes(g *model.Graph) kernel.MemoryBreakdown {
 // state: hc_mult, which widens the residual stream to hc_mult x hidden_size
 // (vllm/models/deepseek_v41/nvidia/model.py:639), and candidate_topk_blocks, the width of the
 // candidate-block buffer (model.py:665-675). The prefill chunk is the attention class's own
-// constant (vllm/models/deepseek_v41/attention.py:197).
+// constant (vllm/models/deepseek_v41/attention.py:197). The indexer's gather holds 40 x
+// max_model_len entries before the compress ratio divides it
+// (get_max_prefill_buffer_size, vllm/v1/attention/backends/mla/indexer.py:791-801), and its
+// profile run allocates VLLM_SPARSE_INDEXER_MAX_LOGITS_MB, 512 MiB by default, to stand for
+// its logits (vllm/envs.py:61).
 const (
 	dsv41HCMult              = 4
 	dsv41CandidateTopKBlocks = 2048
 	dsv41PrefillChunkSize    = 4
+	dsv41IndexerGatherFactor = 40
+	dsv41IndexerLogitsBytes  = 512 << 20
+	dsv41RadixTopKWorkspace  = 1 << 20
 )
 
 // engineBufferBytes is what DeepSeek-V4.1's model code allocates beside its weights at the
@@ -2210,20 +2217,30 @@ const (
 // the instance was created plus the profile run's transient peak (memory_profiling,
 // vllm/utils/mem_utils.py:300-330; determine_available_memory, vllm/v1/worker/
 // gpu_worker.py:612-676). The buffers below are allocated in the model's __init__, inside
-// load_model; the gather workspace is reserved by the profile run itself, which both model
+// load_model; the gather workspaces are reserved by the profile run itself, which both model
 // runners run with no attention metadata (vllm/v1/worker/gpu_model_runner.py:6468-6470,
-// gpu/model_runner.py:973-977), so forward_mqa takes its warmup branch and asks the workspace
-// manager for exactly what a prefill would, and the manager keeps it
-// (vllm/v1/worker/workspace.py:178-260).
+// gpu/model_runner.py:973-977), so the attention's forward_mqa and the indexer each take
+// their warmup branch and ask the workspace manager for exactly what a prefill would, and
+// the manager keeps it (vllm/v1/worker/workspace.py:178-260).
 //
 // Per rank, none divided by tensor parallelism:
-//   - the gather workspace, the largest any layer reserves, since the manager holds one
-//     buffer it grows to the largest request: PREFILL_CHUNK_SIZE x (cdiv(max_model_len,
-//     compress_ratio) + window + max_num_batched_tokens) x head_dim in BF16, beside
-//     max_num_batched_tokens x round_up(index_topk + window, 128) and max_num_batched_tokens
-//     int32 indices, each rounded to 256 B (vllm/models/deepseek_v41/nvidia/flashmla.py:
-//     94-117 and flash_mla_mega_attn.py:305-319 on SM100). A window-only layer gathers no
-//     compressed context and selects no top-k;
+//   - the target's workspace: the manager holds one buffer per lane, grown to the largest
+//     request made in it (workspace.py:121-128, 233-266), so the larger of two requests.
+//     The attention's: PREFILL_CHUNK_SIZE x (cdiv(max_model_len, compress_ratio) + window +
+//     max_num_batched_tokens) x head_dim in BF16, beside max_num_batched_tokens x
+//     round_up(index_topk + window, 128) and max_num_batched_tokens int32 indices, each
+//     rounded to 256 B (vllm/models/deepseek_v41/nvidia/flashmla.py:94-117 and
+//     flash_mla_mega_attn.py:305-319 on SM100); a window-only layer gathers no compressed
+//     context and selects no top-k. The indexer's: 40 x max_model_len / compress_ratio
+//     entries of head_dim FP8 values and 4 scale bytes, and the 1 MiB radix top-k workspace
+//     (vllm/model_executor/layers/sparse_attn_indexer.py:363-381, 279-297;
+//     indexer_topk.py:15). At a 1M context the indexer's is the larger;
+//   - DSpark's own workspace: the V2 model runner gives the drafter a lane of its own
+//     (_num_workspace_lanes, gpu_worker.py:107-112; gpu/model_runner.py:195-197), and its
+//     dummy run proposes in that lane (gpu/model_runner.py:888-913), so its window-only
+//     layers' request is held beside the target's rather than inside it;
+//   - the indexer's stand-in for its logits, a transient of 512 MiB at the profile peak
+//     (sparse_attn_indexer.py:383-388);
 //   - the indexers' shared top-k buffer, max_num_batched_tokens x index_topk int32
 //     (nvidia/model.py:656-660), and DSpark's own while it speculates (nvidia/dspark.py:
 //     110-114);
@@ -2235,41 +2252,72 @@ const (
 // KNOWN over-charge: the workspace manager's buffer is shared scratch, and the MoE modular
 // kernels grow the same one (workspace.py:49-56), so the engine holds the larger of the two
 // where this adds the attention's request to an activation multiple that already allows for
-// MoE intermediates.
+// MoE intermediates; and the indexer's logits stand-in is a transient that this adds to the
+// activation multiple's own transients rather than to their peak.
 func (k *Kernel) engineBufferBytes(g *model.Graph) float64 {
 	if g.Global.Architecture != rules.ArchDeepseekV41 {
 		return 0
 	}
 	tokens := float64(k.batchedTokens)
 	aligned := func(b float64) float64 { return math.Ceil(b/256) * 256 }
-	topk := 0
-	layers := append([]price.PlannedLayer{}, k.plan.Layers...)
+	var draft []price.PlannedLayer
 	if d := k.plan.Draft; d != nil && k.speculating {
-		layers = append(layers, d.Layers...)
+		draft = d.Layers
 	}
-	for _, l := range layers {
+	topk := 0
+	for _, l := range append(append([]price.PlannedLayer{}, k.plan.Layers...), draft...) {
 		topk = max(topk, l.AttnIndexTopK)
 	}
-	var workspace float64
-	for _, l := range layers {
-		if l.AttnQHeads <= 0 || l.AttnHeadDim <= 0 {
-			continue
-		}
-		context, selected := 0, 0
-		if r := l.AttnCompressRatio; r > 0 {
-			context, selected = (k.maxModelLen+r-1)/r, topk
-		}
-		rows := float64(context + l.AttnWindow + k.batchedTokens)
-		combined := float64((selected + l.AttnWindow + 127) / 128 * 128)
-		workspace = math.Max(workspace,
-			aligned(dsv41PrefillChunkSize*rows*float64(l.AttnHeadDim)*2)+
+	// workspace is the largest request one lane's layers make.
+	indexed := false
+	workspace := func(layers []price.PlannedLayer) float64 {
+		var ws float64
+		for _, l := range layers {
+			if l.AttnQHeads <= 0 || l.AttnHeadDim <= 0 {
+				continue
+			}
+			context, selected := 0, 0
+			if r := l.AttnCompressRatio; r > 0 {
+				context, selected = (k.maxModelLen+r-1)/r, topk
+			}
+			// The attention's window_size is its ring's, which a parallel-block draft
+			// layer's read window exceeds by its block positions (DSpark's 133 over 128).
+			window := l.AttnWindow
+			for _, c := range layerCaches(l) {
+				if c.Kind == model.CacheWindow && c.Window > 0 {
+					window = c.Window
+				}
+			}
+			rows := float64(context + window + k.batchedTokens)
+			combined := float64((selected + window + 127) / 128 * 128)
+			ws = math.Max(ws, aligned(dsv41PrefillChunkSize*rows*float64(l.AttnHeadDim)*2)+
 				aligned(tokens*combined*4)+aligned(tokens*4))
+			for _, a := range l.Attentions {
+				if a.Role != "block_index_scores" || a.HeadDim <= 0 {
+					continue
+				}
+				indexed = true
+				entries := float64(dsv41IndexerGatherFactor * k.maxModelLen / max(a.CompressRatio, 1))
+				ws = math.Max(ws, aligned(entries*float64(a.HeadDim))+aligned(entries*4)+
+					dsv41RadixTopKWorkspace)
+			}
+		}
+		return ws
+	}
+	total := workspace(k.plan.Layers)
+	if k.pool.Engine.Speculative != nil && k.pool.Engine.Speculative.Method == "dspark" {
+		total += workspace(draft)
+	} else {
+		total = math.Max(total, workspace(draft))
+	}
+	if indexed {
+		total += dsv41IndexerLogitsBytes
 	}
 	indexBuffers := 1.0
 	if k.speculating {
 		indexBuffers++
 	}
-	total := workspace + indexBuffers*tokens*float64(topk)*4
+	total += indexBuffers * tokens * float64(topk) * 4
 	for _, lk := range g.LayerKinds {
 		if hasRole(lk.Nodes, "candidate_block_scores") {
 			total += tokens * dsv41CandidateTopKBlocks * 4

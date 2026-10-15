@@ -36,13 +36,15 @@ Activations
     A model whose own code allocates buffers at the token budget adds them here, because
     the registry's buffer count is generic and knows no model's buffers. vLLM's memory
     profiler counts everything allocated before the KV cache, so these buffers take room
-    from the KV cache. DeepSeek-V4.1 allocates
-    four: the prefill gather workspace, which its profile run reserves at the context bound
-    (4 × (`max_model_len` / compress ratio + window + token budget) × 512 BF16 values, plus
-    the top-k indices); the indexers' top-k buffer (one more for DSpark); the candidate-block
-    buffer; and, while speculating, DSpark's hidden-state buffer of token budget × 4 ×
-    hidden size. At a 1M-token context and a 32,768-token budget they come to 5.8 GiB a
-    rank, against 1.0 GiB at 131,072 and 8,192.
+    from the KV cache. DeepSeek-V4.1's profile run reserves the prefill gather workspaces at
+    the context bound, and the engine keeps one per lane at the larger request: the
+    attention's (4 × (`max_model_len` / compress ratio + window + token budget) × 512 BF16
+    values, plus the top-k indices) or the indexer's (40 × `max_model_len` / compress ratio
+    entries of 132 bytes), with DSpark's own in a second lane. The indexer also stands in
+    512 MiB for its logits. Beside those sit the indexers' top-k buffer (one more for
+    DSpark), the candidate-block buffer and, while speculating, DSpark's hidden-state buffer
+    of token budget × 4 × hidden size. At a 1M-token context and a 32,768-token budget they
+    come to 7.4 GiB a rank, against 1.6 GiB at 131,072 and 8,192.
 
 CUDA graphs
 :   The memory a captured graph holds, for the capture mode the deployment runs in.
