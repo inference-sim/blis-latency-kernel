@@ -238,6 +238,10 @@ type Kernel struct {
 	// captureTokens is the largest batch a captured graph covers, decode or not; a step
 	// with more tokens runs with no graph. Zero when nothing is captured.
 	captureTokens int
+	// captureSizes are the captured step sizes, ascending, and maxNumSeqs the resolved
+	// max_num_seqs; together they set the capture memory's decode family (captureMemory).
+	captureSizes []int
+	maxNumSeqs   int
 	// mlaContextChunk is how many context tokens one chunk of an MLA prefill's context
 	// gather covers (see dcpPrefillContextGathers).
 	mlaContextChunk int
