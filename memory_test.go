@@ -1307,3 +1307,44 @@ func TestTPScalesOnlyTheShardedWeightsAndTheActivationKey(t *testing.T) {
 		t.Errorf("non-weight, non-scratch occupancy %.0f B at TP 4 and %.0f at TP 8; it is per rank", b4, b8)
 	}
 }
+
+// THE DRAFTER'S CEILING IS ITS OWN ROUNDED SIZE. Its manager rounds each capture size up to
+// K and drops what passes the ceiling (_init_candidates, cudagraph_utils.py:313-327), so at
+// K = 5 under 512 the largest graph is 500 tokens, 100 requests, not floor(512 / 5) = 102;
+// at K = 3 under 64 it is 57 tokens, 19 requests, not 21.
+func TestTheDrafterCeilingIsTheLargestRoundedSize(t *testing.T) {
+	for _, c := range []struct{ k, capture, last int }{{5, 512, 100}, {3, 64, 19}} {
+		at := func(mode string) *Kernel {
+			in := fixtureInputs(t, v41)
+			e := &in.Deployment.Pools[0].Engine
+			size := c.capture
+			e.MaxCUDAGraphCaptureSize, e.MaxNumSeqs = &size, 256
+			e.Speculative.NumSpecTokens = c.k
+			if mode != "" {
+				e.CUDAGraphMode = mode
+			}
+			return build(t, in)
+		}
+		stated, none := at(""), at("NONE")
+		host := func(k *Kernel, n int) time.Duration {
+			return k.StepTime(decodeBatch(n, c.k+1, 8192)).PerResource[kernel.ResourceHost]
+		}
+		d := stated.plan.Draft
+		draft := time.Duration(d.Kernels + d.ContextKernels + c.k*d.SequentialKernels)
+		if c.last*(c.k+1) <= c.capture {
+			t.Fatalf("K %d: the target still graphs %d requests; pick a wider batch", c.k, c.last)
+		}
+		want := host(none, c.last) - draft*stated.launchEager + stated.replayPerStep
+		if got := host(stated, c.last); got != want {
+			t.Errorf("K %d, capture %d: %d requests draft %d tokens, within the largest rounded "+
+				"graph: %v of host time, want NONE's less the drafter's eager launches plus "+
+				"its replay, %v", c.k, c.capture, c.last, c.k*c.last, got, want)
+		}
+		for _, n := range []int{c.last + 1, c.last + 2} {
+			if a, b := host(stated, n), host(none, n); a != b {
+				t.Errorf("K %d, capture %d: %d requests draft %d tokens, past every rounded "+
+					"graph: %v of host time, want NONE's %v", c.k, c.capture, n, c.k*n, a, b)
+			}
+		}
+	}
+}

@@ -242,6 +242,8 @@ type Kernel struct {
 	// max_num_seqs; together they set the capture memory's decode family (captureMemory).
 	captureSizes []int
 	maxNumSeqs   int
+	// draftCaptureTokens is the largest graph a parallel-block drafter captures (draftHost).
+	draftCaptureTokens int
 	// mlaContextChunk is how many context tokens one chunk of an MLA prefill's context
 	// gather covers (see dcpPrefillContextGathers).
 	mlaContextChunk int
