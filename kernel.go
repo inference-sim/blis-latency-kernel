@@ -1416,7 +1416,8 @@ func (k *Kernel) hostPerStepWith(b kernel.Batch, draftKernels int) time.Duration
 		mode = k.graphDecode
 	}
 	captured := k.modeHost(mode, draftKernels)
-	if b.Tokens() > k.captureTokens && mode != graphModeEager {
+	// The graph is dispatched at the padded count (gpu_model_runner.py:4407-4413).
+	if b.PaddedTokens() > k.captureTokens && mode != graphModeEager {
 		// Past every captured size: the engine runs this step with no graph.
 		eager := k.modeHost(graphModeEager, draftKernels)
 		if eager < captured {

@@ -128,6 +128,12 @@ func specMethod(m string) string {
 
 // priceDraft prices one step's draft work, adding each resource's time to per, and returns
 // the stage time and the kernels it launches.
+//
+// COVERAGE LIMIT: the draft passes run at the requests' own draft rows, without the
+// data-parallel lockstep pad (Batch.PadTokens). vLLM's drafters coordinate their own
+// padded count across the data-parallel group (coordinate_batch_across_dp, e.g.
+// vllm/v1/spec_decode/dflash.py:230-261 at v0.31.0), which depends on every rank's draft
+// batch, and a batch states only this rank's pad for the target's forward.
 func (k *Kernel) priceDraft(b kernel.Batch, s *stepShape,
 	perResource *[numResources]float64) (float64, int) {
 	d := k.plan.Draft

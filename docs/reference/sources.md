@@ -9,11 +9,13 @@ pins themselves.</p>
 ## Two sources of engine behavior
 
 Most of what the kernel knows about vLLM is encoded here, at v0.31.0: which kernels run, how
-work is split, what an unstated setting defaults to, which layouts start. Three version-scoped
-facts are read instead from the blis-schemas rules pack for the release the scenario declares:
-which tensor-parallel widths the custom all-reduce supports, when the MoE input is made
-sequence-parallel, and which decode-context combine backends the release accepts. Only the pack
-for v0.29 is published today, so those three follow v0.29.
+work is split, what an unstated setting defaults to, which layouts start. Some version-scoped
+facts are read instead from the blis-schemas rules pack for the release the scenario declares,
+among them which tensor-parallel widths the custom all-reduce supports, when the MoE input is
+made sequence-parallel, which decode-context combine backends the release accepts, how many
+pages a window cache holds, how stated caches group into the shared KV block pool, and the
+CUDA graph capture sizes a deployment's stated knobs resolve to (`resolve.EngineRules` lists
+them).
 
 ## Reading a citation
 

@@ -76,7 +76,7 @@ func (k *Kernel) prefillAttention(work float64, s *stepShape) (smSeconds, flops 
 	if k.attentionPrefillScale <= 0 {
 		return 0, work
 	}
-	scale := price.Efficiency(s.tokensF, k.epsMax, k.mHalf) * k.attentionPrefillScale
+	scale := price.Efficiency(s.attnTokensF, k.epsMax, k.mHalf) * k.attentionPrefillScale
 	return k.attentionPrefillFloor.Seconds() +
 		work/(k.computeFLOPsPerSecond*scale)*s.smDerate, 0
 }

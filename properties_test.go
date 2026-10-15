@@ -2,6 +2,7 @@ package latencykernel
 
 import (
 	"math/rand"
+	"reflect"
 	"testing"
 	"time"
 
@@ -311,5 +312,76 @@ func TestRandomBatchesNeverProduceNonsense(t *testing.T) {
 					name, i, reqs, q, ctx)
 			}
 		}
+	}
+}
+
+// DATA-PARALLEL LOCKSTEP PADDING (Batch.PadTokens). A pad runs the forward's GEMMs,
+// collectives and experts but no attention and no logits row
+// (vllm/v1/worker/gpu_model_runner.py:4407-4413, logits_indices :2231 at v0.31.0). So: no
+// pad prices exactly as before; a step never gets cheaper as its pad grows; the pad leaves
+// the logits rows and the attention work where they were; and a pad of n tokens costs no
+// more than n more one-token decode requests, which also run attention and the LM head.
+func TestPadTokensProperties(t *testing.T) {
+	r := rand.New(rand.NewSource(7))
+	for name, k := range propertyFixtures(t) {
+		for shape, b := range batchShapes() {
+			zero := b
+			zero.PadTokens = 0
+			if a, z := k.StepTime(b), k.StepTime(zero); !reflect.DeepEqual(a, z) {
+				t.Errorf("%s / %s: PadTokens 0 priced %v against %v", name, shape,
+					z.NoOverlap, a.NoOverlap)
+			}
+			prev := k.StepTime(b).NoOverlap
+			for _, pad := range []int{1, 7, 64, 500, 4096} {
+				p := b
+				p.PadTokens = pad
+				got := k.StepTime(p).NoOverlap
+				if got < prev {
+					t.Errorf("%s / %s: a %d-token pad prices %v, below a smaller pad's %v",
+						name, shape, pad, got, prev)
+				}
+				prev = got
+				ps, bs := k.shapeOf(p), k.shapeOf(b)
+				if ps.logitsRows != bs.logitsRows || ps.decodeKVTokens != bs.decodeKVTokens ||
+					ps.causalFLOPs != bs.causalFLOPs || ps.attnTokensF != bs.attnTokensF ||
+					ps.tokensF != bs.tokensF+float64(pad) {
+					t.Errorf("%s / %s: a %d-token pad moved the logits rows or attention "+
+						"(%v, %v) or ran %v tokens, want %v", name, shape, pad, ps.logitsRows,
+						ps.decodeKVTokens, ps.tokensF, bs.tokensF+float64(pad))
+				}
+			}
+			n := 1 + r.Intn(64)
+			padded, requests := b, b
+			padded.PadTokens = n
+			requests.Reqs = append(append([]kernel.ReqShape{}, b.Reqs...),
+				decodeBatch(n, 1, 1).Reqs...)
+			if requests.DecodeThreshold == 0 {
+				requests.DecodeThreshold = 8
+			}
+			if p, q := k.StepTime(padded).NoOverlap, k.StepTime(requests).NoOverlap; p > q {
+				t.Errorf("%s / %s: a %d-token pad prices %v, above %d decode requests' %v",
+					name, shape, n, p, n, q)
+			}
+		}
+	}
+}
+
+// A pad-only step is a dummy forward, not an empty step, and the capture ceiling is met at
+// the padded count: 500 scheduled tokens and a 13-token pad run past the 512-token ceiling
+// with no graph.
+func TestPadTokensRunTheForwardAndMeetTheCeiling(t *testing.T) {
+	k := fixture(t, memoryFixture)
+	if idle, padded := k.StepTime(kernel.Batch{}), k.StepTime(kernel.Batch{PadTokens: 64}); padded.NoOverlap <= idle.NoOverlap {
+		t.Errorf("a 64-token pad prices %v, no more than an empty step's %v", padded.NoOverlap,
+			idle.NoOverlap)
+	}
+	in := fixtureInputs(t, memoryFixture)
+	in.Deployment.Pools[0].Engine.CUDAGraphMode = "NONE"
+	eager := build(t, in)
+	b := decodeBatch(1, 500, 500)
+	b.PadTokens = 13
+	if a, e := k.StepTime(b).PerResource[kernel.ResourceHost],
+		eager.StepTime(b).PerResource[kernel.ResourceHost]; a != e {
+		t.Errorf("513 padded tokens priced %v of host time, want NONE's %v", a, e)
 	}
 }
