@@ -155,6 +155,25 @@ With expert parallelism off and prefill-context parallelism on, each rank is cha
     runs over the wider slice is not, so dividing by pcp alone would make a PCP step's
     experts cheaper than the engine runs them.
 
+### DeepSeek-V4.1 load-time memory under expert parallelism
+
+*Coverage limit, in `(*Kernel).computeFixedBytes` in [`new.go`](https://github.com/inference-sim/blis-latency-kernel/blob/main/new.go).*
+
+vLLM holds about 9 GiB a rank more than the kernel charges for DeepSeek-V4.1-Flash with expert parallelism, the same at TP 8 and TP 4, so it is not sharded weights, which agree. Its source is not yet localized, and capacity under expert parallelism is overstated by that much a rank until it is.
+
+??? quote "The note in the source"
+    COVERAGE LIMIT: on DeepSeek-V4.1-Flash with expert parallelism, vLLM v0.31.0's
+    "Model loading took" figure exceeds what this charges by about 9 GiB a rank, at TP 8 and
+    TP 4 alike. curvebender's H200 sizing gives 45.81 and 81.49 GiB, so a fit of R + S/tp has
+    R = 10.1 GiB replicated and S = 285.4 GiB sharded, against this kernel's 1.0 and 286.1.
+    The sharded weights agree, and the gap does not scale with TP; about 2 GiB of it comes
+    with DSpark (42.64 GiB without it). The parameter and buffer paths read at v0.31.0 --
+    routed experts, Marlin's MXFP4 repack and its round-up, the shared expert, the
+    drafter's MoE, the embedding and LM head, Engram's host tables, the init-time buffers
+    and the rotary caches -- do not account for it. Until a per-module memory dump on the
+    part localizes it, capacity under expert parallelism is overstated by that much a rank
+    (TestCurvebenderH200ArmsAreTheEnginesFigures).
+
 ### DeepSeek-V4.1's prefill workspace beside the activation scratch
 
 *Known over-charge, in `(*Kernel).engineBufferBytes` in [`new.go`](https://github.com/inference-sim/blis-latency-kernel/blob/main/new.go).*
@@ -203,4 +222,4 @@ Under tensor parallelism each rank is charged the arithmetic of whole routed exp
     that are pure TP. The BYTES do divide by it (routedWeightBytes, below), so the
     two terms disagree about the same experts.
 
-*13 notes: 1 known divergence, 2 known over-charges, 10 coverage limits.*
+*14 notes: 1 known divergence, 2 known over-charges, 11 coverage limits.*

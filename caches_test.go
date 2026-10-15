@@ -2,6 +2,7 @@ package latencykernel
 
 import (
 	"errors"
+	"math"
 	"math/rand"
 	"testing"
 
@@ -439,6 +440,57 @@ func TestKVCapacityIsTheEnginesOwnFigureOnH200(t *testing.T) {
 	if d := tokens - 28706997; d > slack || d < -slack {
 		t.Errorf("the kernel sizes %.0f tokens in vLLM's 61.18 GiB, against its logged "+
 			"28,706,997 (slack %.0f)", tokens, slack)
+	}
+}
+
+// GOLDEN, the five arms of curvebender's H200 sizing table under vLLM v0.31.0
+// (reports/deepseek-v4.1-flash/deepseek-v4.1-flash-h200-vllm.html, "Sizing", from vLLM boot
+// logs and vllm:cache_config_info; the baseline is the deployment above). Each arm's capacity
+// follows from its own logged KV pool: without DSpark its 40 window rings fill seven groups,
+// not eight; at TP 4 a request's caches are the same, since a latent cache is not divided
+// across tensor parallelism. The weights move between TP 8 and TP 4 as the kernel's sharded
+// weights do, to 0.3%: 81.49 - 45.81 = 35.68 GiB measured. The weights themselves are not
+// asserted: vLLM holds about 9 GiB more than the kernel at both widths, a term that does
+// not scale with TP and that the kernel does not yet account for (see computeFixedBytes).
+func TestCurvebenderH200ArmsAreTheEnginesFigures(t *testing.T) {
+	type arm struct {
+		name       string
+		tp         int
+		dspark     bool
+		kvGiB      float64
+		tokens     float64
+		weightsGiB float64
+	}
+	arms := []arm{
+		{"TP8-baseline", 8, true, 61.18, 28706997, 45.81},
+		{"TP8-no-DSpark", 8, false, 65.17, 31367749, 42.64},
+		{"TP8-no-KV-offload", 8, true, 61.26, 28743634, 45.73},
+		{"TP8-no-Engram", 8, true, 61.18, 28706997, 45.81},
+		{"TP4-baseline", 4, true, 25.35, 11893655, 81.49},
+	}
+	weights := map[string]float64{}
+	for _, a := range arms {
+		in := fixtureInputs(t, v41)
+		pl := &in.Deployment.Pools[0].Parallel
+		pl.TP, pl.EnableExpertParallel = a.tp, true
+		e := &in.Deployment.Pools[0].Engine
+		capture := 64
+		e.MaxModelLen, e.BlockSize, e.MaxCUDAGraphCaptureSize = 1<<20, 64, &capture
+		if !a.dspark {
+			e.Speculative = nil
+		}
+		k := build(t, in)
+		tokens, slack := engineCapacity(k, a.kvGiB, 1<<20)
+		if d := tokens - a.tokens; d > slack || d < -slack {
+			t.Errorf("%s: the kernel sizes %.0f tokens in vLLM's %.2f GiB, against its "+
+				"logged %.0f (slack %.0f)", a.name, tokens, a.kvGiB, a.tokens, slack)
+		}
+		weights[a.name] = float64(k.FixedBytes().Weights) / (1 << 30)
+	}
+	measured := arms[4].weightsGiB - arms[0].weightsGiB
+	if got := weights["TP4-baseline"] - weights["TP8-baseline"]; math.Abs(got-measured) > 0.003*measured {
+		t.Errorf("TP 8 to TP 4 adds %.2f GiB of weights a rank, against vLLM's %.2f", got,
+			measured)
 	}
 }
 
