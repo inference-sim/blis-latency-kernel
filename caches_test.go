@@ -407,28 +407,61 @@ func TestStatedCachesAreSizedInWholePoolBlocks(t *testing.T) {
 	}
 }
 
-// GOLDEN, from the engine's own log: DeepSeek-V4.1-Flash on 8x H200 under vLLM v0.31.0 --
-// DSpark K=5, a 1,048,576-token context, 8,192 batched tokens -- reported 61.18 GiB of KV
-// cache and "GPU KV cache size: 28,706,997 tokens" (vllm:cache_config_info, in the
-// measurement on inference-sim/blis-latency-kernel#46). vLLM's figure is the pool's blocks
-// over a request's blocks at max_model_len, times max_model_len (get_kv_cache_capacity,
-// vllm/v1/core/kv_cache_utils.py:2444-2471). From the same 61.18 GiB the kernel's figures give
+// engineCapacity is vLLM's "GPU KV cache size" for a kernel's figures, from a KV pool of
+// gib GiB: the pool's blocks over a request's blocks at max_model_len, times max_model_len
+// (get_kv_cache_capacity, vllm/v1/core/kv_cache_utils.py:2444-2471;
+// get_max_concurrency_for_kv_cache_config, :1090-1122), with the slack a log's two-decimal
+// GiB leaves in it.
+func engineCapacity(k *Kernel, gib float64, maxModelLen int) (tokens, slack float64) {
+	block := k.SequenceVariableBytes(k.blockSize)
+	pool := int64(gib*(1<<30)) / block
+	perRequest := (k.SequenceAdmissionBytes() + k.SequenceVariableBytes(maxModelLen)) / block
+	tokens = float64(pool) / float64(perRequest) * float64(maxModelLen)
+	return tokens, tokens * 0.005 * (1 << 30) / float64(block) / float64(pool)
+}
+
+// GOLDEN, from the engine's own log, H200. curvebender's DeepSeek-V4.1-Flash deployment on
+// 8x H200 under vLLM v0.31.0 (curvebender-tools deployments/deepseek-v4.1-flash/scc-h200/
+// model-server/deepseek-v4.1-flash.yaml: TP 8 with --enable-expert-parallel, DSpark K=5,
+// --max-model-len 1048576, --max-num-batched-tokens 8192, --block-size 64,
+// max_cudagraph_capture_size 64) reported 61.18 GiB of KV cache and 28,706,997 tokens
+// (vllm:cache_config_info; reports/deepseek-v4.1-flash/deepseek-v4.1-flash-h200-vllm.html,
+// and inference-sim/blis-latency-kernel#46). From the same 61.18 GiB the kernel's figures give
 // the same count, to the rounding of the logged GiB; sized at the steady decode hold they
 // would give 25% more.
-func TestKVCapacityIsTheEnginesOwnFigure(t *testing.T) {
+func TestKVCapacityIsTheEnginesOwnFigureOnH200(t *testing.T) {
 	in := fixtureInputs(t, v41)
-	in.Deployment.Pools[0].Engine.MaxModelLen = 1 << 20
-	k := build(t, in)
-	logged := 61.18 // GiB
-	pool := int64(logged*(1<<30)) / k.SequenceVariableBytes(64)
-	perRequest := (k.SequenceAdmissionBytes() + k.SequenceVariableBytes(1<<20)) /
-		k.SequenceVariableBytes(64)
-	tokens := float64(pool) / float64(perRequest) * (1 << 20)
-	const engine = 28706997
-	// 0.005 GiB, the log's rounding, is 46 blocks: about 2,350 tokens.
-	if d := tokens - engine; d > 2400 || d < -2400 {
-		t.Errorf("the kernel sizes %.0f tokens in vLLM's 61.18 GiB, against its logged %d",
-			tokens, engine)
+	in.Deployment.Pools[0].Parallel.EnableExpertParallel = true
+	e := &in.Deployment.Pools[0].Engine
+	capture := 64
+	e.MaxModelLen, e.BlockSize, e.MaxCUDAGraphCaptureSize = 1<<20, 64, &capture
+	tokens, slack := engineCapacity(build(t, in), 61.18, 1<<20)
+	if d := tokens - 28706997; d > slack || d < -slack {
+		t.Errorf("the kernel sizes %.0f tokens in vLLM's 61.18 GiB, against its logged "+
+			"28,706,997 (slack %.0f)", tokens, slack)
+	}
+}
+
+// GOLDEN, from the engine's own log, H100. InferenceX's DeepSeek-V4.1-Flash AgentX recipe on
+// 8x H100 (benchmarks/single_node/srt-slurm-recipes/dsv41flash/vllm/h100-fp4-mtp/agentic.yaml,
+// override_tp8_c1: TP 8 without expert parallelism, DSpark K=5, --max-model-len 1048576,
+// --max-num-batched-tokens 4096, --max-num-seqs 2, max-cudagraph-capture-size 16,
+// --gpu-memory-utilization 0.92, the V2 model runner) logged at concurrency 1 "13.47 GiB KV
+// per GPU, 7,022,899 tokens, 6.70x maximum concurrency at 1M tokens per request"
+// (perf-changelog.yaml, InferenceX PR 2974). Its image is a vLLM nightly
+// (nightly-cd10ed6f), whose pool sizing this checks against v0.31.0's: 8 window groups at
+// cdiv(127 + 2 x 4,096, 32) + 1 = 261 pages a request.
+func TestKVCapacityIsTheEnginesOwnFigureOnH100(t *testing.T) {
+	in := fixtureInputs(t, v41)
+	in.Chip, in.Scenario.Cluster.Hardware = chipInputs(t, "h100"), "h100"
+	e := &in.Deployment.Pools[0].Engine
+	capture := 16
+	e.MaxModelLen, e.MaxNumBatchedTokens, e.MaxNumSeqs = 1<<20, 4096, 2
+	e.GPUMemoryUtilization, e.MaxCUDAGraphCaptureSize = 0.92, &capture
+	tokens, slack := engineCapacity(build(t, in), 13.47, 1<<20)
+	if d := tokens - 7022899; d > slack || d < -slack {
+		t.Errorf("the kernel sizes %.0f tokens in vLLM's 13.47 GiB, against its logged "+
+			"7,022,899 (slack %.0f)", tokens, slack)
 	}
 }
 
