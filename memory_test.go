@@ -1100,3 +1100,22 @@ func TestGraphModesAreTheResolvedOnes(t *testing.T) {
 		}
 	}
 }
+
+// A RECURRENT STATE IS SHARDED BY TENSOR PARALLELISM. vLLM divides a recurrent layer's
+// conv and temporal state by the tensor-parallel width (mamba2_state_shape,
+// gated_delta_net_state_shape, kda_state_shape, vllm/model_executor/layers/mamba/
+// mamba_utils.py:195-326 at v0.31.0), so a sequence's fixed state halves each time the width
+// doubles. The graph states the whole model's heads. An earlier form charged every rank
+// the whole state: about 377 MB a sequence at every width on Qwen3.5-397B.
+func TestRecurrentStateIsShardedByTensorParallelism(t *testing.T) {
+	at := func(tp int) int64 {
+		in := fixtureInputs(t, "nemotron3-ultra-h100-agg.yaml")
+		in.Deployment.Pools[0].Parallel.TP = tp
+		return build(t, in).SequenceFixedBytes()
+	}
+	two, four, eight := at(2), at(4), at(8)
+	if two <= 0 || two != 2*four || four != 2*eight {
+		t.Errorf("a sequence's recurrent state is %d, %d and %d B at tp 2, 4 and 8; each "+
+			"doubling of the width must halve it", two, four, eight)
+	}
+}

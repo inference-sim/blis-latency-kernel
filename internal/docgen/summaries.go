@@ -67,6 +67,12 @@ var summaries = map[string]struct{ title, summary string }{
 			"arises after its memory snapshot, library workspaces made at the first forward, " +
 			"against the KV cache, which the kernel leaves out.",
 	},
+	"kernel.go|(*Kernel).recurrentRankBytes|Coverage limit": {
+		"Mamba-2 groups widened past the tensor-parallel width",
+		"A Mamba-2 layer's recurrent state is divided by the tensor-parallel width. Where " +
+			"that width exceeds the layer's group count, vLLM widens the groups so every head's " +
+			"shard has one, which holds a little more state than this charges.",
+	},
 	"kernel.go|(*Kernel).pdTransferBytes|Coverage limit": {
 		"P/D handoffs between pools of different widths",
 		"Each decode rank's pull is priced as one rank's transfer at one rank's link rate. That " +
