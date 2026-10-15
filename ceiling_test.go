@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/inference-sim/blis-schemas/kernel"
+	"github.com/inference-sim/blis-schemas/spec/coefficient"
 )
 
 // THE CAPTURE CEILING FOLLOWS THE ENGINE'S DEFAULT, on every input that sets it. vLLM v0.31.0
@@ -167,6 +168,73 @@ func TestADecodeStepDoesNotLaunchPrefillOnlyNodes(t *testing.T) {
 			t.Errorf("%s: a prefill row added %v of host time; its %d prefill-only "+
 				"launches at %v each are %v", c.scenario, got, want, per,
 				time.Duration(want)*per)
+		}
+	}
+}
+
+// THE EAGER COST CAN BE A MODEL'S OWN. With no graph DeepSeek-V4.1 pays Python dispatch per
+// op, since vLLM runs it uncompiled (vllm/config/vllm.py:120), so the registry may scope the
+// eager constant to the model. A model-scoped entry must win over the part-wide one whatever
+// the file or set order, under either name; one scoped to another model must not apply; and
+// host_launch_eager_per_kernel, the name that says what the value is, wins over the
+// per-layer name at equal scope. The per-launch cost is read through the step: under NONE a
+// decode step's host time is launches x (eager + dispatch) plus nothing else.
+func TestAModelScopedEagerCostWinsWhateverItsOrder(t *testing.T) {
+	entry := func(name string, v float64, model string) coefficient.Entry {
+		e := coefficient.Entry{Name: name, Value: v, Units: "us_per_transfer",
+			Method: "assumed", Rationale: "test", Scope: coefficient.Scope{
+				Hardware: []string{"h200"}}}
+		if model != "" {
+			e.Scope.Model = []string{model}
+		}
+		return e
+	}
+	eager := func(before bool, extra ...coefficient.Entry) time.Duration {
+		t.Helper()
+		in := fixtureInputs(t, v41)
+		in.Deployment.Pools[0].Engine.CUDAGraphMode = "NONE"
+		set := &coefficient.Set{Kind: "CoefficientSet", Name: "test-eager",
+			Coefficients: extra}
+		switch {
+		case len(extra) == 0:
+		case before:
+			in.Coefficients = append([]*coefficient.Set{set}, in.Coefficients...)
+		default:
+			in.Coefficients = append(append([]*coefficient.Set{}, in.Coefficients...), set)
+		}
+		k := build(t, in)
+		b := decodeBatch(1, 6, 90000)
+		host := k.StepTime(b).PerResource[kernel.ResourceHost]
+		_, draft := k.priceDraft(b, &stepShape{}, &[numResources]float64{})
+		n := time.Duration(k.stepKernels(b) + draft)
+		return host/n - k.launchPerKernel
+	}
+	us := func(v float64) time.Duration { return time.Duration(v * float64(time.Microsecond)) }
+	generic := eager(false)
+	const m = "deepseek-v4.1-flash"
+	for _, c := range []struct {
+		name   string
+		before bool
+		extra  []coefficient.Entry
+		want   time.Duration
+	}{
+		{"per-layer, model-scoped, listed first", true,
+			[]coefficient.Entry{entry("host_launch_eager_per_layer", 93.2, m)}, us(93.2)},
+		{"per-layer, model-scoped, listed last", false,
+			[]coefficient.Entry{entry("host_launch_eager_per_layer", 93.2, m)}, us(93.2)},
+		{"per-layer, another model", false,
+			[]coefficient.Entry{entry("host_launch_eager_per_layer", 93.2, "kimi-k3")}, generic},
+		{"per-kernel, model-scoped, listed first", true,
+			[]coefficient.Entry{entry("host_launch_eager_per_kernel", 91, m)}, us(91)},
+		{"per-kernel generic beside per-layer generic", false,
+			[]coefficient.Entry{entry("host_launch_eager_per_kernel", 11, "")}, us(11)},
+		{"per-layer model-scoped beats per-kernel generic", false, []coefficient.Entry{
+			entry("host_launch_eager_per_kernel", 11, ""),
+			entry("host_launch_eager_per_layer", 93.2, m)}, us(93.2)},
+	} {
+		if got := eager(c.before, c.extra...); got-c.want > time.Nanosecond ||
+			c.want-got > time.Nanosecond {
+			t.Errorf("%s: eager cost per launch %v, want %v", c.name, got, c.want)
 		}
 	}
 }

@@ -38,6 +38,12 @@ type Resolved struct {
 // Load builds a lookup from sets in scenario order. An entry whose scope excludes the
 // deployment is skipped rather than applied: a constant fitted on one part does not
 // describe another, and silently using it is the error this filtering prevents.
+//
+// An entry scoped to the deployment's model is never displaced by one that does not state
+// a model, wherever the two sit: a value fitted on one model is a narrower claim than the
+// part-wide one it sits beside, and letting file or set order decide between them would
+// make a model's own constant silently lose to the generic one placed after it. Among
+// entries equally specific in that sense, the later one wins as before.
 func Load(sets []*coefficient.Set, scope Scope) (*Coefficients, error) {
 	c := &Coefficients{byName: map[string]Resolved{}}
 	for _, s := range sets {
@@ -47,6 +53,10 @@ func Load(sets []*coefficient.Set, scope Scope) (*Coefficients, error) {
 		c.order = append(c.order, s.Name)
 		for _, e := range s.Coefficients {
 			if !scope.Admits(e.Scope) {
+				continue
+			}
+			if prev, ok := c.byName[e.Name]; ok && len(prev.Entry.Scope.Model) > 0 &&
+				len(e.Scope.Model) == 0 {
 				continue
 			}
 			c.byName[e.Name] = Resolved{Entry: e, Set: s.Name}

@@ -963,13 +963,28 @@ func (k *Kernel) lift(c *resolve.Coefficients, g *model.Graph, cacheBytes float6
 		hostWithout("per-output-token cost")) * float64(time.Microsecond))
 	k.completionCost = time.Duration(k.optional(c, "host_completion", true,
 		hostWithout("completion cost")) * float64(time.Microsecond))
-	// One eager kernel launch. The registry names it per layer and defines it as
-	// "multiplied by a layer's kernel count at the call site" (blis-registry
+	// One eager kernel launch. The registry's historical name is per layer, and it defines
+	// the value as "multiplied by a layer's kernel count at the call site" (blis-registry
 	// cost-model-host-overheads.yaml, host_launch_eager_per_layer), so it is charged per
 	// kernel: an earlier form charged it once per layer, which made eager about four
 	// percent dearer than a full graph and cheaper than piecewise replay.
-	k.launchEager = time.Duration(k.optional(c, "host_launch_eager_per_layer", true,
-		hostWithout("eager launch cost")) * float64(time.Microsecond))
+	// host_launch_eager_per_kernel names the same per-launch cost by what it is, and is
+	// taken where a set carries it -- unless only the per-layer name is scoped to this
+	// model, since a model's own constant is the narrower claim (see resolve.Load). Either
+	// may be scoped to a model, which matters because the cost with no graph is Python
+	// dispatch per op on a model vLLM runs uncompiled (DeepseekV41ForCausalLM "cannot
+	// torch.compile", vllm/config/vllm.py:120) rather than a CUDA launch, and so is a
+	// property of the model's code.
+	perKernel, hasPerKernel := c.Entry("host_launch_eager_per_kernel")
+	perLayer, hasPerLayer := c.Entry("host_launch_eager_per_layer")
+	if hasPerKernel && (len(perKernel.Entry.Scope.Model) > 0 || !hasPerLayer ||
+		len(perLayer.Entry.Scope.Model) == 0) {
+		k.launchEager = time.Duration(c.ValueOr("host_launch_eager_per_kernel", 0) *
+			float64(time.Microsecond))
+	} else {
+		k.launchEager = time.Duration(k.optional(c, "host_launch_eager_per_layer", true,
+			hostWithout("eager launch cost")) * float64(time.Microsecond))
+	}
 	// Per-kernel dispatch, which dominates a single-request decode step. Charged at zero
 	// when the registry carries none, like the other host terms here -- which removes the
 	// term two published runs say is most of a small step's cost, so a registry that
