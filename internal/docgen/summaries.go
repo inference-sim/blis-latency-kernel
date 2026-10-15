@@ -29,6 +29,13 @@ var summaries = map[string]struct{ title, summary string }{
 			"Nemotron-H's relu2 experts, holds two, and blis-schemas has no field saying which an " +
 			"expert is, so such a model's expert weights and arithmetic are over-stated by half.",
 	},
+	"new.go|(*Kernel).computeFixedBytes|Coverage limit": {
+		"DeepSeek-V4.1 load-time memory under expert parallelism",
+		"vLLM holds about 9 GiB a rank more than the kernel charges for DeepSeek-V4.1-Flash " +
+			"with expert parallelism, the same at TP 8 and TP 4, so it is not sharded weights, " +
+			"which agree. Its source is not yet localized, and capacity under expert " +
+			"parallelism is overstated by that much a rank until it is.",
+	},
 	"new.go|(*Kernel).engineBufferBytes|Known over-charge": {
 		"DeepSeek-V4.1's prefill workspace beside the activation scratch",
 		"DeepSeek-V4.1's prefill gather workspace and its indexer's logits stand-in are charged " +
