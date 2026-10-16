@@ -174,3 +174,38 @@ func TestAllGatherDispatchMovesTheWholeGroupsTokens(t *testing.T) {
 			tokens, got, layers, 8*tokens, want)
 	}
 }
+
+// vLLM sizes DeepEP's low-latency RDMA buffer by max_num_batched_tokens and nothing else
+// (FusedMoEConfig.max_num_tokens, fused_moe/layer.py:272,359; all2all_utils.py:244-246), so
+// a DEP8 DeepSeek-V4.1 engine at 8,192 tokens asks for ~122 GiB per rank and fails at weight
+// loading. BLIS refuses it, names the cause, and accepts the same engine at 256.
+func TestALowLatencyBufferThatCannotBeAllocatedIsRefused(t *testing.T) {
+	in := fixtureInputs(t, v41)
+	pl := &in.Deployment.Pools[0].Parallel
+	pl.TP, pl.DP, pl.EnableExpertParallel = 1, 8, true
+	e := &in.Deployment.Pools[0].Engine
+	e.All2AllBackend, e.MaxNumBatchedTokens = "deepep_low_latency", 8192
+	_, err := New(in)
+	if err == nil || !strings.Contains(err.Error(), "DeepEP buffers") {
+		t.Fatalf("LL at max_num_batched_tokens 8192 built (err %v); vLLM fails allocating "+
+			"its buffer", err)
+	}
+	e.MaxNumBatchedTokens = 256
+	build(t, in)
+}
+
+// Unstated, max_num_batched_tokens is 256 under a batched data-parallel MoE
+// (arg_utils.py:3046-3051), and that is what sizes the LL buffer. A layout that runs no
+// dispatch -- a tp8 dp1 decode pool -- builds no DeepEP buffer at all.
+func TestTheLowLatencyBufferFollowsTheEnginesTokenBudget(t *testing.T) {
+	ll := dep8(t, "deepep_low_latency", "", 0, nil)
+	if want := int64(1024<<20) + lowLatencyRDMABytes(256, 5120, 8, 384); ll.FixedBytes().CommBuffers != want {
+		t.Errorf("unstated budget: LL holds %d B, want %d (256 tokens)",
+			ll.FixedBytes().CommBuffers, want)
+	}
+	in := fixtureInputs(t, v41)
+	in.Deployment.Pools[0].Engine.All2AllBackend = "deepep_low_latency"
+	if b := build(t, in).FixedBytes().CommBuffers; b != 0 {
+		t.Errorf("tp8 dp1 dispatches nothing yet holds %d B of DeepEP buffer", b)
+	}
+}

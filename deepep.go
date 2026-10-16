@@ -187,3 +187,28 @@ func max64(a, b int64) int64 {
 	}
 	return b
 }
+
+// refuseUnallocatableDeepEP refuses a deployment whose DeepEP buffers cannot be allocated
+// beside its weights. vLLM v0.31.0 allocates them while making the MoE kernels at weight
+// loading (process_weights_after_loading -> maybe_make_prepare_finalize ->
+// all2all_manager.get_handle), so a buffer larger than what the weights leave of the part
+// fails there, before any KV budget is computed. The low-latency RDMA buffer is sized by
+// max_num_batched_tokens, the only token bound vLLM passes it (FusedMoEConfig.max_num_tokens,
+// vllm/model_executor/layers/fused_moe/layer.py:272,359; all2all_utils.py:244-246): for
+// DeepSeek-V4.1 about 16 MB per token, so 8,192 tokens ask for 122 GiB per rank.
+func (k *Kernel) refuseUnallocatableDeepEP() error {
+	buf := k.fixed.CommBuffers
+	if buf <= 0 {
+		return nil
+	}
+	part := int64(k.chip.MemoryGiB * (1 << 30))
+	if need := k.fixed.Weights + buf + k.PreSnapshotBytes(); need > part {
+		return fmt.Errorf("%s at max_num_batched_tokens %d needs %.1f GiB of DeepEP buffers per "+
+			"rank beside %.1f GiB of weights, more than the part's %.0f GiB, so vLLM v0.31.0 "+
+			"fails allocating them at weight loading (all2all.py:288-327; DeepEP "+
+			"get_low_latency_rdma_size_hint); lower max_num_batched_tokens",
+			k.rules.EffectiveAll2AllBackend(k.pool.Engine.All2AllBackend), k.batchedTokens,
+			float64(buf)/(1<<30), float64(k.fixed.Weights)/(1<<30), k.chip.MemoryGiB)
+	}
+	return nil
+}

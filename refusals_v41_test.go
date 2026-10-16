@@ -184,6 +184,11 @@ func TestAnAll2AllBackendTakesEffectOnlyWhereTheEngineDispatches(t *testing.T) {
 		pl := &in.Deployment.Pools[0].Parallel
 		pl.TP, pl.DP, pl.EnableExpertParallel = tp, dp, true
 		in.Deployment.Pools[0].Engine.All2AllBackend = backend
+		if dp > 1 {
+			// LL's buffer is sized by the token budget; at the fixture's 8,192 it cannot be
+			// allocated (TestALowLatencyBufferThatCannotBeAllocatedIsRefused).
+			in.Deployment.Pools[0].Engine.MaxNumBatchedTokens = 256
+		}
 		return build(t, in)
 	}
 	batches := []kernel.Batch{decodeBatch(1, 6, 100000), decodeBatch(128, 6, 100000),
@@ -209,7 +214,7 @@ func TestAnAll2AllBackendTakesEffectOnlyWhereTheEngineDispatches(t *testing.T) {
 		}
 	}
 	ll, ag := layout(4, 2, "deepep_low_latency"), layout(4, 2, "allgather_reducescatter")
-	b := prefillOf(8192, 90000)
+	b := prefillOf(256, 90000)
 	if ll.StepTime(b).NoOverlap == ag.StepTime(b).NoOverlap {
 		t.Error("tp4 dp2: DeepEP and all-gather/reduce-scatter price the same dispatch")
 	}

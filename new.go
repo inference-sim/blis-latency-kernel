@@ -303,6 +303,9 @@ func New(in Inputs) (*Kernel, error) {
 	}
 	k.buildProvenance(coeffs)
 	k.fixed = k.computeFixedBytes(in.Model)
+	if err := k.refuseUnallocatableDeepEP(); err != nil {
+		return nil, err
+	}
 	return k, nil
 }
 
@@ -1093,7 +1096,7 @@ func (k *Kernel) lift(c *resolve.Coefficients, g *model.Graph, cacheBytes float6
 		e := k.pool.Engine
 		e.CUDAGraphMode = mode
 		if e.MaxNumBatchedTokens <= 0 {
-			e.MaxNumBatchedTokens = defaultMaxNumBatchedTokens(k.chip)
+			e.MaxNumBatchedTokens = k.defaultBatchedTokens()
 		}
 		capture, stated, err := k.rules.CUDAGraphCaptureSizes(e)
 		if err != nil {
@@ -1430,11 +1433,17 @@ func (k *Kernel) liftMemory(c *resolve.Coefficients, g *model.Graph) error {
 
 	k.batchedTokens = k.pool.Engine.MaxNumBatchedTokens
 	if k.batchedTokens <= 0 {
-		k.batchedTokens = defaultMaxNumBatchedTokens(k.chip)
-		k.assume("max_num_batched_tokens", strconv.Itoa(k.batchedTokens),
-			"vLLM v0.31.0's OpenAI-API-server default for this part's memory "+
-				"(EngineArgs.get_batch_defaults, vllm/engine/arg_utils.py:2858-2887); "+
-				"the offline LLM class defaults higher on every part below 160 GiB")
+		k.batchedTokens = k.defaultBatchedTokens()
+		why := "vLLM v0.31.0's OpenAI-API-server default for this part's memory " +
+			"(EngineArgs.get_batch_defaults, vllm/engine/arg_utils.py:2858-2887); " +
+			"the offline LLM class defaults higher on every part below 160 GiB"
+		if k.batchedDPMoE() {
+			why = "vLLM v0.31.0's default under a batched data-parallel MoE " +
+				"(DEFAULT_MAX_NUM_BATCHED_TOKENS_FOR_BATCHED_DP, vllm/config/scheduler.py:43; " +
+				"vllm/engine/arg_utils.py:3046-3051), which also sizes the DeepEP " +
+				"low-latency buffer"
+		}
+		k.assume("max_num_batched_tokens", strconv.Itoa(k.batchedTokens), why)
 	}
 	return nil
 }
@@ -1586,6 +1595,26 @@ func defaultMaxNumSeqs(chip hardware.Chip) int {
 		return 1024
 	}
 	return 256
+}
+
+// batchedDPMoE is ParallelConfig.use_batched_dp_moe (vllm/config/parallel.py:746-755 at
+// v0.31.0): a DeepEP low-latency or NIXL-EP dispatch with expert parallelism over dp > 1.
+func (k *Kernel) batchedDPMoE() bool {
+	switch k.rules.EffectiveAll2AllBackend(k.pool.Engine.All2AllBackend) {
+	case "deepep_low_latency", "nixl_ep":
+		return k.pool.Parallel.EnableExpertParallel && k.layout.DP > 1
+	}
+	return false
+}
+
+// defaultBatchedTokens is the token budget an unstated max_num_batched_tokens resolves to:
+// 256 under a batched data-parallel MoE (vllm/engine/arg_utils.py:3046-3051), the part's
+// API-server default otherwise.
+func (k *Kernel) defaultBatchedTokens() int {
+	if k.batchedDPMoE() {
+		return 256
+	}
+	return defaultMaxNumBatchedTokens(k.chip)
 }
 
 // defaultMaxNumBatchedTokens is vLLM v0.31.0's default token budget for a part, in the
