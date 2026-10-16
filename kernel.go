@@ -146,6 +146,10 @@ type Kernel struct {
 	collectiveRates       map[collKey]float64
 	collectiveTransitions map[collKey]float64
 
+	// deepEP prices the MoE dispatch and combine where a measured DeepEP backend runs on
+	// one node; nil leaves the generic routed all-to-all.
+	deepEP *deepEPA2A
+
 	// Recurrent families' measured floor and rate, keyed by kind. A kind absent from the
 	// map has no measurement for this part and contributes nothing.
 	recurrent map[model.RecurrentKind]floorRate
@@ -539,6 +543,9 @@ func (k *Kernel) StepTimeInto(b kernel.Batch,
 // rate. Both are per operation: charging an all-to-all the all-reduce floor would
 // overstate it by 2.2x on H200, and the rates differ by a similar factor.
 func (k *Kernel) collectiveSeconds(key collKey, bytes float64) float64 {
+	if k.deepEP != nil && key.Op == model.OpAll2All && key.Group == price.GroupExpert {
+		return k.deepEP.seconds(bytes)
+	}
 	peak, ok := k.collectiveRates[key]
 	if !ok || peak <= 0 {
 		// Every op the plan can emit is resolved at construction, so this is
@@ -688,6 +695,30 @@ func (k *Kernel) spanFor(key collKey) float64 {
 		return price.All2AllSpan(group, perNode, ratio)
 	}
 	return price.RingSpan(group, perNode, ratio)
+}
+
+// denseDispatch reports whether this collective is the MoE dispatch and combine run as
+// allgather_reducescatter: the default backend, and what pplx and naive resolve to.
+func (k *Kernel) denseDispatch(key collKey) bool {
+	return key.Op == model.OpAll2All && key.Group == price.GroupExpert &&
+		k.layout.MoEDispatches() && !k.routedAll2All()
+}
+
+// agrsDispatchSeconds prices allgather_reducescatter's dispatch and combine for a rank
+// holding `bytes` of hidden state. AgRsAll2AllManager gathers EVERY DP rank's tokens to
+// every rank with all_gatherv and returns them with reduce_scatterv over the same group
+// (vllm/distributed/device_communicators/all2all.py:84-157 at v0.31.0), so each phase's
+// tensor is the whole group's tokens -- the DP funnel the expert GEMM already charges
+// (moeDPFunnel) -- not one rank's. Each phase is priced as the NCCL collective it is, on
+// the tensor's full size as the TP all-gather is.
+func (k *Kernel) agrsDispatchSeconds(bytes float64) float64 {
+	ag := collKey{Op: model.OpAllGather, Group: price.GroupExpert}
+	rs := collKey{Op: model.OpReduceScatter, Group: price.GroupExpert}
+	full := bytes * k.moeDPFunnel()
+	if k.crossesNodes(ag) {
+		full *= k.spanFor(ag)
+	}
+	return k.collectiveSeconds(ag, full) + k.collectiveSeconds(rs, full)
 }
 
 // routedAll2All reports whether the resolved MoE backend moves top-k-selected bytes point

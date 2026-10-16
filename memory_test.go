@@ -697,10 +697,16 @@ func TestADataParallelMoEWithoutExpertParallelismIsShared(t *testing.T) {
 		t.Errorf("at dp=1 inflating the all-to-all floors moved the step from %v to %v; a "+
 			"tensor-parallel MoE dispatches nothing", a, b)
 	}
-	if a, b := build(2, nil).StepTime(decode).NoOverlap,
-		build(2, inflate).StepTime(decode).NoOverlap; b <= a {
-		t.Errorf("at dp=2 inflating the all-to-all floors left the step at %v; the MoE's "+
-			"dispatch runs over the data-parallel ranks", b)
+	// At dp=2 the fallback dispatch is an all-gather and a reduce-scatter over the
+	// data-parallel ranks (AgRsAll2AllManager, all2all.py:84-157), so inflating the
+	// all-gather floors moves the step by more than the tensor-parallel all-gathers alone
+	// do at dp=1.
+	gather := func(in *Inputs) { in.Coefficients = scaleFloors(in.Coefficients, "all_gather", 10) }
+	d1 := build(1, gather).StepTime(decode).NoOverlap - build(1, nil).StepTime(decode).NoOverlap
+	d2 := build(2, gather).StepTime(decode).NoOverlap - build(2, nil).StepTime(decode).NoOverlap
+	if d2 <= d1 {
+		t.Errorf("inflating the all-gather floors moved the step %v at dp=2 and %v at dp=1; "+
+			"the MoE's dispatch gathers over the data-parallel ranks", d2, d1)
 	}
 
 	named := build(2, func(in *Inputs) {
