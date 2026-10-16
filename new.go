@@ -957,6 +957,20 @@ func (k *Kernel) lift(c *resolve.Coefficients, g *model.Graph, cacheBytes float6
 	}
 	k.admissionPerToken = time.Duration(k.optional(c, "host_admission_per_token", true,
 		hostWithout("admission cost per token")) * float64(time.Microsecond))
+	// The frontend tokenizes every prompt before the engine admits it, and the Rust one
+	// (engine.frontend: rust, vLLM's VLLM_USE_RUST_FRONTEND=1; vllm/envs.py:169 and
+	// vllm/entrypoints/cli/serve.py:64 at v0.31.0) does it through fastokens at its own
+	// rate. A deployment on it takes that rate where the registry states one, and keeps
+	// the Python path's, recorded as an assumption, where it does not.
+	if k.pool.Engine.Frontend.Effective() == deployment.FrontendRust {
+		const rust = "host_admission_per_token_rust_frontend"
+		if c.Has(rust) {
+			k.admissionPerToken = time.Duration(c.ValueOr(rust, 0) * float64(time.Microsecond))
+		} else {
+			k.assume(rust, "absent", "not in the scenario's coefficient sets: the Rust "+
+				"frontend's admission is charged at the Python frontend's per-token rate")
+		}
+	}
 	k.admissionPerRequest = time.Duration(k.optional(c, "host_admission_per_request", true,
 		hostWithout("admission cost per request")) * float64(time.Microsecond))
 	k.outputTokenCost = time.Duration(k.optional(c, "host_output_token", true,
