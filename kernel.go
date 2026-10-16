@@ -146,6 +146,10 @@ type Kernel struct {
 	collectiveRates       map[collKey]float64
 	collectiveTransitions map[collKey]float64
 
+	// deepEP prices the MoE dispatch and combine where a measured DeepEP backend runs on
+	// one node; nil leaves the generic routed all-to-all.
+	deepEP *deepEPA2A
+
 	// Recurrent families' measured floor and rate, keyed by kind. A kind absent from the
 	// map has no measurement for this part and contributes nothing.
 	recurrent map[model.RecurrentKind]floorRate
@@ -539,6 +543,9 @@ func (k *Kernel) StepTimeInto(b kernel.Batch,
 // rate. Both are per operation: charging an all-to-all the all-reduce floor would
 // overstate it by 2.2x on H200, and the rates differ by a similar factor.
 func (k *Kernel) collectiveSeconds(key collKey, bytes float64) float64 {
+	if k.deepEP != nil && key.Op == model.OpAll2All && key.Group == price.GroupExpert {
+		return k.deepEP.seconds(bytes)
+	}
 	peak, ok := k.collectiveRates[key]
 	if !ok || peak <= 0 {
 		// Every op the plan can emit is resolved at construction, so this is

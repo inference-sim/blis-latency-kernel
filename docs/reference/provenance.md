@@ -33,6 +33,7 @@ reason. They are of two kinds.
 | `compute_rate_<kind>` | A GEMM's weights are in a format whose rate the catalog does not state: FP32 weights run at the TF32 rate, taken as half the dense BF16 peak. |
 | `compute_capability` | The catalog states no compute capability for the chip, so its generation is inferred from its native-format peaks and name where it decides kernel selection. |
 | `cudagraph_mode` | No CUDA graph mode is stated. vLLM's default, `FULL_AND_PIECEWISE`. |
+| `deepep_v2_mode` | The MoE dispatch runs DeepEP v2, whose path vLLM picks from `enforce_eager`, which a deployment cannot state: a resolved `cudagraph_mode` of `NONE` is read as it. Value `deepep_v2_eager` or `deepep_v2_graph`. |
 | `dcp_comm_backend` | Decode-context parallelism is on and no combine backend is stated: the stock `ag_rs`. Also when one is stated but the engine rules give no list to check it against. |
 | `engine_version` | The scenario declares a vLLM release other than the one whose behavior the kernel prices (v0.31.0). |
 | `engram_cpu_offload` | A graph states an Engram table and the deployment does not say where it lives: the release's `cpu_offload` default. |
@@ -48,6 +49,7 @@ reason. They are of two kinds.
 | `max_num_seqs` | No limit on concurrent requests is stated. vLLM's default for the chip's memory size. |
 | `modality` | The graph prices the text decoder of a multimodal model; its vision or audio tower is not priced. |
 | `mhc` | Only one of the mHC pre and post forms resolves, so neither is used. Value `fallback`. |
+| `moe_a2a_<kind>` | A DeepEP backend (`deepep_high_throughput`, `deepep_low_latency`, `deepep_v2_eager`, `deepep_v2_graph`) runs the MoE dispatch but has no measured price for the part and expert width, or the expert group spans nodes, so it is priced as the generic routed all-to-all. |
 | `mhc_<kind>` | An mHC component's rate (`pre` or `post`) is in the scenario's sets without its floor, so the measured mHC form is not used. Value `fallback`. |
 | `mla_context_chunk` | Decode-context parallelism is on for a latent-attention model and no context length is stated, so the chunk in which a prefill gathers its cached context is taken at its largest. |
 | `num_spec_tokens` | The deployment drafts a different number of tokens a step from the graph's speculator, so what the graph sizes at its own count is taken as stated. |

@@ -1348,6 +1348,7 @@ func (k *Kernel) lift(c *resolve.Coefficients, g *model.Graph, cacheBytes float6
 	if err := k.liftStepTerms(c, g); err != nil {
 		return err
 	}
+	k.liftDeepEP(c)
 	return k.liftMemory(c, g)
 }
 
@@ -2316,10 +2317,11 @@ func (k *Kernel) computeFixedBytes(g *model.Graph) kernel.MemoryBreakdown {
 		ActivationPeak: int64(act),
 		CUDAGraph:      k.captureBytes,
 		EPLBRedundant:  int64(eplb),
-		// The collective-buffer reservation and the engine workspace are not here: vLLM
+		// The NCCL communicator reservation and the engine workspace are not here: vLLM
 		// holds them before the memory snapshot its budget is measured from, so they are
-		// outside gpu_memory_utilization (PreSnapshotBytes).
-		CommBuffers: 0,
+		// outside gpu_memory_utilization (PreSnapshotBytes). DeepEP's buffers are made
+		// after it, so they are (deepEPBufferBytes).
+		CommBuffers: k.deepEPBufferBytes(g),
 	}
 }
 
