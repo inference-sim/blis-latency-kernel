@@ -1348,3 +1348,36 @@ func TestTheDrafterCeilingIsTheLargestRoundedSize(t *testing.T) {
 		}
 	}
 }
+
+// THE PUBLISHED V4.1 CAPTURE FORM REPRODUCES THE START-UPS IT WAS FITTED TO. blis-registry
+// c5e24a7 fits floor, per-mixed-token and per-decode-token to five InferenceX H200 TP8
+// start-ups (K 5, max_num_seqs 1024, mnbt 8192); vLLM logged "CUDA graph pool memory: ...
+// E GiB (estimated)" per rank at each capture ceiling. At the published values this kernel's
+// form must give each E within 0.15 GiB, and with max_num_seqs cut to 8 at the 512 ceiling
+// (C_decode 48) it must charge less: the decode family follows max_num_seqs, as vLLM's
+// estimate does (_init_candidates, vllm/v1/worker/gpu/cudagraph_utils.py:313-327).
+func TestThePublishedV41CaptureFormReproducesItsStartUps(t *testing.T) {
+	published := []coefficient.Entry{}
+	for name, v := range map[string]float64{
+		"cudagraph_capture_floor_bytes_full_and_piecewise":            849150826,
+		"cudagraph_capture_bytes_per_mixed_token_full_and_piecewise":  9972071,
+		"cudagraph_capture_bytes_per_decode_token_full_and_piecewise": 6772854,
+	} {
+		published = append(published, coefficient.Entry{Name: name, Value: v,
+			Units: "bytes_per_rank", Method: "measured", Fitted: true, Rationale: "test",
+			Scope: coefficient.Scope{Hardware: []string{"h200"},
+				Model: []string{"deepseek-v4.1-flash"}}})
+	}
+	logged := map[int]float64{64: 1.69, 128: 2.71, 256: 4.90, 512: 8.61, 1024: 16.67}
+	for capture, want := range logged {
+		got := float64(v41Engine(t, published, 1024, 8192, capture).FixedBytes().CUDAGraph) /
+			(1 << 30)
+		if math.Abs(got-want) > 0.15 {
+			t.Errorf("capture %d: %.2f GiB, vLLM estimated %.2f", capture, got, want)
+		}
+	}
+	few := v41Engine(t, published, 8, 8192, 512).FixedBytes().CUDAGraph
+	if want := int64(849150826 + 9972071*512 + 6772854*48); few != want {
+		t.Errorf("max_num_seqs 8, capture 512: %d B, want %d (decode ceiling 48)", few, want)
+	}
+}
