@@ -9,6 +9,7 @@ import (
 
 	"github.com/inference-sim/blis-schemas/kernel"
 	"github.com/inference-sim/blis-schemas/spec/coefficient"
+	"github.com/inference-sim/blis-schemas/spec/deployment"
 
 	"github.com/inference-sim/blis-latency-kernel/internal/price"
 )
@@ -328,6 +329,45 @@ func TestTheContractsAdmissionEntriesResolve(t *testing.T) {
 	if got, want := k.AdmissionOverhead(90000),
 		time.Duration(2.67*90000*float64(time.Microsecond)); got != want {
 		t.Errorf("admission of a 90,000-token prompt %v, want %v", got, want)
+	}
+}
+
+// THE FRONTEND SETS THE ADMISSION RATE. A pool on vLLM's Rust frontend (engine.frontend:
+// rust) tokenizes through fastokens, so it takes the registry's Rust rate; the default
+// Python frontend keeps the Python one; and a Rust pool with no Rust rate keeps the Python
+// one and says so in Provenance.
+func TestTheFrontendChoosesTheAdmissionRate(t *testing.T) {
+	rust := coefficient.Entry{Name: "host_admission_per_token_rust_frontend", Value: 0.267,
+		Units: "us_per_token", Method: "assumed", Rationale: "test",
+		Scope: coefficient.Scope{Hardware: []string{"h200"}}}
+	admit := func(frontend deployment.Frontend, extra ...coefficient.Entry) (*Kernel, time.Duration) {
+		t.Helper()
+		in := fixtureInputs(t, v41)
+		in.Deployment.Pools[0].Engine.Frontend = frontend
+		entries := append(contractEntries("host"), extra...)
+		in.Coefficients = append(append([]*coefficient.Set{}, in.Coefficients...),
+			&coefficient.Set{Kind: "CoefficientSet", Name: "test-v41", Coefficients: entries})
+		k := build(t, in)
+		return k, k.AdmissionOverhead(90000)
+	}
+	us := func(v float64) time.Duration { return time.Duration(v * 90000 * float64(time.Microsecond)) }
+	if _, got := admit("", rust); got != us(2.67) {
+		t.Errorf("python frontend: admission %v, want the Python rate's %v", got, us(2.67))
+	}
+	if _, got := admit(deployment.FrontendRust, rust); got != us(0.267) {
+		t.Errorf("rust frontend: admission %v, want the Rust rate's %v", got, us(0.267))
+	}
+	k, got := admit(deployment.FrontendRust)
+	if got != us(2.67) {
+		t.Errorf("rust frontend, no Rust rate: admission %v, want the Python rate's %v", got,
+			us(2.67))
+	}
+	recorded := false
+	for _, o := range k.Provenance() {
+		recorded = recorded || (o.Name == rust.Name && o.Set == KernelAssumptionSet)
+	}
+	if !recorded {
+		t.Error("a Rust pool priced at the Python rate is not recorded as an assumption")
 	}
 }
 
