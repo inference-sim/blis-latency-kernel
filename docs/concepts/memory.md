@@ -33,8 +33,33 @@ Activations
     16-bit even when the weights are served in fp8 or fp4, because quantized matrix
     multiplies return their results at the input's width.
 
+    The engine's profile run also samples once from dummy logits, one row per request,
+    up to `max_num_seqs`. The peak is the larger of that pass and the forward. The pass
+    holds the logits in the model dtype and an fp32 copy, over the whole vocabulary.
+
+    A model whose own code allocates buffers at the token budget adds them here, because
+    the registry's buffer count is generic and knows no model's buffers. vLLM's memory
+    profiler counts everything allocated before the KV cache, so these buffers take room
+    from the KV cache. DeepSeek-V4.1's profile run reserves the prefill gather workspaces at
+    the context bound, and the engine keeps one per lane at the larger request: the
+    attention's (4 × (`max_model_len` / compress ratio + window + token budget) × 512 BF16
+    values, plus the top-k indices) or the indexer's (40 × `max_model_len` / compress ratio
+    entries of 132 bytes), with DSpark's own in a second lane. The indexer also stands in
+    512 MiB for its logits. Beside those sit the indexers' top-k buffer (one more for
+    DSpark), the candidate-block buffer and, while speculating, DSpark's hidden-state buffer
+    of token budget × 4 × hidden size. Model init also builds two rotary caches, plain and
+    YaRN, over the model's whole 1M-position window, 256 MiB each whatever the context
+    bound. At a 1M-token context and a 32,768-token budget all of these come to 7.9 GiB a
+    rank, against 2.1 GiB at 131,072 and 8,192.
+
 CUDA graphs
-:   The memory a captured graph holds, for the capture mode the deployment runs in.
+:   The memory a captured graph holds, for the capture mode the deployment runs in. vLLM
+    subtracts its own estimate of it from the KV budget. That estimate grows with the
+    largest graph in each family: the capture ceiling for the mixed graphs, and for the
+    uniform-decode graphs the largest size that `max_num_seqs` requests of 1 + K tokens
+    fill. Where the registry states a floor and a per-token cost for each family, the
+    kernel charges floor + cost × ceiling for each one. Otherwise it charges the mode's
+    flat figure.
 
 EPLB replicas
 :   The redundant copies of popular experts that expert-parallel load balancing (EPLB)
@@ -42,8 +67,12 @@ EPLB replicas
     than added to it, so the total counts them once. Zero when it is off.
 
 Communication buffers
-:   What the collective library reserves for the communicator, plus the engine's own
-    workspace.
+:   Zero. The collective library's communicator reservation and the engine's own workspace
+    (CUDA context, cuBLAS, allocator slack) are reported by `PreSnapshotBytes` instead,
+    outside the total. vLLM starts the device and the collective library before it measures
+    the memory its `gpu_memory_utilization` budget is drawn from, so they take room beyond
+    that budget, not from the KV cache. A deployment starts only if the budget plus
+    `PreSnapshotBytes` fits the part.
 
 The weights and the replicas are computed from the model graph. The other magnitudes come
 from the registry: the activation and CUDA graph figures from its `cost-model-memory` set,
@@ -60,9 +89,10 @@ deployment on [Pricing a step](step.md):
 weights       78.2 GiB
 activations    1.1 GiB
 CUDA graphs    0.8 GiB
-comm buffers   3.9 GiB
+comm buffers   0.0 GiB
 EPLB           0.0 GiB
-total         84.0 GiB per rank
+total         80.1 GiB per rank
+before the budget  3.9 GiB
 a 4,096-token request: 137 MiB of KV cache per rank
 ```
 
@@ -112,6 +142,15 @@ every other layer keeps the formula above, so a graph opts in node by node.
 - **A window cache is a bounded ring.** It is counted in `SequenceFixedBytes`, at the pages
   a request holds in steady decode: the window less one, plus the tokens one decode step has
   in flight (one, plus the speculative tokens), rounded up to pages, plus one page.
+- **Every cache is drawn from one shared pool.** vLLM groups the layers' caches into KV cache
+  groups and gives every group's block the size of the widest group's, so a group of
+  narrower pages wastes the rest of each block. The kernel groups the stated caches as the
+  release does, through the rules pack, and sizes a request in whole pool blocks in every
+  group. DeepSeek-V4.1-Flash on H200 has a 116,928-byte block: its compressed and index
+  caches fill it, and its 43 window rings share eight groups of at most six, so a request
+  holds 49 blocks in steady decode, 5.73 MB, where its caches' own pages sum to 5.00 MB. A
+  rules pack that cannot group a graph's caches leaves each at its own page, and says so in
+  `Provenance`.
 - **The record follows the chip and the cache data type.** The graph is resolved for the
   chip's GPU generation before it is sized, and a record is looked up under the cache data
   type the attention backend actually runs: DeepSeek-V4.1 serves `fp8` as `fp8_ds_mla` on
@@ -124,8 +163,9 @@ every other layer keeps the formula above, so a graph opts in node by node.
 
 `SequenceFixedBytes` holds the state that does not grow with the context: the window rings and
 fixed state caches a graph states (above), and the per-request state of recurrent layers
-(Mamba-2, gated delta networks, Kimi delta attention). How much recurrent state a request holds
-depends on the engine's recurrent cache mode:
+(Mamba-2, gated delta networks, Kimi delta attention). Each rank holds its tensor-parallel
+share of that state, as it holds its share of the heads. How much recurrent state a request
+holds depends on the engine's recurrent cache mode:
 
 | Mode | State a request holds | Counted in |
 |---|---|---|
@@ -135,6 +175,16 @@ depends on the engine's recurrent cache mode:
 
 vLLM uses `align` whenever prefix caching is on. For a model with no recurrent layers and no
 stated bounded caches, `SequenceFixedBytes` is zero.
+
+`SequenceAdmissionBytes` is the same state at what the engine reserves when it admits a
+request rather than what the request holds in steady decode. vLLM caps a request's window
+ring at the window less one, plus the tokens every step in flight can schedule (two steps of
+`max_num_batched_tokens` under asynchronous scheduling), plus one page, and sizes its
+reported KV capacity with that cap. On DeepSeek-V4.1-Flash at 8,192 batched tokens that is
+517 pages in each window group against the six of steady decode, 484 MB a request, so it
+moves with the token budget. The engine's own "GPU KV cache size" is the pool's blocks over a
+request's blocks at `max_model_len` (this plus `SequenceVariableBytes(max_model_len)`), times
+`max_model_len`.
 
 ## In the source
 

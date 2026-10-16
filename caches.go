@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 
+	"github.com/inference-sim/blis-schemas/rules"
 	"github.com/inference-sim/blis-schemas/spec/model"
 
 	"github.com/inference-sim/blis-latency-kernel/internal/price"
@@ -126,6 +127,94 @@ func (k *Kernel) checkCaches() error {
 				"manager; a KV connector that does not support it turns them into "+
 				"full-length caches (vllm/config/vllm.py), which the kernel cannot see")
 	}
+	return k.resolveKVPool()
+}
+
+// kvPool is the engine's shared KV block pool, as the stated caches are drawn from it.
+//
+// vLLM v0.31.0 draws every KV cache group from one pool whose block costs the widest group's
+// page bytes, every group's block alike ("Groups alias from byte 0",
+// get_kv_cache_config_from_groups, vllm/v1/core/kv_cache_utils.py:1768-1785;
+// _get_kv_cache_bytes_per_block, :1606-1632), and packs layers of mixed page sizes into
+// groups (_get_packed_kv_cache_groups, :2001-2120). A request holds whole blocks in each
+// group, and the sum over groups is what it draws from the pool
+// (get_max_concurrency_for_kv_cache_config, :1090-1122). Sizing each cache at its own page
+// understates every group narrower than the widest: DeepSeek-V4.1-Flash on H200 holds 49
+// blocks of 116,928 B in steady decode, 5.73 MB, where its caches' own pages sum to 5.00 MB.
+type kvPool struct {
+	bytesPerBlock float64
+	groups        []poolGroup
+}
+
+// poolGroup is one KV cache group: its layers' cache, as the engine sizes a request in it.
+// Every layer of a group is one uniform type, so one member's cache sizes the group.
+type poolGroup struct {
+	cache model.Cache
+	block int
+	draft bool
+}
+
+// resolveKVPool groups the stated caches through the rules pack (rules.Pack.KVCacheGroups,
+// blis-schemas#66), from the records and pages they are sized at here. Where the pack does
+// not model the grouping, the caches stay sized at their own pages, and that is recorded.
+func (k *Kernel) resolveKVPool() error {
+	var layers []rules.KVCacheLayer
+	term := map[string]int{}
+	for i, t := range k.caches {
+		if t.draft && !k.speculating {
+			continue
+		}
+		c := t.cache
+		c.BytesPerEntry, c.BytesByCacheDType, c.BlockSize = t.entryBytes, nil, t.block
+		for j := 0; j < t.count; j++ {
+			name := fmt.Sprintf("%d.%s.%d", i, c.Name, j)
+			layers = append(layers, rules.KVCacheLayer{Name: name, Cache: c})
+			term[name] = i
+		}
+	}
+	if len(layers) == 0 {
+		return nil
+	}
+	// No block-stride alignment: the one a V4.1 backend states is the indexer's under
+	// indexer_sparse_logits, off by default (vllm/config/attention.py:89;
+	// vllm/models/deepseek_v41/attention.py:1186-1191), and the deployment cannot state it.
+	// The deployment's K sizes a compressor ring as the engine does, max(8, the power of
+	// two above K + 1) rows (vllm/models/deepseek_v41/compressor.py:147-149), which the
+	// graph's fixed entry count states only for K below 7.
+	spec := k.numSpecTokens()
+	g, err := k.rules.KVCacheGroups(rules.KVCacheGroupsInput{
+		Layers: layers, EngineBlockSize: k.blockSize, CacheDType: k.cacheDType,
+		NumSpecTokens: &spec,
+	})
+	if err != nil {
+		k.assume("kv_cache_grouping", "per cache",
+			"the stated caches are sized at their own pages rather than in the engine's "+
+				"shared block pool, because the rules pack cannot group them: "+err.Error())
+		return nil
+	}
+	pool := &kvPool{bytesPerBlock: float64(g.BytesPerBlock)}
+	for _, gr := range g.Groups {
+		if len(gr.Layers) == 0 {
+			continue
+		}
+		t := k.caches[term[gr.Layers[0]]]
+		pool.groups = append(pool.groups, poolGroup{cache: t.cache, block: gr.BlockSize,
+			draft: t.draft})
+	}
+	// The pack pages each cache from the same record the kernel sizes it at, so the two must
+	// agree. A state cache is the exception: its ring's rows follow the deployment's K in
+	// the pack, and the pool charges it one block whatever its page.
+	for name, page := range g.PageBytes {
+		t := k.caches[term[name]]
+		if t.cache.Kind == model.CacheState {
+			continue
+		}
+		if want := t.pageBytes; float64(page) != want {
+			return fmt.Errorf("the rules pack pages the cache %q at %d B and the kernel at "+
+				"%.0f B", t.cache.Name, page, want)
+		}
+	}
+	k.kvPool = pool
 	return nil
 }
 
@@ -145,17 +234,26 @@ func (t cacheTerm) growing() bool {
 // cacheVariableBytes is what the context-growing caches hold for a sequence of tokens, after
 // decode-context parallelism's shard of the token count.
 func (k *Kernel) cacheVariableBytes(tokens int) float64 {
+	// An entry is not divided across tensor-parallel ranks, and decode-context parallelism
+	// gives each rank 1/dcp of the entries (blis-schemas model.Cache,
+	// vllm/v1/kv_cache_interface.py max_num_blocks_per_req).
+	local := tokens
+	if k.layout.DCP > 1 {
+		local = (tokens + k.layout.DCP - 1) / k.layout.DCP
+	}
+	if p := k.kvPool; p != nil && tokens > 0 {
+		var blocks int
+		for _, g := range p.groups {
+			if g.cache.Kind == model.CacheKV || g.cache.Kind == model.CacheIndex {
+				blocks += (local + g.block - 1) / g.block
+			}
+		}
+		return float64(blocks) * p.bytesPerBlock
+	}
 	var total float64
 	for _, t := range k.caches {
 		if !t.growing() || (t.draft && !k.speculating) {
 			continue
-		}
-		local := tokens
-		if k.layout.DCP > 1 {
-			// An entry is not divided across tensor-parallel ranks, and decode-context
-			// parallelism gives each rank 1/dcp of the entries (blis-schemas model.Cache,
-			// vllm/v1/kv_cache_interface.py max_num_blocks_per_req).
-			local = (tokens + k.layout.DCP - 1) / k.layout.DCP
 		}
 		total += float64(t.pages(local)) * t.pageBytes * float64(t.count)
 	}
@@ -172,9 +270,51 @@ func (k *Kernel) cacheVariableBytes(tokens int) float64 {
 // max_num_batched_tokens. The kernel takes a request's steady-state decode hold instead:
 // 1 + num_spec_tokens tokens in flight and no extra retention, through the rules pack's
 // WindowPagesPerRequest. So DSpark's five draft tokens make a 128-token ring of 32-token
-// pages six pages rather than five.
+// pages six pages rather than five. The admission cap is cacheAdmissionBytes, which
+// SequenceAdmissionBytes reports.
 func (k *Kernel) cacheFixedBytes() float64 {
-	inFlight := 1 + k.numSpecTokens()
+	return k.cacheBoundedBytes(1+k.numSpecTokens(), 0)
+}
+
+// cacheAdmissionBytes is what the bounded caches reserve for a request at the engine's
+// admission cap: each window ring at max_admission_blocks_per_request for the startup
+// sizing's max_in_flight_tokens and extra_retained_tokens (vllm/v1/kv_cache_interface.py:
+// 840-866), which the runtime admission gate clamps a request's reservation to
+// (vllm/v1/core/single_type_kv_cache_manager.py:216-229), and which the engine's own
+// capacity figure divides by (get_kv_cache_capacity, vllm/v1/core/kv_cache_utils.py:
+// 2444-2471).
+func (k *Kernel) cacheAdmissionBytes() float64 {
+	return k.cacheBoundedBytes(k.maxInFlightTokens(), k.extraRetainedTokens())
+}
+
+// cacheBoundedBytes is the bounded caches' bytes for a request with inFlight tokens in flight:
+// each window ring at the pages the rules pack gives it, and each state cache's entries --
+// one pool block a group where the caches are drawn from the shared pool, since a
+// circular-buffer group holds one block a request (CircularBufferSpec.max_memory_usage_bytes,
+// vllm/v1/kv_cache_interface.py:904-907).
+func (k *Kernel) cacheBoundedBytes(inFlight, extraRetained int) float64 {
+	return k.cacheBoundedBytesUpTo(inFlight, extraRetained, k.maxModelLen)
+}
+
+// cacheBoundedBytesUpTo is cacheBoundedBytes for a request whose window has seen only
+// tokens context tokens: WindowPagesPerRequest's own min() then caps each ring at those. A
+// negative count is a request that has seen none, whose rings hold no page.
+func (k *Kernel) cacheBoundedBytesUpTo(inFlight, extraRetained, tokens int) float64 {
+	if p := k.kvPool; p != nil {
+		var blocks int
+		for _, g := range p.groups {
+			switch g.cache.Kind {
+			case model.CacheWindow:
+				if tokens >= 0 {
+					blocks += k.rules.WindowPagesPerRequest(g.cache, k.blockSize, inFlight,
+						extraRetained, tokens)
+				}
+			case model.CacheState:
+				blocks++
+			}
+		}
+		return float64(blocks) * p.bytesPerBlock
+	}
 	var total float64
 	for _, t := range k.caches {
 		if t.draft && !k.speculating {
@@ -182,13 +322,51 @@ func (k *Kernel) cacheFixedBytes() float64 {
 		}
 		switch t.cache.Kind {
 		case model.CacheWindow:
-			p := k.rules.WindowPagesPerRequest(t.cache, k.blockSize, inFlight, 0, k.maxModelLen)
+			if tokens < 0 {
+				continue
+			}
+			p := k.rules.WindowPagesPerRequest(t.cache, k.blockSize, inFlight, extraRetained,
+				tokens)
 			total += float64(p) * t.pageBytes * float64(t.count)
 		case model.CacheState:
 			total += float64(t.cache.Entries*t.entryBytes) * float64(t.count)
 		}
 	}
 	return total
+}
+
+// maxInFlightTokens is vLLM's max_in_flight_tokens: max_concurrent_batches x
+// max_num_batched_tokens, the batches being pp + 1 under asynchronous scheduling on the model
+// runner V2 that CUDA defaults to, and pp without it (vllm/config/vllm.py:592-613).
+//
+// COVERAGE LIMIT: the V1 model runner holds pp batches under asynchronous scheduling with
+// pipeline parallelism, one fewer than this; the kernel cannot see which runner the engine
+// picks, and at pp 1 both hold two.
+func (k *Kernel) maxInFlightTokens() int {
+	batches := max(k.layout.PP, 1)
+	if a := k.pool.Engine.AsyncScheduling; a == nil || *a {
+		batches++
+	}
+	return batches * k.batchedTokens
+}
+
+// extraRetainedTokens is extra_retained_tokens, max(0, num_prefill_lookahead_tokens - 1)
+// (vllm/v1/core/kv_cache_utils.py:2738-2744): num_speculative_tokens - 1 for multi-module MTP,
+// zero for every other drafter, which reads one token ahead or none
+// (vllm/config/vllm.py:657-677; use_multi_module_mtp, vllm/config/speculative.py:1973-1979).
+func (k *Kernel) extraRetainedTokens() int {
+	s := k.pool.Engine.Speculative
+	if s == nil || s.Method != "mtp" || !k.speculating || k.plan.Draft == nil {
+		return 0
+	}
+	modules := 0
+	for _, l := range k.plan.Draft.Layers {
+		modules += l.Count
+	}
+	if min(modules, s.NumSpecTokens) > 1 {
+		return s.NumSpecTokens - 1
+	}
+	return 0
 }
 
 // cacheTransferBytes is what a P/D handoff moves of the stated caches for a sequence of

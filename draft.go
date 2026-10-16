@@ -128,6 +128,12 @@ func specMethod(m string) string {
 
 // priceDraft prices one step's draft work, adding each resource's time to per, and returns
 // the stage time and the kernels it launches.
+//
+// COVERAGE LIMIT: the draft passes run at the requests' own draft rows, without the
+// data-parallel lockstep pad (Batch.PadTokens). vLLM's drafters coordinate their own
+// padded count across the data-parallel group (coordinate_batch_across_dp, e.g.
+// vllm/v1/spec_decode/dflash.py:230-261 at v0.31.0), which depends on every rank's draft
+// batch, and a batch states only this rank's pad for the target's forward.
 func (k *Kernel) priceDraft(b kernel.Batch, s *stepShape,
 	perResource *[numResources]float64) (float64, int) {
 	d := k.plan.Draft
@@ -202,6 +208,58 @@ func (k *Kernel) priceDraft(b kernel.Batch, s *stepShape,
 		kernels += n * d.SequentialKernels
 	}
 	return overlap, kernels
+}
+
+// draftHasOwnGraphs is whether the drafter runs under its own CUDA graph manager rather than
+// inside the target's forward. A parallel-block drafter does: DSpark subclasses DFlash
+// (vllm/v1/worker/gpu/spec_decode/dspark/speculator.py:22-23, 40), whose speculator builds a
+// DFlashCudaGraphManager of its own (dflash/speculator.py:126-150; dflash/cudagraph.py:74)
+// and replays it apart from the target's step (:506-507).
+//
+// COVERAGE LIMIT: an autoregressive drafter (MTP, EAGLE) is charged under the target's
+// graph mode and ceiling, as before; its own capture under Model Runner V2 is not modelled.
+func (k *Kernel) draftHasOwnGraphs() bool {
+	return k.speculating && k.plan.Draft != nil &&
+		k.plan.Draft.Drafting == model.DraftingParallelBlock
+}
+
+// draftHost is the host cost of a parallel-block drafter's kernels launches in a step, under
+// the drafter's own graphs.
+//
+// Its manager captures FULL graphs only, FULL_DECODE_ONLY when the target's decode mode is
+// FULL and NONE otherwise -- "PIECEWISE cudagraphs are not supported for dflash"
+// (dflash/speculator.py:126-150) -- over the same capture sizes, each rounded to its own
+// uniform query width, num_query_per_req, which is num_speculative_tokens for DSpark's
+// anchor-as-first layout (dspark/speculator.py:51-55) and is the positions priceDraft runs.
+// So its ceiling is its own, the largest capture size rounded up to K that stays within the
+// capture ceiling and max_num_seqs (uniformCaptureTokens; _init_candidates,
+// cudagraph_utils.py:313-327): at K = 5 under a 64-token capture the target's 6-token
+// decode rows graph up to 10 requests and the drafter's 5-token rows up to 12, and under a
+// 512-token one up to 100, not 102, as 512 rounds to 515 and is dropped. Every request in the
+// batch is drafted (num_query_tokens = num_reqs x num_query_per_req, :363) and dispatched on
+// that count (:448-458); past every captured size it runs eagerly (_generate_draft, :509-517).
+//
+// A replay is one graph replay, which also covers the context rows of one verify per request
+// (_num_graph_context_tokens, :309-311); a step scheduling more target tokens than that --
+// any step with a prefill row -- stores the rest eagerly before the replay
+// (_precompute_context_kv, :480-482), so its context kernels are charged as eager launches.
+func (k *Kernel) draftHost(b kernel.Batch, kernels int) time.Duration {
+	n := k.numSpecTokens()
+	reqs := 0
+	for _, r := range b.Reqs {
+		if r.Computed+r.Scheduled > 0 {
+			reqs++
+		}
+	}
+	tokens := reqs * n
+	if k.graphDecode != graphModeFull || tokens == 0 || tokens > k.draftCaptureTokens {
+		return time.Duration(float64(k.launchEager) * float64(kernels))
+	}
+	host := k.replayPerStep
+	if b.Tokens() > reqs*(n+1) {
+		host += time.Duration(float64(k.launchEager) * float64(k.plan.Draft.ContextKernels))
+	}
+	return host
 }
 
 // liftStepTerms resolves the step terms construction can settle once: recurrent prefill
@@ -301,6 +359,8 @@ func (k *Kernel) liftStepTerms(c *resolve.Coefficients, g *model.Graph) error {
 			delete(k.attentionByRole, role)
 		}
 	}
+
+	k.liftPrefillForms(c, layers, g.Global.HiddenSize)
 
 	k.hostGatherBytesPerSecond = c.ValueOr("host_gather_rate_uva", 0) * 1e6
 	if k.hostGatherBytesPerSecond <= 0 {

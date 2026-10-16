@@ -1,14 +1,18 @@
 package latencykernel
 
 import (
+	"errors"
+	"math"
 	"math/rand"
 	"testing"
 
 	"github.com/inference-sim/blis-schemas/kernel"
+	"github.com/inference-sim/blis-schemas/rules"
 	"github.com/inference-sim/blis-schemas/spec/deployment"
 	"github.com/inference-sim/blis-schemas/spec/model"
 
 	"github.com/inference-sim/blis-latency-kernel/internal/price"
+	"github.com/inference-sim/blis-latency-kernel/internal/resolve"
 )
 
 // Per-layer caches, as a graph states them (blis-schemas model.Cache), checked through
@@ -370,5 +374,245 @@ func TestTheDefaultCacheRecordIsNotAnAssumption(t *testing.T) {
 		if recorded(build(t, in), "cache_record") {
 			t.Errorf("%s: the default cache dtype's record was recorded as an assumption", chip)
 		}
+	}
+}
+
+// vLLM's block for DeepSeek-V4.1-Flash on SM90 at block 64 under fp8_ds_mla: the full-attention
+// group's pages, 3 x 19,008 + 37,440 + 3 x 4,608 + 8,640 B, which every group's block costs
+// (_get_kv_cache_bytes_per_block, vllm/v1/core/kv_cache_utils.py:1606-1632). It is the figure
+// vLLM's own functions return for the same layers in blis-schemas' golden vectors
+// (rules/testdata/kvgroups), where the 43 window layers fall into 8 groups of at most six.
+const v41PoolBlock = 116928
+
+// The stated caches are sized in whole blocks of the engine's shared pool, group by group: a
+// sequence grows one block per 64 tokens of context, and holds in steady decode six pages in
+// each of the eight window groups and one in the compressor-ring group, 49 blocks
+// (inference-sim/blis-latency-kernel#46). At admission each window group holds its cap,
+// cdiv(127 + 2 x 8,192, 32) + 1 = 517 pages, the two batches asynchronous scheduling keeps in
+// flight (vllm/config/vllm.py:592-613; vllm/v1/kv_cache_interface.py:840-866).
+func TestStatedCachesAreSizedInWholePoolBlocks(t *testing.T) {
+	k := build(t, fixtureInputs(t, v41))
+	if got := k.SequenceVariableBytes(64); got != v41PoolBlock {
+		t.Errorf("64 tokens hold %d B, want one pool block of %d", got, v41PoolBlock)
+	}
+	if got := k.SequenceVariableBytes(131072); got != 2048*v41PoolBlock {
+		t.Errorf("131,072 tokens hold %d B, want 2,048 pool blocks", got)
+	}
+	if got := k.SequenceFixedBytes(); got != (8*6+1)*v41PoolBlock {
+		t.Errorf("steady decode holds %d B a sequence, want 49 pool blocks, %d", got,
+			(8*6+1)*v41PoolBlock)
+	}
+	if got := k.SequenceAdmissionBytes(); got != (8*517+1)*v41PoolBlock {
+		t.Errorf("admission reserves %d B a sequence, want 4,137 pool blocks, %d", got,
+			(8*517+1)*v41PoolBlock)
+	}
+}
+
+// engineCapacity is vLLM's "GPU KV cache size" for a kernel's figures, from a KV pool of
+// gib GiB: the pool's blocks over a request's blocks at max_model_len, times max_model_len
+// (get_kv_cache_capacity, vllm/v1/core/kv_cache_utils.py:2444-2471;
+// get_max_concurrency_for_kv_cache_config, :1090-1122), with the slack a log's two-decimal
+// GiB leaves in it.
+func engineCapacity(k *Kernel, gib float64, maxModelLen int) (tokens, slack float64) {
+	block := k.SequenceVariableBytes(k.blockSize)
+	pool := int64(gib*(1<<30)) / block
+	perRequest := (k.SequenceAdmissionBytes() + k.SequenceVariableBytes(maxModelLen)) / block
+	tokens = float64(pool) / float64(perRequest) * float64(maxModelLen)
+	return tokens, tokens * 0.005 * (1 << 30) / float64(block) / float64(pool)
+}
+
+// GOLDEN, from the engine's own log, H200. An internal DSV4.1 H200 deployment on
+// 8x H200 under vLLM v0.31.0 (our calibration runs: TP 8 with --enable-expert-parallel,
+// DSpark K=5, --max-model-len 1048576, --max-num-batched-tokens 8192, --block-size 64,
+// max_cudagraph_capture_size 64) reported 61.18 GiB of KV cache and 28,706,997 tokens
+// (vllm:cache_config_info of our calibration runs,
+// and inference-sim/blis-latency-kernel#46). From the same 61.18 GiB the kernel's figures give
+// the same count, to the rounding of the logged GiB; sized at the steady decode hold they
+// would give 25% more.
+func TestKVCapacityIsTheEnginesOwnFigureOnH200(t *testing.T) {
+	in := fixtureInputs(t, v41)
+	in.Deployment.Pools[0].Parallel.EnableExpertParallel = true
+	e := &in.Deployment.Pools[0].Engine
+	capture := 64
+	e.MaxModelLen, e.BlockSize, e.MaxCUDAGraphCaptureSize = 1<<20, 64, &capture
+	tokens, slack := engineCapacity(build(t, in), 61.18, 1<<20)
+	if d := tokens - 28706997; d > slack || d < -slack {
+		t.Errorf("the kernel sizes %.0f tokens in vLLM's 61.18 GiB, against its logged "+
+			"28,706,997 (slack %.0f)", tokens, slack)
+	}
+}
+
+// GOLDEN, the five arms of our calibration runs' H200 sizing table under vLLM v0.31.0
+// (from vLLM boot logs and vllm:cache_config_info; the baseline is the deployment
+// above). Each arm's capacity follows from its own logged KV pool: without DSpark its 40 window rings fill seven groups,
+// not eight; at TP 4 a request's caches are the same, since a latent cache is not divided
+// across tensor parallelism. The weights move between TP 8 and TP 4 as the kernel's sharded
+// weights do, to 0.3%: 81.49 - 45.81 = 35.68 GiB measured. The weights themselves are not
+// asserted: vLLM holds about 9 GiB more than the kernel at both widths, a term that does
+// not scale with TP and that the kernel does not yet account for (see computeFixedBytes).
+func TestInternalH200ArmsAreTheEnginesFigures(t *testing.T) {
+	type arm struct {
+		name       string
+		tp         int
+		dspark     bool
+		kvGiB      float64
+		tokens     float64
+		weightsGiB float64
+	}
+	arms := []arm{
+		{"TP8-baseline", 8, true, 61.18, 28706997, 45.81},
+		{"TP8-no-DSpark", 8, false, 65.17, 31367749, 42.64},
+		{"TP8-no-KV-offload", 8, true, 61.26, 28743634, 45.73},
+		{"TP8-no-Engram", 8, true, 61.18, 28706997, 45.81},
+		{"TP4-baseline", 4, true, 25.35, 11893655, 81.49},
+	}
+	weights := map[string]float64{}
+	for _, a := range arms {
+		in := fixtureInputs(t, v41)
+		pl := &in.Deployment.Pools[0].Parallel
+		pl.TP, pl.EnableExpertParallel = a.tp, true
+		e := &in.Deployment.Pools[0].Engine
+		capture := 64
+		e.MaxModelLen, e.BlockSize, e.MaxCUDAGraphCaptureSize = 1<<20, 64, &capture
+		if !a.dspark {
+			e.Speculative = nil
+		}
+		k := build(t, in)
+		tokens, slack := engineCapacity(k, a.kvGiB, 1<<20)
+		if d := tokens - a.tokens; d > slack || d < -slack {
+			t.Errorf("%s: the kernel sizes %.0f tokens in vLLM's %.2f GiB, against its "+
+				"logged %.0f (slack %.0f)", a.name, tokens, a.kvGiB, a.tokens, slack)
+		}
+		weights[a.name] = float64(k.FixedBytes().Weights) / (1 << 30)
+	}
+	measured := arms[4].weightsGiB - arms[0].weightsGiB
+	if got := weights["TP4-baseline"] - weights["TP8-baseline"]; math.Abs(got-measured) > 0.003*measured {
+		t.Errorf("TP 8 to TP 4 adds %.2f GiB of weights a rank, against vLLM's %.2f", got,
+			measured)
+	}
+}
+
+// GOLDEN, from the engine's own log, H100. InferenceX's DeepSeek-V4.1-Flash AgentX recipe on
+// 8x H100 (benchmarks/single_node/srt-slurm-recipes/dsv41flash/vllm/h100-fp4-mtp/agentic.yaml,
+// override_tp8_c1: TP 8 without expert parallelism, DSpark K=5, --max-model-len 1048576,
+// --max-num-batched-tokens 4096, --max-num-seqs 2, max-cudagraph-capture-size 16,
+// --gpu-memory-utilization 0.92, the V2 model runner) logged at concurrency 1 "13.47 GiB KV
+// per GPU, 7,022,899 tokens, 6.70x maximum concurrency at 1M tokens per request"
+// (perf-changelog.yaml, InferenceX PR 2974). Its image is a vLLM nightly
+// (nightly-cd10ed6f), whose pool sizing this checks against v0.31.0's: 8 window groups at
+// cdiv(127 + 2 x 4,096, 32) + 1 = 261 pages a request.
+func TestKVCapacityIsTheEnginesOwnFigureOnH100(t *testing.T) {
+	in := fixtureInputs(t, v41)
+	in.Chip, in.Scenario.Cluster.Hardware = chipInputs(t, "h100"), "h100"
+	e := &in.Deployment.Pools[0].Engine
+	capture := 16
+	e.MaxModelLen, e.MaxNumBatchedTokens, e.MaxNumSeqs = 1<<20, 4096, 2
+	e.GPUMemoryUtilization, e.MaxCUDAGraphCaptureSize = 0.92, &capture
+	tokens, slack := engineCapacity(build(t, in), 13.47, 1<<20)
+	if d := tokens - 7022899; d > slack || d < -slack {
+		t.Errorf("the kernel sizes %.0f tokens in vLLM's 13.47 GiB, against its logged "+
+			"7,022,899 (slack %.0f)", tokens, slack)
+	}
+}
+
+// PROPERTIES of the admission reservation: never below the steady decode hold, growing
+// with the token budget, and the same as it for a model with no window cache.
+func TestAdmissionReservationProperties(t *testing.T) {
+	prev := int64(0)
+	for _, mnbt := range []int{2048, 8192, 16384, 32768} {
+		in := fixtureInputs(t, v41)
+		in.Deployment.Pools[0].Engine.MaxNumBatchedTokens = mnbt
+		k := build(t, in)
+		adm := k.SequenceAdmissionBytes()
+		if adm < k.SequenceFixedBytes() {
+			t.Errorf("mnbt %d: admission %d B below the steady hold %d", mnbt, adm,
+				k.SequenceFixedBytes())
+		}
+		if adm <= prev {
+			t.Errorf("mnbt %d: admission %d B, not above a smaller budget's %d", mnbt, adm, prev)
+		}
+		prev = adm
+	}
+	v3 := fixture(t, memoryFixture)
+	if v3.SequenceAdmissionBytes() != v3.SequenceFixedBytes() {
+		t.Errorf("deepseek-v3 states no window cache, yet admits at %d B against %d",
+			v3.SequenceAdmissionBytes(), v3.SequenceFixedBytes())
+	}
+}
+
+// ungroupedRules is a rules pack that cannot group stated caches.
+type ungroupedRules struct{ resolve.EngineRules }
+
+func (ungroupedRules) KVCacheGroups(rules.KVCacheGroupsInput) (rules.KVCacheGrouping, error) {
+	return rules.KVCacheGrouping{}, errors.New("not transcribed")
+}
+
+// Where the rules pack cannot group the stated caches, each is sized at its own page, and
+// that is recorded rather than silent.
+func TestAnUngroupedPoolIsRecorded(t *testing.T) {
+	in := fixtureInputs(t, v41)
+	in.Rules = ungroupedRules{in.Rules}
+	k := build(t, in)
+	if !recorded(k, "kv_cache_grouping") {
+		t.Error("the caches were sized per cache with nothing in Provenance saying so")
+	}
+	if pooled := build(t, fixtureInputs(t, v41)); k.SequenceFixedBytes() >= pooled.SequenceFixedBytes() {
+		t.Errorf("per-cache pages hold %d B a sequence, not less than the pool's %d",
+			k.SequenceFixedBytes(), pooled.SequenceFixedBytes())
+	}
+}
+
+// THE BOUNDED HOLD AS A FUNCTION OF WHAT IS IN FLIGHT. SequenceBoundedBytes(1 + K) is the
+// steady decode hold and SequenceBoundedBytes(max_in_flight_tokens) the admission cap; the
+// hold never falls as tokens in flight or tokens computed grow; and once a request has
+// computed a window's worth, what it has computed no longer matters, as vLLM frees every
+// block wholly behind the window (SlidingWindowManager.get_num_skipped_tokens and
+// remove_skipped_blocks, vllm/v1/core/single_type_kv_cache_manager.py:687-725, 1153-1175 at
+// v0.31.0). A request that has seen nothing holds only its compressor rings.
+func TestSequenceBoundedBytesProperties(t *testing.T) {
+	k := build(t, fixtureInputs(t, v41))
+	if got, want := k.SequenceBoundedBytes(6), k.SequenceFixedBytes(); got != want {
+		t.Errorf("SequenceBoundedBytes(1 + K) = %d, want SequenceFixedBytes %d", got, want)
+	}
+	if got, want := k.SequenceBoundedBytes(2*8192), k.SequenceAdmissionBytes(); got != want {
+		t.Errorf("SequenceBoundedBytes(max_in_flight_tokens) = %d, want "+
+			"SequenceAdmissionBytes %d", got, want)
+	}
+	// A ring crosses a page edge where window - 1 + in flight passes a multiple of 32:
+	// 33 in flight page 160 tokens in 5 pages + 1, 34 page 161 in 6 + 1, one more block in
+	// each of the eight window groups.
+	if d := k.SequenceBoundedBytes(34) - k.SequenceBoundedBytes(33); d != 8*v41PoolBlock {
+		t.Errorf("the 34th token in flight adds %d B, want one block in each of 8 window "+
+			"groups, %d", d, 8*v41PoolBlock)
+	}
+	const window = 128
+	prevFlight := int64(-1)
+	for _, f := range []int{0, 1, 6, 31, 32, 33, 512, 8192, 16384, 65536} {
+		b := k.SequenceBoundedBytes(f)
+		if b < prevFlight {
+			t.Errorf("%d tokens in flight hold %d B, below fewer tokens' %d", f, b, prevFlight)
+		}
+		prevFlight = b
+		prevComputed := int64(-1)
+		for _, c := range []int{0, 1, 31, 64, 127, 128, 129, 1000, 100000} {
+			at := k.SequenceBoundedBytesAt(c, f)
+			if at < prevComputed {
+				t.Errorf("(%d computed, %d in flight) holds %d B, below fewer computed's %d",
+					c, f, at, prevComputed)
+			}
+			prevComputed = at
+			if c >= window && at != b {
+				t.Errorf("(%d computed, %d in flight) holds %d B; past the window it must be "+
+					"SequenceBoundedBytes(%d) = %d", c, f, at, f, b)
+			}
+			if at > b {
+				t.Errorf("(%d computed, %d in flight) holds %d B, above the window's cap %d",
+					c, f, at, b)
+			}
+		}
+	}
+	if got, want := k.SequenceBoundedBytesAt(0, 0), int64(v41PoolBlock); got != want {
+		t.Errorf("a request that has seen nothing holds %d B, want its ring group's one "+
+			"block, %d", got, want)
 	}
 }

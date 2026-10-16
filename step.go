@@ -13,9 +13,12 @@ import (
 // once per step and priced against the target's layers and, when the deployment
 // speculates, against the drafter's.
 type stepShape struct {
-	// tokens is the token count this rank runs a forward over, raw the batch's own.
-	tokens, raw int
-	tokensF     float64
+	// tokens is the token count this rank runs a forward over, raw the batch's own
+	// requests' tokens. tokens includes the data-parallel lockstep pad (Batch.PadTokens),
+	// which runs every layer's GEMMs, collectives and experts; attnTokensF is tokens
+	// without it, the rows attention runs.
+	tokens, raw          int
+	tokensF, attnTokensF float64
 	// spRows is the rows a token-sharded node sees under the model's own sequence
 	// parallelism: ceil(tokens / tp), since sp_shard pads the count to a multiple of tp.
 	spRows float64
@@ -201,6 +204,15 @@ func (k *Kernel) shapeOf(b kernel.Batch) stepShape {
 	// ramp's own call site, that it is evaluated at the step's token count rather than a
 	// per-term one, still holds: what changed is how many tokens the step HAS.
 	tokens -= withheldByPCP
+	attnTokensF := float64(tokens)
+	// The data-parallel lockstep pad. vLLM runs every rank's forward at the group's
+	// largest token count (_post_process_dp_padding, vllm/v1/worker/dp_utils.py:99-111),
+	// passed to the forward as num_tokens (vllm/v1/worker/gpu_model_runner.py:4407-4413),
+	// so the pad runs the GEMMs, the MoE dispatch and combine and the experts. Attention
+	// runs only the scheduled requests' tokens, and the LM head, the vocabulary all-gather
+	// and sampling only their logits rows (logits_indices, :2231), so the pad enters no
+	// term that walks the requests and no logits row.
+	tokens += max(b.PadTokens, 0)
 
 	smBudget := b.SMBudget
 	if smBudget <= 0 || k.chip.SMCount == 0 {
@@ -214,7 +226,7 @@ func (k *Kernel) shapeOf(b kernel.Batch) stepShape {
 
 	tokensF := float64(tokens)
 	return stepShape{
-		tokens: tokens, raw: b.Tokens(), tokensF: tokensF,
+		tokens: tokens, raw: b.Tokens(), tokensF: tokensF, attnTokensF: attnTokensF,
 		spRows:      math.Ceil(tokensF / k.tp),
 		causalFLOPs: causalFLOPs, decodeKVTokens: decodeKVTokens,
 		decodeQueryCtx: decodeQueryCtx,
@@ -228,9 +240,11 @@ func (k *Kernel) shapeOf(b kernel.Batch) stepShape {
 
 func (k *Kernel) stepTime(b kernel.Batch,
 	into map[kernel.Resource]time.Duration) kernel.StepEstimate {
-	tokens := b.Tokens()
+	tokens := b.PaddedTokens()
 	if tokens == 0 {
 		// An empty step launches no work but still costs the host its per-step overhead.
+		// A data-parallel rank with nothing scheduled but a pad to run is not empty: it
+		// runs a dummy forward at the pad (_dummy_run, gpu_model_runner.py:5784, 6090).
 		host := k.hostPerStep(b)
 		per := into
 		if per == nil {
@@ -281,7 +295,7 @@ func (k *Kernel) stepTime(b kernel.Batch,
 	// with itself, and its work is not hidden behind a stage the way device work is. Per
 	// kernel dispatch joins it, for the same reason — a kernel cannot run before it has
 	// been dispatched.
-	host := k.hostPerStepWith(b, draftKernels) + seconds(k.launchSeconds(draftKernels))
+	host := k.hostPerStepWith(b, draftKernels) + seconds(k.launchSeconds(b, draftKernels))
 	perResource[idxHost] = host.Seconds()
 
 	// The breakdown map is the only thing that can allocate here. A caller that supplied
@@ -382,6 +396,11 @@ func (k *Kernel) priceLayers(layers []price.PlannedLayer, fits [][]gemmFit, kv [
 		// priced on its token ramp, which is what that format always was.
 		for gi := range l.DenseGEMMs {
 			g := &l.DenseGEMMs[gi]
+			// A hyper-connection mixing GEMM is inside the measured mHC pre form, which
+			// times the TF32 prenorm GEMM with the kernel (see mhcSeconds).
+			if g.MHCFn && k.mhcPre.rate > 0 {
+				continue
+			}
 			var fit gemmFit
 			if fits != nil {
 				fit = fits[i][gi]
@@ -615,7 +634,14 @@ func (k *Kernel) priceLayers(layers []price.PlannedLayer, fits [][]gemmFit, kv [
 					attnSMSeconds -= k.attentionPrefillFloor.Seconds()
 				}
 			}
-			if s.prefillRequests > 0 {
+			if pf, ok := k.attentionPrefillByKind[l.AttnKind]; ok && s.prefillRequests > 0 &&
+				primaryRecord(l) > 0 {
+				// The kind's measured prefill form, over FlashMLA's block reads.
+				read := sparsePrefillReadBytes(s.prefillChunks, l.AttnWindow, l.AttnIndexTopK,
+					l.AttnCompressRatio, primaryRecord(l), heads)
+				attnSMSeconds += pf.seconds(float64(s.prefillRequests),
+					float64(s.prefillTokens), read)
+			} else if s.prefillRequests > 0 {
 				sm, fl := k.prefillAttention(layerCausalFLOPs*heads*float64(l.AttnHeadDim), s)
 				attnSMSeconds += sm
 				flops += fl
@@ -640,7 +666,13 @@ func (k *Kernel) priceLayers(layers []price.PlannedLayer, fits [][]gemmFit, kv [
 				// One matmul, not attention's two, so it is half attention's FLOPs a pair.
 				// An earlier form skipped every secondary kernel in a step with no decode,
 				// which made the scan free in prefill.
-				if s.prefillRequests > 0 {
+				if pf, ok := k.attentionPrefillByRole[a.Role]; ok && s.prefillRequests > 0 &&
+					len(a.Caches) > 0 {
+					// The role's measured prefill form, over the index keys each query scores.
+					read := scorerPrefillReadBytes(s.prefillChunks, a.CompressRatio,
+						a.Caches[0].EntryBytes, a.QHeads)
+					attnSMSeconds += pf.seconds(0, float64(s.prefillTokens), read)
+				} else if s.prefillRequests > 0 {
 					// The window bounds the span scored and the ratio how many states that
 					// span holds, as in decode below: min(p, window) / ratio a query.
 					var pairs float64
@@ -742,6 +774,8 @@ func (k *Kernel) priceLayers(layers []price.PlannedLayer, fits [][]gemmFit, kv [
 		} else {
 			elementwise += tokensF * l.ElementwiseTokenShardedBytesPerToken
 		}
+		mhcSM, mhcBytes := k.mhcSeconds(l, s, sp)
+		elementwise = math.Max(elementwise-mhcBytes, 0)
 		elementwise += k.contextBytes(l, s)
 		gatherBytes, hostSeconds := k.gatherTraffic(l, s)
 		elementwise += gatherBytes
@@ -805,7 +839,7 @@ func (k *Kernel) priceLayers(layers []price.PlannedLayer, fits [][]gemmFit, kv [
 		// for a high-top_k MoE model is the least certain part of this kernel.
 		ramp := price.Efficiency(tokensF, k.epsMax, k.mHalf)
 		denseSM := flops/(k.computeFLOPsPerSecond*ramp)*smDerate +
-			denseShapedSeconds*smDerate + recurrentSeconds + attnSMSeconds
+			denseShapedSeconds*smDerate + recurrentSeconds + attnSMSeconds + mhcSM
 		denseHBM := (weightBytes+kvBytes+elementwise)/k.hbmBytesPerSecond + attnSeconds +
 			hostSeconds
 

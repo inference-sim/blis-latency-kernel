@@ -3,6 +3,7 @@ package latencykernel
 import (
 	"fmt"
 	"math"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -702,6 +703,13 @@ func clonePool(p deployment.Pool) deployment.Pool {
 		v := *e.Speculative
 		e.Speculative = &v
 	}
+	if e.MaxCUDAGraphCaptureSize != nil {
+		v := *e.MaxCUDAGraphCaptureSize
+		e.MaxCUDAGraphCaptureSize = &v
+	}
+	if e.CUDAGraphCaptureSizes != nil {
+		e.CUDAGraphCaptureSizes = slices.Clone(e.CUDAGraphCaptureSizes)
+	}
 	return p
 }
 
@@ -955,13 +963,28 @@ func (k *Kernel) lift(c *resolve.Coefficients, g *model.Graph, cacheBytes float6
 		hostWithout("per-output-token cost")) * float64(time.Microsecond))
 	k.completionCost = time.Duration(k.optional(c, "host_completion", true,
 		hostWithout("completion cost")) * float64(time.Microsecond))
-	// One eager kernel launch. The registry names it per layer and defines it as
-	// "multiplied by a layer's kernel count at the call site" (blis-registry
+	// One eager kernel launch. The registry's historical name is per layer, and it defines
+	// the value as "multiplied by a layer's kernel count at the call site" (blis-registry
 	// cost-model-host-overheads.yaml, host_launch_eager_per_layer), so it is charged per
 	// kernel: an earlier form charged it once per layer, which made eager about four
 	// percent dearer than a full graph and cheaper than piecewise replay.
-	k.launchEager = time.Duration(k.optional(c, "host_launch_eager_per_layer", true,
-		hostWithout("eager launch cost")) * float64(time.Microsecond))
+	// host_launch_eager_per_kernel names the same per-launch cost by what it is, and is
+	// taken where a set carries it -- unless only the per-layer name is scoped to this
+	// model, since a model's own constant is the narrower claim (see resolve.Load). Either
+	// may be scoped to a model, which matters because the cost with no graph is Python
+	// dispatch per op on a model vLLM runs uncompiled (DeepseekV41ForCausalLM "cannot
+	// torch.compile", vllm/config/vllm.py:120) rather than a CUDA launch, and so is a
+	// property of the model's code.
+	perKernel, hasPerKernel := c.Entry("host_launch_eager_per_kernel")
+	perLayer, hasPerLayer := c.Entry("host_launch_eager_per_layer")
+	if hasPerKernel && (len(perKernel.Entry.Scope.Model) > 0 || !hasPerLayer ||
+		len(perLayer.Entry.Scope.Model) == 0) {
+		k.launchEager = time.Duration(c.ValueOr("host_launch_eager_per_kernel", 0) *
+			float64(time.Microsecond))
+	} else {
+		k.launchEager = time.Duration(k.optional(c, "host_launch_eager_per_layer", true,
+			hostWithout("eager launch cost")) * float64(time.Microsecond))
+	}
 	// Per-kernel dispatch, which dominates a single-request decode step. Charged at zero
 	// when the registry carries none, like the other host terms here -- which removes the
 	// term two published runs say is most of a small step's cost, so a registry that
@@ -1042,14 +1065,17 @@ func (k *Kernel) lift(c *resolve.Coefficients, g *model.Graph, cacheBytes float6
 	// The largest batch a captured graph covers. vLLM v0.31.0 captures token counts up to
 	// max_cudagraph_capture_size and runs anything larger with no graph at all, whatever the
 	// mode (vllm/v1/worker/gpu/cudagraph_utils.py:499-529; V1's
-	// vllm/v1/cudagraph_dispatcher.py:270-279). Unstated, that ceiling is
-	// min(max_num_seqs x decode_query_len x 2, 512), or 1024 on a data-center Blackwell part
-	// (VllmConfig._set_cudagraph_sizes, vllm/config/vllm.py:2442-2460). With speculation the
-	// uniform decode sizes are appended only up to that same ceiling
-	// (`n * query_len <= max_cudagraph_capture_size`, :2531-2538), so a decode step has no
-	// higher one. The ceiling is then capped at max_num_batched_tokens (:2541-2542), which
-	// no step exceeds, so that cap changes no verdict here. blis-schemas has no field for an
-	// explicit capture size, so this is always the default.
+	// vllm/v1/cudagraph_dispatcher.py:270-279). A deployment that states the maximum or the
+	// sizes is resolved as the engine resolves them, through the rules pack
+	// (rules.Pack.CUDAGraphCaptureSizes, blis-schemas#72; VllmConfig._set_cudagraph_sizes,
+	// vllm/config/vllm.py:2388-2660): capped at max_num_batched_tokens, and expanded on the
+	// 1, 2, 4, step-8, step-16 ladder, so the ceiling is the largest size that runs.
+	// Unstated, it is min(max_num_seqs x decode_query_len x 2, 512), or 1024 on a
+	// data-center Blackwell part (:2442-2460). With speculation the uniform decode sizes are
+	// appended only up to that same ceiling (`n * query_len <= max_cudagraph_capture_size`,
+	// :2531-2538), so a decode step has no higher one. The default is then capped at
+	// max_num_batched_tokens (:2541-2542), which no step exceeds, so that cap changes no
+	// verdict here.
 	//
 	// The catalog records no compute capability, so a data-center Blackwell part is
 	// recognised by native NVFP4 support, which among the catalog's parts is exactly the
@@ -1062,17 +1088,54 @@ func (k *Kernel) lift(c *resolve.Coefficients, g *model.Graph, cacheBytes float6
 				"(EngineArgs.get_batch_defaults, vllm/engine/arg_utils.py:2858-2887); it sets "+
 				"the cudagraph capture ceiling and the MLA context-gather chunk")
 	}
+	k.maxNumSeqs = seqs
 	if k.graphDecode != graphModeEager || k.graphOther != graphModeEager {
-		platform := 512
-		if k.chip.NVFP4Peak > 0 {
-			platform = 1024
+		e := k.pool.Engine
+		e.CUDAGraphMode = mode
+		if e.MaxNumBatchedTokens <= 0 {
+			e.MaxNumBatchedTokens = defaultMaxNumBatchedTokens(k.chip)
 		}
-		k.captureTokens = min(seqs*k.uniformDecodeWidth*2, platform)
-		k.assume("max_cudagraph_capture_size", strconv.Itoa(k.captureTokens),
-			"vLLM v0.31.0's default, min(max_num_seqs x decode_query_len x 2, "+
-				strconv.Itoa(platform)+") (VllmConfig._set_cudagraph_sizes, "+
-				"vllm/config/vllm.py:2442-2460); blis-schemas has no field to state it, and "+
-				"a step above it runs with no graph")
+		capture, stated, err := k.rules.CUDAGraphCaptureSizes(e)
+		if err != nil {
+			return fmt.Errorf("resolving the CUDA graph capture sizes: %w", err)
+		}
+		if stated {
+			k.captureTokens = capture.Max
+			k.captureSizes = capture.Sizes
+			if m := k.pool.Engine.MaxCUDAGraphCaptureSize; m != nil && *m != capture.Max {
+				k.layout.Overrides = append(k.layout.Overrides, resolve.Override{
+					Field: "max_cudagraph_capture_size", Requested: strconv.Itoa(*m),
+					Resolved: strconv.Itoa(capture.Max),
+					Reason: "vLLM v0.31.0 caps the capture at max_num_batched_tokens and " +
+						"captures only the sizes on its ladder (1, 2, 4, every 8 below 256, " +
+						"every 16 from it), so the largest graph that runs is this",
+				})
+			}
+			if len(capture.Dropped) > 0 {
+				k.layout.Overrides = append(k.layout.Overrides, resolve.Override{
+					Field: "cudagraph_capture_sizes", Requested: fmt.Sprint(
+						k.pool.Engine.CUDAGraphCaptureSizes), Resolved: fmt.Sprint(capture.Sizes),
+					Reason: "vLLM v0.31.0 drops the sizes above max_num_batched_tokens",
+				})
+			}
+		} else {
+			platform := 512
+			if k.chip.NVFP4Peak > 0 {
+				platform = 1024
+			}
+			k.captureTokens = min(seqs*k.uniformDecodeWidth*2, platform)
+			defaulted := e
+			defaulted.MaxCUDAGraphCaptureSize = &k.captureTokens
+			if d, _, err := k.rules.CUDAGraphCaptureSizes(defaulted); err == nil {
+				k.captureSizes = d.Sizes
+			}
+			k.assume("max_cudagraph_capture_size", strconv.Itoa(k.captureTokens),
+				"vLLM v0.31.0's default, min(max_num_seqs x decode_query_len x 2, "+
+					strconv.Itoa(platform)+") (VllmConfig._set_cudagraph_sizes, "+
+					"vllm/config/vllm.py:2442-2460), as the deployment states neither "+
+					"max_cudagraph_capture_size nor cudagraph_capture_sizes; a step above it "+
+					"runs with no graph")
+		}
 	}
 
 	// The rows one chunk of an MLA prefill's context gather covers:
@@ -1113,6 +1176,19 @@ func (k *Kernel) lift(c *resolve.Coefficients, g *model.Graph, cacheBytes float6
 		if l.TopK > 0 {
 			experts = max(experts, l.Experts)
 		}
+	}
+	// A stated dispatch backend that cannot take effect: with expert parallelism on and
+	// none of dp > 1, pcp > 1 or a sequence-parallel MoE input, use_all2all_kernels is false
+	// and no backend's kernels are built (vllm/model_executor/layers/fused_moe/
+	// config.py:1024-1027, all2all_utils.py:188-214), so every backend prices the same.
+	if b := k.pool.Engine.All2AllBackend; b != "" && experts > 0 &&
+		k.pool.Parallel.EnableExpertParallel && !k.layout.MoEDispatches() {
+		k.layout.Overrides = append(k.layout.Overrides, resolve.Override{
+			Field: "all2all_backend", Requested: b, Resolved: "none",
+			Reason: "expert parallelism with dp 1, pcp 1 and no sequence-parallel MoE input " +
+				"runs no dispatch in vLLM v0.31.0: the experts run on the replicated tokens " +
+				"and the tensor-parallel all-reduce combines them",
+		})
 	}
 	// How an expert's weights are divided, which depends on whether expert parallelism
 	// is on. vLLM gives a rank whole experts when it is (ep_size the group width, tp_size 1)
@@ -1332,7 +1408,8 @@ func (k *Kernel) liftMemory(c *resolve.Coefficients, g *model.Graph) error {
 	if err != nil {
 		return err
 	}
-	k.captureBytes = int64(capture)
+	k.captureBytes = k.captureMemory(c, capture)
+	k.draftCaptureTokens = k.uniformCaptureTokens(k.numSpecTokens())
 
 	// The activation multiple is keyed by whether the model routes tokens to experts,
 	// which is the only family distinction the kernel can draw without a model name.
@@ -1359,6 +1436,101 @@ func (k *Kernel) liftMemory(c *resolve.Coefficients, g *model.Graph) error {
 				"the offline LLM class defaults higher on every part below 160 GiB")
 	}
 	return nil
+}
+
+// captureMemory is the CUDA-graph memory vLLM v0.31.0 takes from the KV budget: the
+// estimate determine_available_memory subtracts (vllm/v1/worker/gpu_worker.py:628-676),
+// which profile_cudagraph_memory measures by capturing every PIECEWISE and drafter graph and
+// the two largest FULL graphs, extrapolating the rest (vllm/v1/worker/gpu/
+// cudagraph_utils.py:854-968). Each family's cost grows with its largest captured shape: the
+// mixed (PIECEWISE) family's is the capture ceiling, the uniform-decode FULL family's is
+// bounded by max_num_seqs as well (decodeCaptureTokens), and the drafter's FULL graphs follow
+// the decode family's request counts (dflash/speculator.py:126-150).
+//
+// The form is
+//
+//	cudagraph_capture_floor_bytes_<mode>
+//	    + cudagraph_capture_bytes_per_mixed_token_<mode>  x mixed ceiling
+//	    + cudagraph_capture_bytes_per_decode_token_<mode> x decode ceiling
+//
+// with a family's term present only where the mode captures it. It is all or none: with
+// any needed entry absent the flat cudagraph_capture_bytes_<mode> stands, as before, and a
+// partial set is recorded as a fallback.
+func (k *Kernel) captureMemory(c *resolve.Coefficients, flat float64) int64 {
+	if k.captureTokens == 0 {
+		return int64(flat)
+	}
+	mode := k.graphModeName
+	floorName := "cudagraph_capture_floor_bytes_" + mode
+	terms := map[string]float64{}
+	if k.graphOther != graphModeEager {
+		terms["cudagraph_capture_bytes_per_mixed_token_"+mode] = float64(k.captureTokens)
+	}
+	if k.graphDecode == graphModeFull && k.graphOther != graphModeFull {
+		terms["cudagraph_capture_bytes_per_decode_token_"+mode] =
+			float64(k.decodeCaptureTokens())
+	}
+	names := []string{floorName}
+	for n := range terms {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	var have, missing []string
+	for _, n := range names {
+		if c.Has(n) {
+			have = append(have, n)
+		} else {
+			missing = append(missing, n)
+		}
+	}
+	if len(missing) > 0 {
+		if len(have) > 0 {
+			k.assume(floorName, "fallback", strings.Join(missing, ", ")+" absent beside "+
+				strings.Join(have, ", ")+", so the capture is charged the flat "+
+				"cudagraph_capture_bytes_"+mode)
+		}
+		return int64(flat)
+	}
+	bytes := c.ValueOr(floorName, 0)
+	for _, n := range names {
+		if n != floorName {
+			bytes += c.ValueOr(n, 0) * terms[n]
+		}
+	}
+	return int64(bytes)
+}
+
+// decodeCaptureTokens is the largest uniform-decode FULL graph vLLM v0.31.0 captures: each
+// capture size rounded up to a multiple of the decode query length, kept where it is within
+// max_num_seqs requests and the capture ceiling (_init_candidates,
+// vllm/v1/worker/gpu/cudagraph_utils.py:313-327).
+func (k *Kernel) decodeCaptureTokens() int { return k.uniformCaptureTokens(k.uniformDecodeWidth) }
+
+// uniformCaptureTokens is decodeCaptureTokens at a uniform query width of q tokens a request.
+func (k *Kernel) uniformCaptureTokens(q int) int {
+	q = max(q, 1)
+	best := 0
+	for _, s := range k.captureSizes {
+		r := (s + q - 1) / q * q
+		if r <= k.captureTokens && r <= k.maxNumSeqs*q {
+			best = max(best, r)
+		}
+	}
+	return best
+}
+
+// samplerPeakBytes is the profile run's dummy sampler pass (gpu/model_runner.py:942-954,
+// sample/sampler.py:239): logits for one row per dummy request in the head dtype, the
+// model's, and the sampler's FP32 copy of them, over the whole vocabulary, which
+// compute_logits gathers on every rank. The dummy batch holds min(max_num_batched_tokens,
+// max_num_seqs) requests, fewer where a parallel-block drafter's query rows would overrun
+// the token budget (_dummy_run, :785-830).
+func (k *Kernel) samplerPeakBytes(g *model.Graph) float64 {
+	reqs := min(k.batchedTokens, k.maxNumSeqs)
+	if d := k.plan.Draft; d != nil && k.speculating && d.Drafting == model.DraftingParallelBlock {
+		reqs = min(reqs, k.batchedTokens/max(k.numSpecTokens(), 1))
+	}
+	return float64(reqs) * float64(g.Global.VocabSize) * (price.ActivationBytes + 4)
 }
 
 // activationWidth is h in the activation form: num_attention_heads x head_dim.
@@ -2053,6 +2225,18 @@ func sortedKinds(kinds map[model.AttentionKind]bool) []model.AttentionKind {
 }
 
 // computeFixedBytes sums occupancy independent of the request set.
+//
+// COVERAGE LIMIT: on DeepSeek-V4.1-Flash with expert parallelism, vLLM v0.31.0's
+// "Model loading took" figure exceeds what this charges by about 9 GiB a rank, at TP 8 and
+// TP 4 alike. our calibration runs' H200 sizing gives 45.81 and 81.49 GiB, so a fit of R + S/tp has
+// R = 10.1 GiB replicated and S = 285.4 GiB sharded, against this kernel's 1.0 and 286.1.
+// The sharded weights agree, and the gap does not scale with TP; about 2 GiB of it comes
+// with DSpark (42.64 GiB without it). The parameter and buffer paths read at v0.31.0 --
+// routed experts, Marlin's MXFP4 repack and its round-up, the shared expert, the
+// drafter's MoE, the embedding and LM head, Engram's host tables, the init-time buffers
+// and the rotary caches -- do not account for it. Until a per-module memory dump on the
+// part localizes it, capacity under expert parallelism is overstated by that much a rank
+// (TestInternalH200ArmsAreTheEnginesFigures).
 func (k *Kernel) computeFixedBytes(g *model.Graph) kernel.MemoryBreakdown {
 	var weights float64
 	for _, l := range k.plan.Layers {
@@ -2102,9 +2286,12 @@ func (k *Kernel) computeFixedBytes(g *model.Graph) kernel.MemoryBreakdown {
 	// buffers stay bf16. Sizing it at the served width would halve this term on an fp8
 	// deployment and understate its occupancy.
 	const activationBytes = price.ActivationBytes
-	act := math.Max(
+	//
+	// The profile run's peak is the larger of the forward's and the dummy sampler's, which
+	// runs after the forward has released its activations (samplerPeakBytes).
+	act := math.Max(math.Max(
 		k.activationBuffers*float64(k.batchedTokens)*k.activationWidth*activationBytes,
-		k.activationFloor)
+		k.activationFloor), k.samplerPeakBytes(g)) + k.engineBufferBytes(g)
 
 	// EPLB's redundant replicas, reported apart from the weights rather than on top of
 	// them. expertsPerRank is the PHYSICAL count -- the model's experts plus the redundant
@@ -2129,13 +2316,186 @@ func (k *Kernel) computeFixedBytes(g *model.Graph) kernel.MemoryBreakdown {
 		ActivationPeak: int64(act),
 		CUDAGraph:      k.captureBytes,
 		EPLBRedundant:  int64(eplb),
-		// The collective-buffer reservation AND the engine workspace. blis-schemas v0.3.0's
-		// MemoryBreakdown has no field for the workspace -- NVIDIA's misc.other_mem: CUDA
-		// context, cuBLAS workspace and allocator slack -- so it is reported here rather
-		// than left out of Total, which is what a capacity verdict reads. Provenance names
-		// both coefficients, so the split is recoverable.
-		CommBuffers: k.commBytes + k.workspaceBytes,
+		// The collective-buffer reservation and the engine workspace are not here: vLLM
+		// holds them before the memory snapshot its budget is measured from, so they are
+		// outside gpu_memory_utilization (PreSnapshotBytes).
+		CommBuffers: 0,
 	}
+}
+
+// DeepSeek-V4.1 sizes three of its engine buffers from config.json values its graph does not
+// state: hc_mult, which widens the residual stream to hc_mult x hidden_size
+// (vllm/models/deepseek_v41/nvidia/model.py:639), and candidate_topk_blocks, the width of the
+// candidate-block buffer (model.py:665-675). The prefill chunk is the attention class's own
+// constant (vllm/models/deepseek_v41/attention.py:197). The indexer's gather holds 40 x
+// max_model_len entries before the compress ratio divides it
+// (get_max_prefill_buffer_size, vllm/v1/attention/backends/mla/indexer.py:791-801), and its
+// profile run allocates VLLM_SPARSE_INDEXER_MAX_LOGITS_MB, 512 MiB by default, to stand for
+// its logits (vllm/envs.py:61).
+const (
+	dsv41HCMult              = 4
+	dsv41CandidateTopKBlocks = 2048
+	dsv41PrefillChunkSize    = 4
+	dsv41IndexerGatherFactor = 40
+	dsv41IndexerLogitsBytes  = 512 << 20
+	dsv41RadixTopKWorkspace  = 1 << 20
+)
+
+// engineBufferBytes is what DeepSeek-V4.1's model code allocates beside its weights at the
+// token budget and the context bound, none of which the registry's generic activation
+// multiple can hold, since NVIDIA's coefficient knows no model's buffers. vLLM v0.31.0 counts
+// all of it against the KV cache: the profiler's non-KV figure is everything consumed since
+// the instance was created plus the profile run's transient peak (memory_profiling,
+// vllm/utils/mem_utils.py:300-330; determine_available_memory, vllm/v1/worker/
+// gpu_worker.py:612-676). The buffers below are allocated in the model's __init__, inside
+// load_model; the gather workspaces are reserved by the profile run itself, which both model
+// runners run with no attention metadata (vllm/v1/worker/gpu_model_runner.py:6468-6470,
+// gpu/model_runner.py:973-977), so the attention's forward_mqa and the indexer each take
+// their warmup branch and ask the workspace manager for exactly what a prefill would, and
+// the manager keeps it (vllm/v1/worker/workspace.py:178-260).
+//
+// Per rank, none divided by tensor parallelism:
+//   - the target's workspace: the manager holds one buffer per lane, grown to the largest
+//     request made in it (workspace.py:121-128, 233-266), so the larger of two requests.
+//     The attention's: PREFILL_CHUNK_SIZE x (cdiv(max_model_len, compress_ratio) + window +
+//     max_num_batched_tokens) x head_dim in BF16, beside max_num_batched_tokens x
+//     round_up(index_topk + window, 128) and max_num_batched_tokens int32 indices, each
+//     rounded to 256 B (vllm/models/deepseek_v41/nvidia/flashmla.py:94-117 and
+//     flash_mla_mega_attn.py:305-319 on SM100); a window-only layer gathers no compressed
+//     context and selects no top-k. The indexer's: 40 x max_model_len / compress_ratio
+//     entries of head_dim FP8 values and 4 scale bytes, and the 1 MiB radix top-k workspace
+//     (vllm/model_executor/layers/sparse_attn_indexer.py:363-381, 279-297;
+//     indexer_topk.py:15). At a 1M context the indexer's is the larger;
+//   - DSpark's own workspace: the V2 model runner gives the drafter a lane of its own
+//     (_num_workspace_lanes, gpu_worker.py:107-112; gpu/model_runner.py:195-197), and its
+//     dummy run proposes in that lane (gpu/model_runner.py:888-913), so its window-only
+//     layers' request is held beside the target's rather than inside it;
+//   - the indexer's stand-in for its logits, a transient of 512 MiB at the profile peak
+//     (sparse_attn_indexer.py:383-388);
+//   - the indexers' shared top-k buffer, max_num_batched_tokens x index_topk int32
+//     (nvidia/model.py:656-660), and DSpark's own while it speculates (nvidia/dspark.py:
+//     110-114);
+//   - the candidate-block buffer, where a layer publishes candidates (model.py:665-675);
+//   - the drafter's hidden-state buffer, max_num_batched_tokens x hc_mult x hidden_size in
+//     the model dtype, whenever the deployment speculates, as DSpark is an EAGLE-family
+//     method (model.py:773-784; use_eagle, vllm/config/speculative.py:1938-1942).
+//
+// KNOWN over-charge: the workspace manager's buffer is shared scratch, and the MoE modular
+// kernels grow the same one (workspace.py:49-56), so the engine holds the larger of the two
+// where this adds the attention's request to an activation multiple that already allows for
+// MoE intermediates; and the indexer's logits stand-in is a transient that this adds to the
+// activation multiple's own transients rather than to their peak.
+func (k *Kernel) engineBufferBytes(g *model.Graph) float64 {
+	if g.Global.Architecture != rules.ArchDeepseekV41 {
+		return 0
+	}
+	tokens := float64(k.batchedTokens)
+	aligned := func(b float64) float64 { return math.Ceil(b/256) * 256 }
+	var draft []price.PlannedLayer
+	if d := k.plan.Draft; d != nil && k.speculating {
+		draft = d.Layers
+	}
+	topk := 0
+	for _, l := range append(append([]price.PlannedLayer{}, k.plan.Layers...), draft...) {
+		topk = max(topk, l.AttnIndexTopK)
+	}
+	// workspace is the largest request one lane's layers make.
+	indexed := false
+	workspace := func(layers []price.PlannedLayer) float64 {
+		var ws float64
+		for _, l := range layers {
+			if l.AttnQHeads <= 0 || l.AttnHeadDim <= 0 {
+				continue
+			}
+			context, selected := 0, 0
+			if r := l.AttnCompressRatio; r > 0 {
+				context, selected = (k.maxModelLen+r-1)/r, topk
+			}
+			// The attention's window_size is its ring's, which a parallel-block draft
+			// layer's read window exceeds by its block positions (DSpark's 133 over 128).
+			window := l.AttnWindow
+			for _, c := range layerCaches(l) {
+				if c.Kind == model.CacheWindow && c.Window > 0 {
+					window = c.Window
+				}
+			}
+			rows := float64(context + window + k.batchedTokens)
+			combined := float64((selected + window + 127) / 128 * 128)
+			ws = math.Max(ws, aligned(dsv41PrefillChunkSize*rows*float64(l.AttnHeadDim)*2)+
+				aligned(tokens*combined*4)+aligned(tokens*4))
+			for _, a := range l.Attentions {
+				if a.Role != "block_index_scores" || a.HeadDim <= 0 {
+					continue
+				}
+				indexed = true
+				entries := float64(dsv41IndexerGatherFactor * k.maxModelLen / max(a.CompressRatio, 1))
+				ws = math.Max(ws, aligned(entries*float64(a.HeadDim))+aligned(entries*4)+
+					dsv41RadixTopKWorkspace)
+			}
+		}
+		return ws
+	}
+	total := workspace(k.plan.Layers)
+	if k.pool.Engine.Speculative != nil && k.pool.Engine.Speculative.Method == "dspark" {
+		total += workspace(draft)
+	} else {
+		total = math.Max(total, workspace(draft))
+	}
+	if indexed {
+		total += dsv41IndexerLogitsBytes
+	}
+	indexBuffers := 1.0
+	if k.speculating {
+		indexBuffers++
+	}
+	total += indexBuffers * tokens * float64(topk) * 4
+	for _, lk := range g.LayerKinds {
+		if hasRole(lk.Nodes, "candidate_block_scores") {
+			total += tokens * dsv41CandidateTopKBlocks * 4
+			break
+		}
+	}
+	if k.speculating {
+		total += tokens * dsv41HCMult * float64(g.Global.HiddenSize) * price.ActivationBytes
+	}
+	return total + k.dsv41RopeCacheBytes(g)
+}
+
+// dsv41RopeCacheBytes is DeepSeek-V4.1's rotary cos/sin caches, which model init builds on
+// the device inside load_model, at the model's whole position range and whatever the
+// deployment's context bound: one for the window-only layers, plain RoPE at the config's
+// max_position_embeddings, and one for the compressed layers, YaRN over
+// original_max_position_embeddings x factor -- both the model's context window -- each of
+// qk_rope_head_dim FP32 values a position (cos and sin halves;
+// vllm/models/deepseek_v41/common/rope.py:9-54; DeepseekV4ScalingRotaryEmbedding,
+// vllm/model_executor/layers/rotary_embedding/deepseek_scaling_rope.py:224-255). get_rope
+// shares one instance between every layer of the same parameters, the drafter's and the
+// indexer's included (rotary_embedding/__init__.py:73-83), so there are as many caches as
+// layer types. At a 1,048,576-token window that is 256 MiB each.
+func (k *Kernel) dsv41RopeCacheBytes(g *model.Graph) float64 {
+	types := map[bool]int{}
+	for _, lk := range g.LayerKinds {
+		for _, n := range lk.Nodes {
+			if n.Op == model.OpAttention && n.Role == "" && n.QKRopeHeadDim > 0 {
+				types[n.CompressRatio > 0] = max(types[n.CompressRatio > 0], n.QKRopeHeadDim)
+			}
+		}
+	}
+	var total float64
+	for _, rope := range types {
+		total += float64(g.Global.ContextWindow) * float64(rope) * 4
+	}
+	return total
+}
+
+// hasRole reports whether any of nodes carries the role.
+func hasRole(nodes []model.Node, role string) bool {
+	for _, n := range nodes {
+		if n.Role == role {
+			return true
+		}
+	}
+	return false
 }
 
 // expertGeom is how one MoE layer's routed experts divide over the expert group: the physical
@@ -2232,7 +2592,7 @@ func (k *Kernel) buildProvenance(c *resolve.Coefficients) {
 		}
 		k.origins = append(k.origins, kernel.CoefficientOrigin{
 			Name: name, Set: r.Set, Method: string(r.Entry.Method),
-			Scope: scopeString(r.Entry.Scope),
+			Scope: scopeString(r.Entry, k.chip.Name),
 		})
 	}
 	k.origins = append(k.origins, k.assumptions...)
@@ -2311,14 +2671,36 @@ func (k *Kernel) assume(name, value, reason string) {
 	})
 }
 
-func scopeString(s coefficient.Scope) string {
+// scopeString is an entry's scope as Provenance records it: the part (the deployment's, where
+// the entry lists several), its model where it states one, and the scope a copied value came
+// from, so a reader can tell a model's own value, and a copy of another part's, from a
+// part-wide one.
+func scopeString(e coefficient.Entry, chip string) string {
+	s := e.Scope
+	part := ""
 	if len(s.Hardware) > 0 {
-		return "hardware: " + s.Hardware[0]
+		part = s.Hardware[0]
+		for _, h := range s.Hardware {
+			if h == chip {
+				part = h
+			}
+		}
 	}
-	if len(s.Model) > 0 {
-		return "model: " + s.Model[0]
+	var out string
+	switch {
+	case part != "" && len(s.Model) > 0:
+		out = "hardware: " + part + ", model: " + s.Model[0]
+	case part != "":
+		out = "hardware: " + part
+	case len(s.Model) > 0:
+		out = "model: " + s.Model[0]
+	default:
+		out = "unscoped"
 	}
-	return "unscoped"
+	if e.CopiedFrom != "" {
+		out += "; copied from " + e.CopiedFrom
+	}
+	return out
 }
 
 // Evidence reports how much of the resolved coefficient set rests on measurement, so a

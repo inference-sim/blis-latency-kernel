@@ -45,6 +45,11 @@ for, so every one of them records it. Three facts do follow the declared version
 they are read from those rules; [Sources of truth](../reference/sources.md#two-sources-of-engine-behavior)
 names them.
 
+A coefficient whose scope excludes the deployment's chip, model or widths is not used. Where
+two entries of one name both apply, the later set wins, except that an entry scoped to the
+deployment's model is never displaced by one that states no model: a value fitted on one
+model is the narrower claim, and file order should not decide between them.
+
 Some coefficients are optional: the kernel can price without them, by leaving out the term
 they set or, for the experts' routing imbalance, by taking the experts as evenly loaded. A
 host overhead is an example. When one the deployment needs is missing, that too
