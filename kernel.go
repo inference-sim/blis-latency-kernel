@@ -697,6 +697,30 @@ func (k *Kernel) spanFor(key collKey) float64 {
 	return price.RingSpan(group, perNode, ratio)
 }
 
+// denseDispatch reports whether this collective is the MoE dispatch and combine run as
+// allgather_reducescatter: the default backend, and what pplx and naive resolve to.
+func (k *Kernel) denseDispatch(key collKey) bool {
+	return key.Op == model.OpAll2All && key.Group == price.GroupExpert &&
+		k.layout.MoEDispatches() && !k.routedAll2All()
+}
+
+// agrsDispatchSeconds prices allgather_reducescatter's dispatch and combine for a rank
+// holding `bytes` of hidden state. AgRsAll2AllManager gathers EVERY DP rank's tokens to
+// every rank with all_gatherv and returns them with reduce_scatterv over the same group
+// (vllm/distributed/device_communicators/all2all.py:84-157 at v0.31.0), so each phase's
+// tensor is the whole group's tokens -- the DP funnel the expert GEMM already charges
+// (moeDPFunnel) -- not one rank's. Each phase is priced as the NCCL collective it is, on
+// the tensor's full size as the TP all-gather is.
+func (k *Kernel) agrsDispatchSeconds(bytes float64) float64 {
+	ag := collKey{Op: model.OpAllGather, Group: price.GroupExpert}
+	rs := collKey{Op: model.OpReduceScatter, Group: price.GroupExpert}
+	full := bytes * k.moeDPFunnel()
+	if k.crossesNodes(ag) {
+		full *= k.spanFor(ag)
+	}
+	return k.collectiveSeconds(ag, full) + k.collectiveSeconds(rs, full)
+}
+
 // routedAll2All reports whether the resolved MoE backend moves top-k-selected bytes point
 // to point, rather than dense per-token bytes in two ring phases. The distinction changes
 // both the volume and the cross-node scaling, and it is a property of the backend rather

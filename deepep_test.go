@@ -5,7 +5,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/inference-sim/blis-latency-kernel/internal/price"
+	"github.com/inference-sim/blis-schemas/kernel"
 	"github.com/inference-sim/blis-schemas/spec/coefficient"
+	"github.com/inference-sim/blis-schemas/spec/model"
 	"github.com/inference-sim/blis-schemas/vocab"
 )
 
@@ -142,5 +145,32 @@ func TestDeepEPBufferSizesFollowDeepEP(t *testing.T) {
 	v2 := elasticBufferBytes(8192, 5120, 6, 8)
 	if want := int64((8*8192*10336 + (2 << 20) - 1) / (2 << 20) * (2 << 20)); v2 != want {
 		t.Errorf("v2 buffer %d, want %d", v2, want)
+	}
+}
+
+// allgather_reducescatter gathers every DP rank's tokens to every rank and reduce-scatters
+// them back (AgRsAll2AllManager, all2all.py:84-157), so at DEP8 a rank's dispatch moves the
+// whole group's rows through an NCCL all-gather and reduce-scatter, not its own rows once.
+func TestAllGatherDispatchMovesTheWholeGroupsTokens(t *testing.T) {
+	k := dep8(t, "allgather_reducescatter", "", 8192, nil)
+	const tokens = 4096
+	rows := float64(tokens) * 5120 * 2
+	ag := collKey{Op: model.OpAllGather, Group: price.GroupExpert}
+	rs := collKey{Op: model.OpReduceScatter, Group: price.GroupExpert}
+	perLayer := k.collectiveSeconds(ag, 8*rows) + k.collectiveSeconds(rs, 8*rows)
+	got := k.StepTime(prefillOf(tokens, 0)).PerResource[kernel.ResourceNVLink]
+	// The target's MoE layers: a prefill step runs no drafter forward over its tokens.
+	layers := 0
+	for _, l := range k.plan.Layers {
+		if l.TopK > 0 {
+			layers += l.Count
+		}
+	}
+	want := time.Duration(float64(layers) * perLayer * float64(time.Second))
+	// Within 0.5%: the step's other NVLink terms are a fraction of a millisecond.
+	if r := float64(got) / float64(want); r < 1 || r > 1.005 {
+		t.Errorf("a %d-token DEP8 prefill charges %v of NVLink; %d MoE layers of an 8-rank "+
+			"all-gather and reduce-scatter of the group's %d rows want %v",
+			tokens, got, layers, 8*tokens, want)
 	}
 }

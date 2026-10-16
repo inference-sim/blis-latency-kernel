@@ -914,7 +914,14 @@ func (k *Kernel) priceLayers(layers []price.PlannedLayer, fits [][]gemmFit, kv [
 			// 8-GPU node even when expert parallelism spans nine of them.
 			key := collKey{Op: c.Op, Group: c.Group}
 			elapsed := 0.0
-			if k.crossesNodes(key) {
+			if k.denseDispatch(key) {
+				elapsed = k.agrsDispatchSeconds(bytes)
+				if k.crossesNodes(key) {
+					crossNode += elapsed
+				} else {
+					onNode += elapsed
+				}
+			} else if k.crossesNodes(key) {
 				elapsed = k.collectiveSeconds(key, bytes*k.spanFor(key))
 				crossNode += elapsed
 			} else {

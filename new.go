@@ -1639,6 +1639,12 @@ func (k *Kernel) liftCollectiveFloors(c *resolve.Coefficients) error {
 		{Op: model.OpReduceScatter, Group: price.GroupTP},
 		{Op: model.OpAll2All, Group: price.GroupExpert},
 	}
+	if k.layout.MoEDispatches() && !k.routedAll2All() && k.layout.MoEGroup() > 1 {
+		// allgather_reducescatter's two phases over the expert group (agrsDispatchSeconds).
+		keys = append(keys,
+			collKey{Op: model.OpAllGather, Group: price.GroupExpert},
+			collKey{Op: model.OpReduceScatter, Group: price.GroupExpert})
+	}
 	if k.layout.DCP > 1 {
 		// Exactly the collectives the resolved combine launches over the decode-context
 		// group (dcpDecodeCollectives has the table and the citations): an all-gather
