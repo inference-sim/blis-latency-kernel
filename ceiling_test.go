@@ -1,6 +1,7 @@
 package latencykernel
 
 import (
+	"math"
 	"testing"
 	"time"
 
@@ -383,5 +384,70 @@ func TestTheVendoredHostSetResolvesTheSameUnderBothRules(t *testing.T) {
 		if !found {
 			t.Errorf("%s: host_launch_eager_per_kernel is not in Provenance", c.chip)
 		}
+	}
+}
+
+// eagerAt is the V4.1 fixture with the model's eager launch cost at us microseconds, in the
+// graph mode given, without speculation where spec is false.
+func eagerAt(t *testing.T, us float64, mode string, spec bool, capture int) *Kernel {
+	t.Helper()
+	in := fixtureInputs(t, v41)
+	e := &in.Deployment.Pools[0].Engine
+	e.CUDAGraphMode = mode
+	if capture > 0 {
+		e.MaxCUDAGraphCaptureSize = &capture
+	}
+	if !spec {
+		e.Speculative = nil
+	}
+	in.Coefficients = append(append([]*coefficient.Set{}, in.Coefficients...),
+		&coefficient.Set{Kind: "CoefficientSet", Name: "test-eager", Coefficients: []coefficient.Entry{{
+			Name: "host_launch_eager_per_kernel", Value: us, Units: "us_per_transfer",
+			Method: "assumed", Rationale: "test", Scope: coefficient.Scope{
+				Hardware: []string{"h200"}, Model: []string{"deepseek-v4.1-flash"}}}}})
+	return build(t, in)
+}
+
+// ANCHOR, decode, eager: H200 TP8 under cudagraph_mode NONE, no speculation, one request at
+// a 90k context, steps in 96.56 ms. Decode is launch-bound, so the step is its launches at
+// the eager cost plus the dispatch gap, plus its device time: the registry's eager constant
+// is backed out of this anchor as (96.56 ms - device) / launches - dispatch.
+func TestTheEagerDecodeAnchorIsAdditive(t *testing.T) {
+	probe := eagerAt(t, 1, "NONE", false, 0)
+	b := decodeBatch(1, 1, 90000)
+	launches := probe.stepKernels(b)
+	base := probe.StepTime(b).NoOverlap - time.Duration(launches)*time.Microsecond
+	us := (96.56e6 - float64(base)) / float64(launches) / 1e3
+	got := eagerAt(t, us, "NONE", false, 0).StepTime(b).NoOverlap
+	if d := math.Abs(float64(got)-96.56e6) / 96.56e6; d > 1e-3 {
+		t.Errorf("at %.2f us a launch over %d launches the step is %v, want the anchor's "+
+			"96.56 ms", us, launches, got)
+	}
+	if us < 90 || us > 95 {
+		t.Errorf("the anchor backs out %.2f us a launch, outside the registry basis's 90-95", us)
+	}
+	t.Logf("eager constant backed out of the anchor: %.2f us over %d launches", us, launches)
+}
+
+// ANCHOR, mixed, eager: the eager launch cost is never hidden behind a step's device work.
+// On the held-out H200 TP8 transfer arm (FULL_AND_PIECEWISE, capture 64, DSpark K5) vLLM
+// collapses at c32 (ITL 16.18 ms), which BLIS reproduces only if mixed steps past the
+// capture ceiling pay every eager launch on top of their device time; hiding min(launches,
+// device) gives 5.75 ms. So each extra microsecond of launch cost adds exactly one per
+// launch, prefill chunk or not.
+func TestEagerLaunchesAreNotHiddenBehindAMixedStep(t *testing.T) {
+	b := decodeBatch(20, 6, 90000)
+	b.DecodeThreshold = 6
+	b.Reqs = append(b.Reqs, kernel.ReqShape{Scheduled: 4096, Computed: 50000, PromptLen: 54096})
+	lo, hi := eagerAt(t, 50, "", true, 64), eagerAt(t, 100, "", true, 64)
+	launches := lo.stepKernels(b)
+	if launches == 0 {
+		t.Fatal("the step launches no kernels")
+	}
+	got := hi.StepTime(b).NoOverlap - lo.StepTime(b).NoOverlap
+	if want := time.Duration(launches) * 50 * time.Microsecond; got < want {
+		t.Errorf("50 us more a launch adds %v to a 20-decode, 4,096-prefill step past the "+
+			"capture ceiling, under %d target launches x 50 us = %v: launches are hidden",
+			got, launches, want)
 	}
 }
