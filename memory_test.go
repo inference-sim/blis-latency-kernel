@@ -728,7 +728,7 @@ func TestABatchPastTheCaptureCeilingRunsWithNoGraph(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		return hostBusy(k, decodeBatch(1, tokens, tokens))
+		return k.StepTime(decodeBatch(1, tokens, tokens)).PerResource[kernel.ResourceHost]
 	}
 	for _, mode := range []string{"PIECEWISE", "FULL_AND_PIECEWISE"} {
 		if a, b := host(mode, 512), host("PIECEWISE", 512); a != b {
@@ -1014,7 +1014,7 @@ func TestAStatedCaptureSizeIsTheCeiling(t *testing.T) {
 		t.Error("a stated capture size is still recorded as an assumption")
 	}
 	host := func(k *Kernel, n int) time.Duration {
-		return hostBusy(k, decodeBatch(n, 6, 8192))
+		return k.StepTime(decodeBatch(n, 6, 8192)).PerResource[kernel.ResourceHost]
 	}
 	if host(stated, 10) == host(none, 10) {
 		t.Error("ten requests verify 60 tokens, within the stated 64, yet run eager")
@@ -1327,7 +1327,7 @@ func TestTheDrafterCeilingIsTheLargestRoundedSize(t *testing.T) {
 		}
 		stated, none := at(""), at("NONE")
 		host := func(k *Kernel, n int) time.Duration {
-			return hostBusy(k, decodeBatch(n, c.k+1, 8192))
+			return k.StepTime(decodeBatch(n, c.k+1, 8192)).PerResource[kernel.ResourceHost]
 		}
 		d := stated.plan.Draft
 		draft := time.Duration(d.Kernels + d.ContextKernels + c.k*d.SequentialKernels)

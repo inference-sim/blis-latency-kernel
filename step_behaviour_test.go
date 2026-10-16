@@ -39,7 +39,8 @@ func TestEagerLaunchesCostAtLeastAReplay(t *testing.T) {
 		for _, mode := range []string{"NONE", "PIECEWISE", "FULL"} {
 			in := fixtureInputs(t, scenario)
 			in.Deployment.Pools[0].Engine.CUDAGraphMode = mode
-			host[mode] = hostBusy(build(t, in), decodeBatch(1, 1, 8000)).Seconds()
+			host[mode] = build(t, in).StepTime(decodeBatch(1, 1, 8000)).
+				PerResource[kernel.ResourceHost].Seconds()
 		}
 		if host["NONE"] < host["PIECEWISE"] || host["PIECEWISE"] < host["FULL"] {
 			t.Errorf("%s: host time NONE %.3g, PIECEWISE %.3g, FULL %.3g; capturing more "+

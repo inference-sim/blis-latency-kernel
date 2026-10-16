@@ -1505,35 +1505,15 @@ func (k *Kernel) hostPerStep(b kernel.Batch) time.Duration { return k.hostPerSte
 // under its own mode and ceiling (draftHost); any other drafter's launches run under the
 // target's.
 func (k *Kernel) hostPerStepWith(b kernel.Batch, draftKernels int) time.Duration {
-	host, _ := k.hostSplit(b, draftKernels)
-	return host
-}
-
-// hostSplit is hostPerStepWith with the part of it that is eager kernel launches the CPU
-// enqueues asynchronously, and so can hide behind device work (see stepTime).
-func (k *Kernel) hostSplit(b kernel.Batch, draftKernels int) (host, eager time.Duration) {
 	if draftKernels > 0 && k.draftHasOwnGraphs() {
-		// The drafter's host is a replay plus eager context stores, or all eager launches;
-		// either way all but one replay's worth can hide.
-		th, te := k.targetHostSplit(b, 0)
-		dh := k.draftHost(b, draftKernels)
-		if de := dh - k.replayPerStep; de > 0 {
-			te += de
-		}
-		return th + dh, te
+		return k.targetHost(b, 0) + k.draftHost(b, draftKernels)
 	}
-	return k.targetHostSplit(b, draftKernels)
+	return k.targetHost(b, draftKernels)
 }
 
 // targetHost is the target forward's launch-and-replay cost, with draftKernels drafter
 // launches run under the same mode.
 func (k *Kernel) targetHost(b kernel.Batch, draftKernels int) time.Duration {
-	host, _ := k.targetHostSplit(b, draftKernels)
-	return host
-}
-
-// targetHostSplit is targetHost with its eager-launch part.
-func (k *Kernel) targetHostSplit(b kernel.Batch, draftKernels int) (host, eager time.Duration) {
 	mode := k.graphOther
 	// An empty step runs no forward; it is charged as the decode loop's idle step.
 	if len(b.Reqs) == 0 || b.UniformDecode(k.uniformDecodeWidth) {
@@ -1544,18 +1524,13 @@ func (k *Kernel) targetHostSplit(b kernel.Batch, draftKernels int) (host, eager 
 	// The graph is dispatched at the padded count (gpu_model_runner.py:4407-4413).
 	if b.PaddedTokens() > k.captureTokens && mode != graphModeEager {
 		// Past every captured size: the engine runs this step with no graph.
-		// What the graph would have cost stays exposed, so passing the ceiling never makes
-		// a step cheaper; only the launches beyond it can hide.
 		eager := k.modeHost(graphModeEager, kernels)
 		if eager < captured {
-			return captured, 0
+			eager = captured
 		}
-		return eager, eager - captured
+		return eager
 	}
-	if mode == graphModeEager {
-		return captured, captured
-	}
-	return captured, 0
+	return captured
 }
 
 // modeHost is one step's launch-and-replay host cost under a graph mode, for a step that
@@ -1609,10 +1584,8 @@ func (k *Kernel) modeHost(mode graphMode, kernels int) time.Duration {
 // summed over the step", blis-registry cost-model-host-overheads.yaml,
 // host_launch_per_kernel), and backed it out of single-request decode steps that ran FULL
 // graphs. Dropping it under FULL would remove the term from the steps it was fitted on.
-// Under NONE it is charged beside the eager launch, additively. The eager launch itself
-// hides behind device work (stepTime), so a host-bound decode step costs launches x (eager +
-// dispatch) whatever its device time, which is how an eager constant is backed out of a
-// decode anchor.
+// Under NONE it is charged beside the eager launch, additively, which is the composition
+// DeepSeek-V4.1's model-scoped eager constant was derived on.
 //
 // It does NOT overlap with device work, and that is the point rather than a simplification:
 // a dispatch that has not happened cannot have its kernel running. At large batch the
