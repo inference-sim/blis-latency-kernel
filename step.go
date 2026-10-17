@@ -501,8 +501,11 @@ func (k *Kernel) priceLayers(layers []price.PlannedLayer, fits [][]gemmFit, kv [
 			// Marlin pads a tensor-parallel slice of each expert's intermediate width to a
 			// multiple of 128 (see expertPadding), which is work and weight it runs.
 			pad := k.expertPadding(l)
+			// The busiest expert-parallel rank gates the layer's combine, so its routed
+			// tokens and distinct experts, not the mean rank's, are what the layer pays.
+			rankTok, rankExp := k.routingAt(s, routedTokens)
 			routedFLOPs += routedPerRank * l.ExpertFLOPsPerTokenPerExpert * k.moeImbalance /
-				dpSlice * pad
+				dpSlice * pad * rankTok
 			// Expert weights read: the DISTINCT local experts this step touches, times
 			// each one's per-rank bytes. Two things are separate and vLLM keeps them
 			// separate too (`fused_moe/config.py`): WHICH experts a rank holds, and how
@@ -522,7 +525,8 @@ func (k *Kernel) priceLayers(layers []price.PlannedLayer, fits [][]gemmFit, kv [
 			// under-reads expert weights exactly where coverage is partial -- at the
 			// batch 1-4 prefill rows that make up FPM's attention-DP cells.
 			routedWeightBytes += l.ExpertWeightBytesPerExpert / k.expertTensorShards * pad *
-				price.ExpertsTouched(int(routedTokens+0.5), eg.total, l.TopK, eg.perRank)
+				price.ExpertsTouched(int(routedTokens+0.5), eg.total, l.TopK, eg.perRank) *
+				rankExp
 		}
 		if l.SharedExpertFLOPsPerToken > 0 {
 			// A shared expert is dense: every token pays it, sharded like any projection --

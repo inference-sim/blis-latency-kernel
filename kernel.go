@@ -30,6 +30,7 @@ import (
 	"github.com/inference-sim/blis-schemas/spec/deployment"
 	"github.com/inference-sim/blis-schemas/spec/hardware"
 	"github.com/inference-sim/blis-schemas/spec/model"
+	"github.com/inference-sim/blis-schemas/spec/routing"
 
 	"github.com/inference-sim/blis-latency-kernel/internal/price"
 	"github.com/inference-sim/blis-latency-kernel/internal/resolve"
@@ -129,6 +130,9 @@ type Kernel struct {
 	nicBytesPerSecond    float64
 	hostBytesPerSecond   float64
 	moeImbalance         float64
+	// routing is the run's cross-rank routing imbalance; nil prices the expert-parallel
+	// group as evenly loaded (adoptRouting).
+	routing *routing.Resolution
 
 	// Per-operation collective floors and peak rates, resolved once. Keyed by op
 	// because an all-reduce floor and an all-to-all floor differ by more than 2x on
