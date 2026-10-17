@@ -311,6 +311,11 @@ func (k *Kernel) stepTime(b kernel.Batch,
 		}
 		per = make(map[kernel.Resource]time.Duration, live)
 	}
+	noOverlap, _ := summarize(&perResource, nil)
+	if sched := k.schedulerHost(b, noOverlap); sched > 0 {
+		host += sched
+		perResource[idxHost] = host.Seconds()
+	}
 	noOverlap, bottleneck := summarize(&perResource, per)
 	overlap := seconds(overlapSeconds) + host
 

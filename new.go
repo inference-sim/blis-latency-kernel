@@ -282,6 +282,9 @@ func New(in Inputs) (*Kernel, error) {
 		return nil, err
 	}
 
+	if err := k.resolveAsyncScheduling(in.Rules); err != nil {
+		return nil, err
+	}
 	if err := k.lift(coeffs, in.Model, cacheBytes); err != nil {
 		return nil, err
 	}
@@ -1002,6 +1005,10 @@ func (k *Kernel) lift(c *resolve.Coefficients, g *model.Graph, cacheBytes float6
 		k.launchEager = time.Duration(k.optional(c, "host_launch_eager_per_layer", true,
 			hostWithout("eager launch cost")) * float64(time.Microsecond))
 	}
+	// The scheduler's per-request CPU cost (schedulerHost). Not needed: no registry carries
+	// a fitted value yet, and zero is how every deployment was priced before it existed.
+	k.schedPerRequest = time.Duration(k.optional(c, "host_step_per_request", false, "") *
+		float64(time.Microsecond))
 	// Per-kernel dispatch, which dominates a single-request decode step. Charged at zero
 	// when the registry carries none, like the other host terms here -- which removes the
 	// term two published runs say is most of a small step's cost, so a registry that
@@ -2661,10 +2668,7 @@ func (k *Kernel) buildProvenance(c *resolve.Coefficients) {
 	if k.pool.Engine.DisableCascadeAttn != nil {
 		cascade = !*k.pool.Engine.DisableCascadeAttn
 	}
-	async := true
-	if k.pool.Engine.AsyncScheduling != nil {
-		async = *k.pool.Engine.AsyncScheduling
-	}
+	async := k.asyncScheduling
 	k.resolution = kernel.Resolution{
 		// The layout this kernel priced, each width floored at one as the schema requires:
 		// a consumer multiplies by these, so zero must never stand for "unset".

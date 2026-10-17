@@ -129,6 +129,11 @@ type Kernel struct {
 	nicBytesPerSecond    float64
 	hostBytesPerSecond   float64
 	moeImbalance         float64
+	// asyncScheduling is the engine's resolved async_scheduling (resolveAsyncScheduling).
+	asyncScheduling bool
+	// schedPerRequest is the engine-core scheduler CPU cost per scheduled request
+	// (host_step_per_request), exposed per step as schedulerHost says.
+	schedPerRequest time.Duration
 
 	// Per-operation collective floors and peak rates, resolved once. Keyed by op
 	// because an all-reduce floor and an all-to-all floor differ by more than 2x on
