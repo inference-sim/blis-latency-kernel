@@ -30,6 +30,7 @@ import (
 	"github.com/inference-sim/blis-schemas/spec/deployment"
 	"github.com/inference-sim/blis-schemas/spec/hardware"
 	"github.com/inference-sim/blis-schemas/spec/model"
+	"github.com/inference-sim/blis-schemas/spec/routing"
 
 	"github.com/inference-sim/blis-latency-kernel/internal/price"
 	"github.com/inference-sim/blis-latency-kernel/internal/resolve"
@@ -134,6 +135,9 @@ type Kernel struct {
 	// schedPerRequest is the engine-core scheduler CPU cost per scheduled request
 	// (host_step_per_request), exposed per step as schedulerHost says.
 	schedPerRequest time.Duration
+	// routing is the run's cross-rank routing imbalance; nil prices the expert-parallel
+	// group as evenly loaded (adoptRouting).
+	routing *routing.Resolution
 
 	// Per-operation collective floors and peak rates, resolved once. Keyed by op
 	// because an all-reduce floor and an all-to-all floor differ by more than 2x on

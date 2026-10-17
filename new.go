@@ -16,6 +16,7 @@ import (
 	"github.com/inference-sim/blis-schemas/spec/deployment"
 	"github.com/inference-sim/blis-schemas/spec/hardware"
 	"github.com/inference-sim/blis-schemas/spec/model"
+	"github.com/inference-sim/blis-schemas/spec/routing"
 	"github.com/inference-sim/blis-schemas/spec/scenario"
 	"github.com/inference-sim/blis-schemas/vocab"
 
@@ -47,6 +48,11 @@ type Inputs struct {
 	Coefficients []*coefficient.Set
 	// Rules carry the engine-version behaviour the resolver needs.
 	Rules resolve.EngineRules
+	// Routing is the run's resolved expert-parallel routing imbalance (blis-schemas
+	// routing.Resolve), which depends on the model and the traffic and so is resolved by
+	// the caller, as speculative acceptance is. Nil prices an expert-parallel group as
+	// evenly loaded and records that as an assumption.
+	Routing *routing.Resolution
 }
 
 // New resolves the inputs into a kernel.
@@ -288,6 +294,7 @@ func New(in Inputs) (*Kernel, error) {
 	if err := k.lift(coeffs, in.Model, cacheBytes); err != nil {
 		return nil, err
 	}
+	k.adoptRouting(in.Routing, k.totalExperts > 0)
 	k.tiers = map[string]hardware.StorageDevice{}
 	for _, d := range in.Devices {
 		if d != nil {
@@ -2709,6 +2716,71 @@ func (k *Kernel) optional(c *resolve.Coefficients, name string, needed bool,
 		k.assume(name, "absent", "not in the scenario's coefficient sets: "+without)
 	}
 	return 0
+}
+
+// adoptRouting takes the run's cross-rank routing imbalance. moe_routing_imbalance_median
+// above is a different quantity: one rank's grouped-GEMM slowdown when ITS OWN experts are
+// unevenly loaded, measured on one GPU. Cross-rank imbalance is which rank holds the most
+// routed work; each MoE layer ends in a combine that waits for that rank, so the layer pays
+// the busiest rank's share. The two compose.
+//
+// Without expert parallelism there is no cross-rank term. With it and no resolution, the
+// group is priced as evenly loaded and Provenance says so.
+func (k *Kernel) adoptRouting(r *routing.Resolution, moe bool) {
+	if !moe || k.layout.ExpertWidth <= 1 {
+		return
+	}
+	const name = "routing_imbalance"
+	if r == nil || r.Layer == routing.LayerDefault {
+		reason := "no routing resolution was supplied"
+		if r != nil && r.Reason != "" {
+			reason = r.Reason
+		}
+		k.assume(name, "1 (evenly loaded)", reason+": every expert-parallel rank is priced "+
+			"at the mean rank's routed tokens and experts")
+		return
+	}
+	k.routing = r
+	method, scope := string(vocab.MethodMeasured), r.Source
+	if r.Value != nil {
+		method = string(vocab.MethodAssumed)
+		scope = fmt.Sprintf("token %.4g, expert %.4g: %s", r.Value.TokenImbalance,
+			r.Value.Expert(), r.Source)
+	} else {
+		for _, p := range []*routing.Profile{r.Decode, r.Prefill} {
+			if p != nil {
+				method = p.Method
+				scope = p.Key().String() + ": " + r.Source
+				break
+			}
+		}
+	}
+	set := string(r.Layer)
+	if r.Set != "" {
+		set += ":" + r.Set
+	}
+	k.assumptions = append(k.assumptions, kernel.CoefficientOrigin{
+		Name: name, Set: set, Method: method, Scope: scope,
+	})
+}
+
+// routingAt is the busiest-rank factors for a step routing tokens through the expert
+// group: decode and prefill tokens read their own curves, weighted by their share of
+// the step. Evenly loaded without a resolution.
+func (k *Kernel) routingAt(s *stepShape, tokens float64) (tok, exp float64) {
+	if k.routing == nil {
+		return 1, 1
+	}
+	b := max(int(tokens+0.5), 1)
+	d, p := float64(s.decodeTokens), float64(s.prefillTokens)
+	if d+p <= 0 {
+		d = 1
+	}
+	ld := k.routing.At(routing.PhaseDecode, b)
+	lp := k.routing.At(routing.PhasePrefill, b)
+	w := d / (d + p)
+	return w*ld.TokenImbalance + (1-w)*lp.TokenImbalance,
+		w*ld.ExpertImbalance + (1-w)*lp.ExpertImbalance
 }
 
 // assume records a value the kernel filled in on the deployment's behalf -- an engine

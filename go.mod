@@ -4,6 +4,6 @@ go 1.24.0
 
 toolchain go1.24.2
 
-require github.com/inference-sim/blis-schemas v0.3.1-0.20261016183153-d48d2635fc76
+require github.com/inference-sim/blis-schemas v0.3.1-0.20261017092034-afd839aa6053
 
 require gopkg.in/yaml.v3 v3.0.1
