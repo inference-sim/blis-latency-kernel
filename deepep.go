@@ -17,11 +17,28 @@ type deepEPA2A struct {
 	variant string
 	floor   float64 // seconds
 	rate    float64 // bytes per second
+	// graphFloor and graphRate price the step when it replays a captured graph, where the
+	// variant has a graph-mode measurement (deepep_low_latency_graph); zero otherwise.
+	graphFloor, graphRate float64
 }
 
-// seconds prices one MoE layer's dispatch and combine.
+// seconds prices one MoE layer's dispatch and combine, launched eagerly.
 func (d *deepEPA2A) seconds(bytes float64) float64 {
 	return d.floor + bytes/d.rate
+}
+
+// secondsFor prices it for a step that replays a captured graph or not.
+//
+// DeepEP low-latency's legacy kernels are capturable, and vLLM v0.31.0 captures them in a
+// decode step's graph. The eager measurement (vLLM's prepare/finalize timed with CUDA events,
+// host issue included) overstates such a step: the graph-replayed kernels cost 37.5 us +
+// bytes/146 GB/s on H100 against the eager 108.1 us + bytes/109 GB/s (blis-registry
+// moe_a2a_*_deepep_low_latency_graph_8rank_*). A step with no graph pays the eager price.
+func (d *deepEPA2A) secondsFor(bytes float64, graphed bool) float64 {
+	if graphed && d.graphRate > 0 {
+		return d.graphFloor + bytes/d.graphRate
+	}
+	return d.seconds(bytes)
 }
 
 // deepEPVariant names the measured DeepEP family the resolved backend runs, or "" for a
@@ -60,7 +77,8 @@ func (k *Kernel) liftDeepEP(c *resolve.Coefficients) {
 	key := collKey{Op: model.OpAll2All, Group: price.GroupExpert}
 	width, _ := k.groupSize(key.Group)
 	chip := strings.ReplaceAll(k.chip.Name, "-", "_")
-	stem := fmt.Sprintf("%s_%drank_%s", variant, width, chip)
+	suffix := fmt.Sprintf("%drank_%s", width, chip)
+	stem := variant + "_" + suffix
 	floorName, rateName := "moe_a2a_floor_"+stem, "moe_a2a_rate_"+stem
 	if k.crossesNodes(key) || !c.Has(floorName) || !c.Has(rateName) {
 		why := "no " + floorName + " in the scenario's coefficient sets"
@@ -75,6 +93,13 @@ func (k *Kernel) liftDeepEP(c *resolve.Coefficients) {
 		variant: variant,
 		floor:   c.ValueOr(floorName, 0) * 1e-6,
 		rate:    c.ValueOr(rateName, 0) * 1e6,
+	}
+	if variant == "deepep_low_latency" {
+		gf, gr := "moe_a2a_floor_deepep_low_latency_graph_"+suffix, "moe_a2a_rate_deepep_low_latency_graph_"+suffix
+		if c.Has(gf) && c.Has(gr) {
+			k.deepEP.graphFloor = c.ValueOr(gf, 0) * 1e-6
+			k.deepEP.graphRate = c.ValueOr(gr, 0) * 1e6
+		}
 	}
 	if variant == "deepep_v2_eager" || variant == "deepep_v2_graph" {
 		k.assume("deepep_v2_mode", variant,

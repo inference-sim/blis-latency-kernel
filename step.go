@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/inference-sim/blis-schemas/kernel"
+	"github.com/inference-sim/blis-schemas/spec/model"
 
 	"github.com/inference-sim/blis-latency-kernel/internal/price"
 )
@@ -38,6 +39,9 @@ type stepShape struct {
 	decodeTokens, prefillTokens     int
 	anyContext                      bool
 	smDerate                        float64
+	// graphed is whether the step replays a captured graph rather than launching eagerly
+	// (stepGraphed), which picks DeepEP low-latency's price (deepEPA2A.seconds).
+	graphed bool
 }
 
 // shapeOf reduces a batch to the step shape.
@@ -235,6 +239,7 @@ func (k *Kernel) shapeOf(b kernel.Batch) stepShape {
 		decodeTokens: decodeTokens, prefillTokens: prefillTokens,
 		anyContext: anyContext, smDerate: smDerate,
 		logitsRows: float64(decodeTokens + prefillRequests),
+		graphed:    k.stepGraphed(b),
 	}
 }
 
@@ -310,6 +315,11 @@ func (k *Kernel) stepTime(b kernel.Batch,
 			}
 		}
 		per = make(map[kernel.Resource]time.Duration, live)
+	}
+	noOverlap, _ := summarize(&perResource, nil)
+	if sched := k.schedulerHost(b, noOverlap); sched > 0 {
+		host += sched
+		perResource[idxHost] = host.Seconds()
 	}
 	noOverlap, bottleneck := summarize(&perResource, per)
 	overlap := seconds(overlapSeconds) + host
@@ -924,6 +934,10 @@ func (k *Kernel) priceLayers(layers []price.PlannedLayer, fits [][]gemmFit, kv [
 			} else if k.crossesNodes(key) {
 				elapsed = k.collectiveSeconds(key, bytes*k.spanFor(key))
 				crossNode += elapsed
+			} else if k.deepEP != nil && key.Op == model.OpAll2All &&
+				key.Group == price.GroupExpert {
+				elapsed = k.deepEP.secondsFor(bytes, s.graphed)
+				onNode += elapsed
 			} else {
 				elapsed = k.collectiveSeconds(key, bytes)
 				onNode += elapsed
@@ -1012,4 +1026,16 @@ func (k *Kernel) priceLayers(layers []price.PlannedLayer, fits [][]gemmFit, kv [
 	}
 	return overlapSeconds
 
+}
+
+// stepGraphed reports whether a step replays a captured graph: a mode other than NONE for
+// the step's kind (a uniform decode batch takes the decode mode, as targetHost does), and
+// a padded token count within the capture ceiling, past which the engine runs eagerly
+// (gpu_model_runner.py:4407-4413).
+func (k *Kernel) stepGraphed(b kernel.Batch) bool {
+	mode := k.graphOther
+	if len(b.Reqs) == 0 || b.UniformDecode(k.uniformDecodeWidth) {
+		mode = k.graphDecode
+	}
+	return mode != graphModeEager && b.PaddedTokens() <= k.captureTokens
 }

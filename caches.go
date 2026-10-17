@@ -344,7 +344,7 @@ func (k *Kernel) cacheBoundedBytesUpTo(inFlight, extraRetained, tokens int) floa
 // picks, and at pp 1 both hold two.
 func (k *Kernel) maxInFlightTokens() int {
 	batches := max(k.layout.PP, 1)
-	if a := k.pool.Engine.AsyncScheduling; a == nil || *a {
+	if k.asyncScheduling {
 		batches++
 	}
 	return batches * k.batchedTokens

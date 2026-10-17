@@ -209,3 +209,32 @@ func TestTheLowLatencyBufferFollowsTheEnginesTokenBudget(t *testing.T) {
 		t.Errorf("tp8 dp1 dispatches nothing yet holds %d B of DeepEP buffer", b)
 	}
 }
+
+// DeepEP low-latency's kernels are captured into a decode step's graph, so a graphed step is
+// priced from the graph-mode measurement, and an eager one from the eager measurement. Raising
+// the graph floor by 100 us moves a captured decode step by 100 us per MoE layer and leaves
+// an eager step (cudagraph_mode NONE) where it was.
+func TestDeepEPLowLatencyTakesTheGraphPriceWhenTheStepIsCaptured(t *testing.T) {
+	b := decodeBatch(32, 1, 20000)
+	with := func(mode string, graphFloor float64) *Kernel {
+		e := priced("deepep_low_latency", 300, 1e5)
+		for k, v := range priced("deepep_low_latency_graph", graphFloor, 1e5) {
+			e[k] = v
+		}
+		return dep8(t, "deepep_low_latency", mode, 256, e)
+	}
+	lo, hi := with("FULL_AND_PIECEWISE", 50), with("FULL_AND_PIECEWISE", 150)
+	want := time.Duration(moeLayers(lo)) * 100 * time.Microsecond
+	if got := hi.StepTime(b).NoOverlap - lo.StepTime(b).NoOverlap; got < want-time.Microsecond ||
+		got > want+time.Microsecond {
+		t.Errorf("100 us more graph floor moved a captured decode step by %v; want %v", got, want)
+	}
+	if d := with("NONE", 150).StepTime(b).NoOverlap - with("NONE", 50).StepTime(b).NoOverlap; d != 0 {
+		t.Errorf("the graph floor moved an eager step by %v; it must not", d)
+	}
+	// A step past the capture ceiling runs eagerly whatever the mode.
+	past := decodeBatch(lo.captureTokens+1, 1, 20000)
+	if d := hi.StepTime(past).NoOverlap - lo.StepTime(past).NoOverlap; d != 0 {
+		t.Errorf("the graph floor moved a step past the capture ceiling by %v; it must not", d)
+	}
+}

@@ -28,6 +28,7 @@ reason. They are of two kinds.
 | Name | Recorded when |
 |---|---|
 | `attention_prefill_<kind>` | A measured prefill family for an attention kind (`sparse_mla`) or a scorer's role (`block_index_scores`) is only partly in the scenario's sets, so it is not used, and prefill is priced as without it. Value `fallback`. |
+| `async_scheduling_spec` | The deployment speculates and the engine rules carry no async-compatible draft list, so the draft method is taken as leaving async scheduling on. |
 | `block_size` | The deployment states no block size. 64 for a DSA sparse-attention model, whose indexer accepts only 64; for a DeepSeek-V4-family model the one kernel block its sparse backends accept on the part (for DeepSeek-V4.1 64 on SM90 and 128 on SM100; for DeepSeek-V4 256 on every part); otherwise vLLM's default of 16. |
 | `cache_record` | A graph states a cache with no record listed under the cache data type that runs, so the cache is sized at its base record. |
 | `compute_rate_<kind>` | A GEMM's weights are in a format whose rate the catalog does not state: FP32 weights run at the TF32 rate, taken as half the dense BF16 peak. |
@@ -78,6 +79,7 @@ the model has a layer of that kind.
 | `recurrent_prefill_floor_<kind>` | A recurrent mixer with a measured prefill rate is charged no prefill floor |
 | `moe_routing_imbalance_median` | Experts are priced as evenly loaded |
 | `host_link_bandwidth` | An offload transfer is not capped at the host link's rate |
+| `host_step_per_request` | The scheduler's per-request CPU cost is charged at zero; with it, a step without async scheduling carries it in series and one with async scheduling shows only its excess over the device work |
 | `host_admission_per_token`, `host_admission_per_request`, `host_output_token`, `host_completion`, `host_launch_eager_per_layer`, `host_launch_per_kernel`, `host_replay_graph_per_step` | That host cost is charged at zero |
 
 The eager launch cost is read as `host_launch_eager_per_kernel` where a set carries it, and as
