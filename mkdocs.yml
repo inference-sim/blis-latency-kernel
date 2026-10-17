@@ -148,3 +148,4 @@ nav:
   - Contributing:
       - contributing/index.md
       - Documentation and releases: contributing/documentation.md
+      - Changes across the repositories: contributing/cross-repo-changes.md
