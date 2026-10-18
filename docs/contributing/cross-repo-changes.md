@@ -32,3 +32,5 @@ release tags before the kernel merges.
   page requires, from a build of inference-sim against this kernel's pushed head;
 - for a coefficient the change reads or adds, the registry's
   [fitting principles](https://github.com/inference-sim/blis-registry/blob/main/docs/fitting-principles.md).
+
+A private-names check (`.github/workflows/private-names.yml`) reads its pattern from a repository secret and fails a pull request whose files, paths, commit messages, title or body match it.
