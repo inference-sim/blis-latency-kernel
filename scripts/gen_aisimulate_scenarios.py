@@ -28,11 +28,18 @@ one of them to say nothing it does not already say. harness.LoadBundle reads the
 STATED, and written here: tp_size, pp_size, attention_dp_size, moe_ep_size, moe_tp_size,
 framework, precision, serving, gpu, model.
 
-NOT stated, and therefore set here: max_num_seqs, max_model_len, block_size,
-gpu_memory_utilization, cudagraph_mode. They are NOT vLLM's defaults, and the written header
-says how each differs: block_size 16 is only the nominal default, which a backend may raise
-(vllm/platforms/interface.py), and a DSA sparse-MLA model is stated at 64, the size vLLM picks
-for it and a multiple of the only kernel block its indexer runs (see DSA_MODELS); gpu_memory_utilization's default is 0.92 (vllm/config/cache.py);
+NOT stated by the artifact corpus, and therefore set here: max_num_seqs, max_model_len,
+block_size, gpu_memory_utilization, cudagraph_mode. A sweep carrying `stated_config` (the
+InferenceX direct corpus: what the run's own args line passed) supplies
+gpu_memory_utilization, block_size, enable_prefix_caching and the speculative config, which
+are then written as stated. gpu_memory_utilization not stated is vLLM v0.31.0's default,
+0.92 (vllm/config/cache.py:103); prefix caching and speculation not stated are left out, so
+v0.31.0's defaults apply (caching on, no drafting). A stated drafter the catalog graph does
+not describe is not written (see UNPRICED_SPECULATORS), and the file's header says so.
+The rest are NOT vLLM's defaults, and the written header says how each differs: block_size
+16 is only the nominal default, which a backend may raise (vllm/platforms/interface.py),
+and a DSA sparse-MLA model is stated at 64, the size vLLM picks for it and a multiple of the
+only kernel block its indexer runs (see DSA_MODELS);
 max_num_seqs 256 is the default only below 70 GiB or on an A100
 (EngineArgs.get_batch_defaults, vllm/engine/arg_utils.py); cudagraph_mode's default is
 FULL_AND_PIECEWISE (vllm/config/compilation.py) -- all at v0.29.0 and v0.31.0. They are held fixed so committed scores stay comparable,
@@ -92,6 +99,15 @@ V4_MODELS = {"deepseek-v4-pro"}
 def v4_block_size(gpu: str) -> int:
     return 256
 
+
+# vLLM v0.31.0's CacheConfig.gpu_memory_utilization default (vllm/config/cache.py:103).
+GPU_MEMORY_UTILIZATION_DEFAULT = 0.92
+
+# Stated drafters the catalog graph does not describe: the kernel refuses a deployment that
+# drafts with a method other than its graph's speculator (liftDraft, draft.go). MiniMax-M3's
+# graph states its own MTP head; EAGLE3 runs a separate draft checkpoint.
+UNPRICED_SPECULATORS = {("minimax-m3", "eagle3")}
+
 # A KV cache dtype is not stated by the corpus. fp8 KV is the default for the fp8 and fp4
 # arms in these frameworks; bf16 serving keeps an unquantised cache.
 CACHE_DTYPE = {"fp4": "fp8", "fp8": "fp8", "bf16": "auto", "int4": "auto"}
@@ -127,6 +143,11 @@ def emit(dep: dict, workloads: set[str], labels: set[str]) -> str:
     block_size = 64 if dep["model"] in DSA_MODELS else 16
     if dep["model"] in V4_MODELS:
         block_size = v4_block_size(dep["gpu"])
+    stated = dep.get("stated_config", {})
+    block_size = stated.get("block_size", block_size)
+    gmu = stated.get("gpu_memory_utilization", GPU_MEMORY_UTILIZATION_DEFAULT)
+    spec = stated.get("speculative_method")
+    unpriced_spec = (dep["model"], spec) in UNPRICED_SPECULATORS
 
     lines = [
         f"# {dep['model']} on {dep['gpu']}, {dep['precision']} under {dep['framework']},",
@@ -139,9 +160,25 @@ def emit(dep: dict, workloads: set[str], labels: set[str]) -> str:
         f"# moe_ep_size {ep}, moe_tp_size {par['moe_tp_size']}. Workloads scored at this",
         f"# deployment: {', '.join(sorted(labels))}.",
         "#",
-        "# max_num_seqs, block_size, gpu_memory_utilization and cudagraph_mode are not in the",
-        "# corpus, so they are set here -- and not to vLLM's defaults. block_size 16 is its nominal",
-        "# default, which a backend may raise; gpu_memory_utilization's default is 0.92, not 0.9;",
+        f"# gpu_memory_utilization {gmu}: "
+        + ("stated by the run." if "gpu_memory_utilization" in stated else
+           "not stated, so vLLM v0.31.0's default (vllm/config/cache.py:103)."),
+        f"# block_size {block_size}: "
+        + ("stated by the run." if "block_size" in stated else "not stated; see below."),
+    ]
+    if "enable_prefix_caching" in stated:
+        lines.append("# enable_prefix_caching: stated by the run.")
+    if spec and unpriced_spec:
+        lines += [f"# speculative: the run drafts with {spec} x"
+                  f"{stated['num_speculative_tokens']}, NOT written: the catalog graph",
+                  "# describes no such drafter, so the kernel would refuse the file."]
+    elif spec:
+        lines.append("# speculative: stated by the run.")
+    lines += [
+        "#",
+        "# max_num_seqs and cudagraph_mode are not in the corpus, nor is an unstated",
+        "# block_size, so they are set here -- and not to vLLM's defaults. block_size 16 is its",
+        "# nominal default, which a backend may raise;",
         "# max_num_seqs 256 is its default only below 70 GiB or on an A100; and its cudagraph_mode",
         "# default is FULL_AND_PIECEWISE, not PIECEWISE (all at v0.29.0 and v0.31.0). They are held",
         "# fixed so committed scores stay comparable; moving them to the engine's defaults is a",
@@ -150,7 +187,9 @@ def emit(dep: dict, workloads: set[str], labels: set[str]) -> str:
         "# derived from the workload instead, since a window shorter than isl+osl would describe a",
         "# deployment that cannot serve its own points.",
     ]
-    if dep["model"] in V4_MODELS:
+    if "block_size" in stated:
+        pass  # stated by the run; the rule notes below do not apply
+    elif dep["model"] in V4_MODELS:
         lines += [
             "#",
             f"# block_size is {block_size} here, not 16: this is a DeepSeek-V4 model, whose sparse",
@@ -210,8 +249,17 @@ def emit(dep: dict, workloads: set[str], labels: set[str]) -> str:
         "      max_num_seqs: 256",
         f"      max_model_len: {max_len}",
         "      cudagraph_mode: PIECEWISE",
-        "      gpu_memory_utilization: 0.9",
+        f"      gpu_memory_utilization: {gmu}",
     ]
+    if "enable_prefix_caching" in stated:
+        pc = str(stated["enable_prefix_caching"]).lower()
+        lines.append(f"      enable_prefix_caching: {pc}")
+    if spec and not unpriced_spec:
+        lines += [
+            "      speculative:",
+            f"        method: {stated['speculative_method']}",
+            f"        num_spec_tokens: {stated['num_speculative_tokens']}",
+        ]
     return "\n".join(lines) + "\n"
 
 

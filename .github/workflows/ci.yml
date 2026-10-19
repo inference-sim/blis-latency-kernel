@@ -54,4 +54,6 @@ jobs:
       - name: go test -race (the concurrency contract)
         run: go test -race -count=1 -run TestStepTimeIsPureAndSafeUnderConcurrency .
       - name: Python script tests that need no corpus
-        run: python3 scripts/test_extract_inferencex_engine_settings.py
+        run: |
+          python3 scripts/test_extract_inferencex_engine_settings.py
+          python3 scripts/test_gen_aisimulate_scenarios.py
