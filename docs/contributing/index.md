@@ -60,3 +60,9 @@ measurement corpora, which are not in the repository.
 
 [Documentation and releases](documentation.md) describes the site, how its generated parts are
 kept current, and how a release publishes it.
+
+## Changes across the repositories
+
+A change that also touches blis-schemas, the catalog, the registry or inference-sim follows
+[Changes across the repositories](cross-repo-changes.md), which links the canonical process and
+lists the kernel's own steps.

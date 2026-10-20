@@ -142,9 +142,17 @@ func TestWeightOnlyGEMMsComputeAtTheirActivationRate(t *testing.T) {
 
 // FP32 weights run at the TF32 rate, below BF16's.
 func TestFP32GEMMsAreSlowerThanBF16(t *testing.T) {
+	// V4.1's FP32 GEMMs are its hc_*fn mixing GEMMs, which a measured mHC form replaces
+	// (step.go). blis-registry v0.2.0 measures that form on h200, so strip it: this test
+	// is about the GEMMs' own rate.
+	noMHC := func() Inputs {
+		return withoutEntries(fixtureInputs(t, v41), map[string]bool{
+			"mhc_floor_pre": true, "mhc_rate_pre": true,
+			"mhc_floor_post": true, "mhc_rate_post": true})
+	}
 	b := kernel.Batch{Reqs: []kernel.ReqShape{{Scheduled: 8192, PromptLen: 8192}}}
-	fp32 := build(t, fixtureInputs(t, v41)).StepTime(b).PerResource[kernel.ResourceSM]
-	in := fixtureInputs(t, v41)
+	fp32 := build(t, noMHC()).StepTime(b).PerResource[kernel.ResourceSM]
+	in := noMHC()
 	if editNodes(in.Model, func(n model.Node) bool { return n.WeightDType == model.DTypeFP32 },
 		func(n *model.Node) { n.WeightDType = model.DTypeBF16 }) == 0 {
 		t.Fatal("the graph states no FP32 GEMM")

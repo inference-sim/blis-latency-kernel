@@ -89,6 +89,9 @@ def main() -> int:
             "serving": sw["serving"],
             "spec_method": sw["spec_method"],
             "parallelism": sw["parallelism"],
+            # What the run's own args line passed, which gen_aisimulate_scenarios.py
+            # writes into the deployment rather than a held-fixed value.
+            "stated_config": sw["stated_config"],
             "points": out_pts,
         })
 

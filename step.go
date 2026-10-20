@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/inference-sim/blis-schemas/kernel"
+	"github.com/inference-sim/blis-schemas/spec/model"
 
 	"github.com/inference-sim/blis-latency-kernel/internal/price"
 )
@@ -13,9 +14,12 @@ import (
 // once per step and priced against the target's layers and, when the deployment
 // speculates, against the drafter's.
 type stepShape struct {
-	// tokens is the token count this rank runs a forward over, raw the batch's own.
-	tokens, raw int
-	tokensF     float64
+	// tokens is the token count this rank runs a forward over, raw the batch's own
+	// requests' tokens. tokens includes the data-parallel lockstep pad (Batch.PadTokens),
+	// which runs every layer's GEMMs, collectives and experts; attnTokensF is tokens
+	// without it, the rows attention runs.
+	tokens, raw          int
+	tokensF, attnTokensF float64
 	// spRows is the rows a token-sharded node sees under the model's own sequence
 	// parallelism: ceil(tokens / tp), since sp_shard pads the count to a multiple of tp.
 	spRows float64
@@ -35,6 +39,9 @@ type stepShape struct {
 	decodeTokens, prefillTokens     int
 	anyContext                      bool
 	smDerate                        float64
+	// graphed is whether the step replays a captured graph rather than launching eagerly
+	// (stepGraphed), which picks DeepEP low-latency's price (deepEPA2A.seconds).
+	graphed bool
 }
 
 // shapeOf reduces a batch to the step shape.
@@ -201,6 +208,15 @@ func (k *Kernel) shapeOf(b kernel.Batch) stepShape {
 	// ramp's own call site, that it is evaluated at the step's token count rather than a
 	// per-term one, still holds: what changed is how many tokens the step HAS.
 	tokens -= withheldByPCP
+	attnTokensF := float64(tokens)
+	// The data-parallel lockstep pad. vLLM runs every rank's forward at the group's
+	// largest token count (_post_process_dp_padding, vllm/v1/worker/dp_utils.py:99-111),
+	// passed to the forward as num_tokens (vllm/v1/worker/gpu_model_runner.py:4407-4413),
+	// so the pad runs the GEMMs, the MoE dispatch and combine and the experts. Attention
+	// runs only the scheduled requests' tokens, and the LM head, the vocabulary all-gather
+	// and sampling only their logits rows (logits_indices, :2231), so the pad enters no
+	// term that walks the requests and no logits row.
+	tokens += max(b.PadTokens, 0)
 
 	smBudget := b.SMBudget
 	if smBudget <= 0 || k.chip.SMCount == 0 {
@@ -214,7 +230,7 @@ func (k *Kernel) shapeOf(b kernel.Batch) stepShape {
 
 	tokensF := float64(tokens)
 	return stepShape{
-		tokens: tokens, raw: b.Tokens(), tokensF: tokensF,
+		tokens: tokens, raw: b.Tokens(), tokensF: tokensF, attnTokensF: attnTokensF,
 		spRows:      math.Ceil(tokensF / k.tp),
 		causalFLOPs: causalFLOPs, decodeKVTokens: decodeKVTokens,
 		decodeQueryCtx: decodeQueryCtx,
@@ -223,14 +239,17 @@ func (k *Kernel) shapeOf(b kernel.Batch) stepShape {
 		decodeTokens: decodeTokens, prefillTokens: prefillTokens,
 		anyContext: anyContext, smDerate: smDerate,
 		logitsRows: float64(decodeTokens + prefillRequests),
+		graphed:    k.stepGraphed(b),
 	}
 }
 
 func (k *Kernel) stepTime(b kernel.Batch,
 	into map[kernel.Resource]time.Duration) kernel.StepEstimate {
-	tokens := b.Tokens()
+	tokens := b.PaddedTokens()
 	if tokens == 0 {
 		// An empty step launches no work but still costs the host its per-step overhead.
+		// A data-parallel rank with nothing scheduled but a pad to run is not empty: it
+		// runs a dummy forward at the pad (_dummy_run, gpu_model_runner.py:5784, 6090).
 		host := k.hostPerStep(b)
 		per := into
 		if per == nil {
@@ -281,7 +300,7 @@ func (k *Kernel) stepTime(b kernel.Batch,
 	// with itself, and its work is not hidden behind a stage the way device work is. Per
 	// kernel dispatch joins it, for the same reason — a kernel cannot run before it has
 	// been dispatched.
-	host := k.hostPerStepWith(b, draftKernels) + seconds(k.launchSeconds(draftKernels))
+	host := k.hostPerStepWith(b, draftKernels) + seconds(k.launchSeconds(b, draftKernels))
 	perResource[idxHost] = host.Seconds()
 
 	// The breakdown map is the only thing that can allocate here. A caller that supplied
@@ -296,6 +315,11 @@ func (k *Kernel) stepTime(b kernel.Batch,
 			}
 		}
 		per = make(map[kernel.Resource]time.Duration, live)
+	}
+	noOverlap, _ := summarize(&perResource, nil)
+	if sched := k.schedulerHost(b, noOverlap); sched > 0 {
+		host += sched
+		perResource[idxHost] = host.Seconds()
 	}
 	noOverlap, bottleneck := summarize(&perResource, per)
 	overlap := seconds(overlapSeconds) + host
@@ -382,6 +406,11 @@ func (k *Kernel) priceLayers(layers []price.PlannedLayer, fits [][]gemmFit, kv [
 		// priced on its token ramp, which is what that format always was.
 		for gi := range l.DenseGEMMs {
 			g := &l.DenseGEMMs[gi]
+			// A hyper-connection mixing GEMM is inside the measured mHC pre form, which
+			// times the TF32 prenorm GEMM with the kernel (see mhcSeconds).
+			if g.MHCFn && k.mhcPre.rate > 0 {
+				continue
+			}
 			var fit gemmFit
 			if fits != nil {
 				fit = fits[i][gi]
@@ -482,8 +511,11 @@ func (k *Kernel) priceLayers(layers []price.PlannedLayer, fits [][]gemmFit, kv [
 			// Marlin pads a tensor-parallel slice of each expert's intermediate width to a
 			// multiple of 128 (see expertPadding), which is work and weight it runs.
 			pad := k.expertPadding(l)
+			// The busiest expert-parallel rank gates the layer's combine, so its routed
+			// tokens and distinct experts, not the mean rank's, are what the layer pays.
+			rankTok, rankExp := k.routingAt(s, routedTokens)
 			routedFLOPs += routedPerRank * l.ExpertFLOPsPerTokenPerExpert * k.moeImbalance /
-				dpSlice * pad
+				dpSlice * pad * rankTok
 			// Expert weights read: the DISTINCT local experts this step touches, times
 			// each one's per-rank bytes. Two things are separate and vLLM keeps them
 			// separate too (`fused_moe/config.py`): WHICH experts a rank holds, and how
@@ -503,7 +535,8 @@ func (k *Kernel) priceLayers(layers []price.PlannedLayer, fits [][]gemmFit, kv [
 			// under-reads expert weights exactly where coverage is partial -- at the
 			// batch 1-4 prefill rows that make up FPM's attention-DP cells.
 			routedWeightBytes += l.ExpertWeightBytesPerExpert / k.expertTensorShards * pad *
-				price.ExpertsTouched(int(routedTokens+0.5), eg.total, l.TopK, eg.perRank)
+				price.ExpertsTouched(int(routedTokens+0.5), eg.total, l.TopK, eg.perRank) *
+				rankExp
 		}
 		if l.SharedExpertFLOPsPerToken > 0 {
 			// A shared expert is dense: every token pays it, sharded like any projection --
@@ -615,7 +648,14 @@ func (k *Kernel) priceLayers(layers []price.PlannedLayer, fits [][]gemmFit, kv [
 					attnSMSeconds -= k.attentionPrefillFloor.Seconds()
 				}
 			}
-			if s.prefillRequests > 0 {
+			if pf, ok := k.attentionPrefillByKind[l.AttnKind]; ok && s.prefillRequests > 0 &&
+				primaryRecord(l) > 0 {
+				// The kind's measured prefill form, over FlashMLA's block reads.
+				read := sparsePrefillReadBytes(s.prefillChunks, l.AttnWindow, l.AttnIndexTopK,
+					l.AttnCompressRatio, primaryRecord(l), heads)
+				attnSMSeconds += pf.seconds(float64(s.prefillRequests),
+					float64(s.prefillTokens), read)
+			} else if s.prefillRequests > 0 {
 				sm, fl := k.prefillAttention(layerCausalFLOPs*heads*float64(l.AttnHeadDim), s)
 				attnSMSeconds += sm
 				flops += fl
@@ -640,7 +680,13 @@ func (k *Kernel) priceLayers(layers []price.PlannedLayer, fits [][]gemmFit, kv [
 				// One matmul, not attention's two, so it is half attention's FLOPs a pair.
 				// An earlier form skipped every secondary kernel in a step with no decode,
 				// which made the scan free in prefill.
-				if s.prefillRequests > 0 {
+				if pf, ok := k.attentionPrefillByRole[a.Role]; ok && s.prefillRequests > 0 &&
+					len(a.Caches) > 0 {
+					// The role's measured prefill form, over the index keys each query scores.
+					read := scorerPrefillReadBytes(s.prefillChunks, a.CompressRatio,
+						a.Caches[0].EntryBytes, a.QHeads)
+					attnSMSeconds += pf.seconds(0, float64(s.prefillTokens), read)
+				} else if s.prefillRequests > 0 {
 					// The window bounds the span scored and the ratio how many states that
 					// span holds, as in decode below: min(p, window) / ratio a query.
 					var pairs float64
@@ -742,6 +788,8 @@ func (k *Kernel) priceLayers(layers []price.PlannedLayer, fits [][]gemmFit, kv [
 		} else {
 			elementwise += tokensF * l.ElementwiseTokenShardedBytesPerToken
 		}
+		mhcSM, mhcBytes := k.mhcSeconds(l, s, sp)
+		elementwise = math.Max(elementwise-mhcBytes, 0)
 		elementwise += k.contextBytes(l, s)
 		gatherBytes, hostSeconds := k.gatherTraffic(l, s)
 		elementwise += gatherBytes
@@ -805,7 +853,7 @@ func (k *Kernel) priceLayers(layers []price.PlannedLayer, fits [][]gemmFit, kv [
 		// for a high-top_k MoE model is the least certain part of this kernel.
 		ramp := price.Efficiency(tokensF, k.epsMax, k.mHalf)
 		denseSM := flops/(k.computeFLOPsPerSecond*ramp)*smDerate +
-			denseShapedSeconds*smDerate + recurrentSeconds + attnSMSeconds
+			denseShapedSeconds*smDerate + recurrentSeconds + attnSMSeconds + mhcSM
 		denseHBM := (weightBytes+kvBytes+elementwise)/k.hbmBytesPerSecond + attnSeconds +
 			hostSeconds
 
@@ -880,9 +928,20 @@ func (k *Kernel) priceLayers(layers []price.PlannedLayer, fits [][]gemmFit, kv [
 			// 8-GPU node even when expert parallelism spans nine of them.
 			key := collKey{Op: c.Op, Group: c.Group}
 			elapsed := 0.0
-			if k.crossesNodes(key) {
+			if k.denseDispatch(key) {
+				elapsed = k.agrsDispatchSeconds(bytes)
+				if k.crossesNodes(key) {
+					crossNode += elapsed
+				} else {
+					onNode += elapsed
+				}
+			} else if k.crossesNodes(key) {
 				elapsed = k.collectiveSeconds(key, bytes*k.spanFor(key))
 				crossNode += elapsed
+			} else if k.deepEP != nil && key.Op == model.OpAll2All &&
+				key.Group == price.GroupExpert {
+				elapsed = k.deepEP.secondsFor(bytes, s.graphed)
+				onNode += elapsed
 			} else {
 				elapsed = k.collectiveSeconds(key, bytes)
 				onNode += elapsed
@@ -971,4 +1030,16 @@ func (k *Kernel) priceLayers(layers []price.PlannedLayer, fits [][]gemmFit, kv [
 	}
 	return overlapSeconds
 
+}
+
+// stepGraphed reports whether a step replays a captured graph: a mode other than NONE for
+// the step's kind (a uniform decode batch takes the decode mode, as targetHost does), and
+// a padded token count within the capture ceiling, past which the engine runs eagerly
+// (gpu_model_runner.py:4407-4413).
+func (k *Kernel) stepGraphed(b kernel.Batch) bool {
+	mode := k.graphOther
+	if len(b.Reqs) == 0 || b.UniformDecode(k.uniformDecodeWidth) {
+		mode = k.graphDecode
+	}
+	return mode != graphModeEager && b.PaddedTokens() <= k.captureTokens
 }

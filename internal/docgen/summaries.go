@@ -16,6 +16,13 @@ var summaries = map[string]struct{ title, summary string }{
 			"several tokens into one stored state are sized only where the model graph states " +
 			"its caches; a graph that does not is sized as one full-length cache per layer.",
 	},
+	"draft.go|(*Kernel).draftHasOwnGraphs|Coverage limit": {
+		"An autoregressive drafter's own graphs",
+		"A parallel-block drafter such as DSpark is charged under its own CUDA graphs and " +
+			"capture ceiling. An autoregressive drafter (MTP, EAGLE) is still charged under the " +
+			"target's graph mode and ceiling; whether it captures graphs of its own is not " +
+			"modelled.",
+	},
 	"internal/price/plan.go|ActivationBytes|Coverage limit": {
 		"Expert dispatch priced at 16 bits",
 		"The tokens sent to the experts are priced at 16 bits per element. On a quantized " +
@@ -28,6 +35,57 @@ var summaries = map[string]struct{ title, summary string }{
 		"Each expert is priced as three matrices, a gated MLP. An expert with no gate, such as " +
 			"Nemotron-H's relu2 experts, holds two, and blis-schemas has no field saying which an " +
 			"expert is, so such a model's expert weights and arithmetic are over-stated by half.",
+	},
+	"new.go|(*Kernel).computeFixedBytes|Coverage limit": {
+		"DeepSeek-V4.1 load-time memory under expert parallelism",
+		"vLLM holds about 9 GiB a rank more than the kernel charges for DeepSeek-V4.1-Flash " +
+			"with expert parallelism, the same at TP 8 and TP 4, so it is not sharded weights, " +
+			"which agree. Its source is not yet localized, and capacity under expert " +
+			"parallelism is overstated by that much a rank until it is.",
+	},
+	"new.go|(*Kernel).engineBufferBytes|Known over-charge": {
+		"DeepSeek-V4.1's prefill workspace beside the activation scratch",
+		"DeepSeek-V4.1's prefill gather workspace and its indexer's logits stand-in are charged " +
+			"in full beside the registry's activation scratch. vLLM holds the workspace in one " +
+			"shared scratch buffer that its MoE kernels also grow, and the stand-in is a " +
+			"transient at the profile peak, so the engine reserves the larger of each pair " +
+			"where the kernel charges their sum.",
+	},
+	"caches.go|(*Kernel).maxInFlightTokens|Coverage limit": {
+		"Window admission under pipeline parallelism",
+		"A window cache's admission reservation is sized for one more batch in flight than " +
+			"the pipeline-parallel width, as vLLM's default model runner holds under " +
+			"asynchronous scheduling. Its older runner holds one fewer with pipeline " +
+			"parallelism on, and the kernel cannot see which runs, so such a deployment's " +
+			"SequenceAdmissionBytes is up to one token budget a window group high.",
+	},
+	"draft.go|(*Kernel).priceDraft|Coverage limit": {
+		"Draft passes not padded under data-parallel lockstep",
+		"A data-parallel rank's pad tokens run the target model's forward but not the " +
+			"drafter's passes. vLLM pads the draft passes across the group too, to a count set " +
+			"by every rank's draft batch, which one rank's batch does not state, so a padded " +
+			"rank's draft work is under-stated by its pad.",
+	},
+	"kernel.go|(*Kernel).PreSnapshotBytes|Known divergence": {
+		"The engine workspace is all outside the memory budget",
+		"The registry's engine workspace is one lumped allowance for the CUDA context, cuBLAS " +
+			"and allocator slack, and the kernel reports all of it outside the " +
+			"gpu_memory_utilization budget, with the communicator. vLLM charges the part that " +
+			"arises after its memory snapshot, library workspaces made at the first forward, " +
+			"against the KV cache, which the kernel leaves out.",
+	},
+	"kernel.go|(*Kernel).recurrentRankBytes|Coverage limit": {
+		"Mamba-2 groups widened past the tensor-parallel width",
+		"A Mamba-2 layer's recurrent state is divided by the tensor-parallel width. Where " +
+			"that width exceeds the layer's group count, vLLM widens the groups so every head's " +
+			"shard has one, which holds a little more state than this charges.",
+	},
+	"kernel.go|(*Kernel).SequenceBoundedBytesAt|Known over-charge": {
+		"A young window ring's trailing page",
+		"Before a request has computed a window's worth of tokens, its window ring is charged " +
+			"one page more than vLLM holds, as the window is sized as if it might start part-way " +
+			"through a page. At most one page a ring, and none once the request is past its " +
+			"window.",
 	},
 	"kernel.go|(*Kernel).pdTransferBytes|Coverage limit": {
 		"P/D handoffs between pools of different widths",

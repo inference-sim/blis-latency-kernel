@@ -39,7 +39,7 @@ func TestFixedBytesAccountsForTheWholeModelAcrossRanks(t *testing.T) {
 	if fixed.ActivationPeak <= 0 {
 		t.Error("no activation scratch reported; a batch needs somewhere to land")
 	}
-	if fixed.CommBuffers <= 0 {
+	if k.PreSnapshotBytes() <= 0 {
 		t.Error("a multi-rank deployment reserves communicator buffers")
 	}
 }
@@ -1080,7 +1080,7 @@ func TestDispatchCostScalesWithTheKernelCount(t *testing.T) {
 	// step survived it.
 	e := k.StepTime(decodeBatch(1, 1, 8256))
 	host := e.PerResource[kernel.ResourceHost]
-	dispatch := seconds(k.launchSeconds(0))
+	dispatch := seconds(k.launchSeconds(decodeBatch(1, 1, 8256), 0))
 	if host < dispatch {
 		t.Errorf("the step reports %v of host time but dispatch alone is %v; the term "+
 			"is computed and not charged", host, dispatch)
@@ -1106,15 +1106,17 @@ func TestDispatchCostScalesWithTheKernelCount(t *testing.T) {
 }
 
 func TestDispatchCostIsIndependentOfBatchAndContext(t *testing.T) {
-	// The term is per kernel, and the kernel count is a property of the model rather than
-	// of the batch. If it moved with either, it would be absorbing something else.
+	// The term is per kernel, and over decode batches the kernel count is a property of the
+	// model rather than of the batch. If it moved with either, it would be absorbing
+	// something else. (A prefill row adds the graph's prefill-only nodes; see
+	// TestADecodeStepDoesNotLaunchPrefillOnlyNodes.)
 	k := fixture(t, "minimax-m25-h200-tp8.yaml")
-	want := k.launchSeconds(0)
+	want := k.launchSeconds(decodeBatch(1, 1, 128), 0)
 	for _, b := range []kernel.Batch{
 		decodeBatch(1, 1, 128), decodeBatch(1, 1, 32768), decodeBatch(512, 1, 8192),
 	} {
 		_ = k.StepTime(b)
-		if got := k.launchSeconds(0); got != want {
+		if got := k.launchSeconds(b, 0); got != want {
 			t.Errorf("dispatch changed to %v at %d tokens; it is per kernel and the "+
 				"kernel count does not depend on the batch", got, b.Tokens())
 		}

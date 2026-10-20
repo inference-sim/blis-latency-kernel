@@ -78,6 +78,8 @@ func ExampleKernel_FixedBytes() {
 	fmt.Printf("comm buffers %5.1f GiB\n", float64(m.CommBuffers)/gib)
 	fmt.Printf("EPLB         %5.1f GiB\n", float64(m.EPLBRedundant)/gib)
 	fmt.Printf("total        %5.1f GiB per rank\n", float64(m.Total())/gib)
+	// The communicator and engine workspace, held before the budget is measured.
+	fmt.Printf("before the budget %4.1f GiB\n", float64(k.PreSnapshotBytes())/gib)
 
 	// KV cache for one request, rounded up to whole pages.
 	fmt.Printf("a 4,096-token request: %.0f MiB of KV cache per rank\n",
@@ -88,9 +90,10 @@ func ExampleKernel_FixedBytes() {
 	// weights       78.2 GiB
 	// activations    1.1 GiB
 	// CUDA graphs    0.8 GiB
-	// comm buffers   3.9 GiB
+	// comm buffers   0.0 GiB
 	// EPLB           0.0 GiB
-	// total         84.0 GiB per rank
+	// total         80.1 GiB per rank
+	// before the budget  3.9 GiB
 	// a 4,096-token request: 137 MiB of KV cache per rank
 }
 
@@ -124,11 +127,11 @@ func ExampleKernel_Evidence() {
 	// --8<-- [end:evidence]
 
 	// Output:
-	// 109 of 151 values rest on evidence; 41 were assumed
+	// 113 of 155 values rest on evidence; 41 were assumed
 	//   assumed       41
-	//   measured      94
+	//   measured      99
 	//   not_charged    1
-	//   vendor_spec   15
+	//   vendor_spec   14
 	// the kernel assumed max_cudagraph_capture_size
 	// the kernel assumed engine_version
 }

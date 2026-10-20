@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/inference-sim/blis-schemas/rules"
 	"github.com/inference-sim/blis-schemas/spec/deployment"
 	"github.com/inference-sim/blis-schemas/spec/model"
 	"github.com/inference-sim/blis-schemas/spec/scenario"
@@ -35,7 +36,13 @@ func (r stubRules) ResolveCacheDType(_ string, _, _ int, requested string) strin
 	return requested
 }
 func (r stubRules) WindowPagesPerRequest(model.Cache, int, int, int, int) int { return 0 }
-func (r stubRules) CustomAllReduceSupportsWidth(tp int) bool                  { return r.customWidths[tp] }
+func (r stubRules) CUDAGraphCaptureSizes(deployment.Engine) (rules.CUDAGraphCapture, bool, error) {
+	return rules.CUDAGraphCapture{}, false, nil
+}
+func (r stubRules) KVCacheGroups(rules.KVCacheGroupsInput) (rules.KVCacheGrouping, error) {
+	return rules.KVCacheGrouping{}, nil
+}
+func (r stubRules) CustomAllReduceSupportsWidth(tp int) bool { return r.customWidths[tp] }
 func (r stubRules) TritonFetchWithholdsSMs(pageBytes int) int {
 	if pageBytes > 0 && pageBytes < 28*1024 {
 		return 12
@@ -146,6 +153,28 @@ func TestEmitsUnderEachLayout(t *testing.T) {
 				model.EmitTensorParallel:                          true,
 				model.EmitExpertParallel:                          true,
 				model.EmitTensorParallelUnlessSequenceParallelMoE: false,
+			},
+		},
+		{
+			what:   "expert parallel at dp 1: the experts run on replicated tokens, no dispatch",
+			layout: Layout{TP: 8, DP: 1, ExpertWidth: 8},
+			want: map[model.EmitCondition]bool{
+				model.EmitTensorParallel: true,
+				model.EmitExpertParallel: false,
+			},
+		},
+		{
+			what:   "expert parallel at dp 1 under the model's own sequence parallelism dispatches",
+			layout: Layout{TP: 8, DP: 1, ExpertWidth: 8, ModelSequenceParallel: true},
+			want: map[model.EmitCondition]bool{
+				model.EmitExpertParallel: true,
+			},
+		},
+		{
+			what:   "no expert parallelism at dp 2: the naive dispatch runs over the dp ranks",
+			layout: Layout{TP: 4, DP: 2, ExpertWidth: 1, MoEGroupWidth: 8},
+			want: map[model.EmitCondition]bool{
+				model.EmitExpertParallel: true,
 			},
 		},
 	}

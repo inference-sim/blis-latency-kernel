@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -71,9 +72,10 @@ func TestFixedOccupancyIsTheRegistrysComposition(t *testing.T) {
 		if tp > 1 {
 			comm += v(fmt.Sprintf("nccl_communicator_bytes_%drank", tp))
 		}
-		if got.CommBuffers != int64(comm) {
-			t.Errorf("tp=%d: CommBuffers %d, want %d (communicator + workspace)",
-				tp, got.CommBuffers, int64(comm))
+		// Held before vLLM's memory snapshot, so outside the budget and out of Total.
+		if pre := k.PreSnapshotBytes(); pre != int64(comm) || got.CommBuffers != 0 {
+			t.Errorf("tp=%d: PreSnapshotBytes %d and CommBuffers %d, want %d "+
+				"(communicator + workspace) and 0", tp, pre, got.CommBuffers, int64(comm))
 		}
 		if want := int64(v("cudagraph_capture_bytes_piecewise")); got.CUDAGraph != want {
 			t.Errorf("tp=%d: CUDAGraph %d, want the piecewise capture %d", tp, got.CUDAGraph, want)
@@ -92,19 +94,20 @@ func TestFixedOccupancyIsTheRegistrysComposition(t *testing.T) {
 // supposed to break this, and the commit that does so says why.
 //
 //	at tp=8: activation 1,174,405,120  capture 858,783,744  communicator 411,041,792
-//	         workspace 3,758,096,384 -- 6,202,327,040 of fixed occupancy beside weights
+//	         workspace 3,758,096,384 -- 2,033,188,864 of fixed occupancy beside weights
+//	         inside the budget, and 4,169,138,176 held before vLLM's memory snapshot
 //	at tp=2: the communicator is 358,612,992, not the 411,041,792 a constant gave
 func TestFixedOccupancyMatchesTheFiguresTheIssueStates(t *testing.T) {
 	k := fixture(t, memoryFixture)
 	got := k.FixedBytes()
 	if got.ActivationPeak != 1174405120 || got.CUDAGraph != 858783744 ||
-		got.CommBuffers != 411041792+3758096384 {
+		k.PreSnapshotBytes() != 411041792+3758096384 {
 		t.Errorf("tp=8: activation %d, capture %d, communicator+workspace %d; want "+
 			"1174405120, 858783744 and 4169138176", got.ActivationPeak, got.CUDAGraph,
-			got.CommBuffers)
+			k.PreSnapshotBytes())
 	}
-	if nonWeight := got.Total() - got.Weights - got.EPLBRedundant; nonWeight != 6202327040 {
-		t.Errorf("tp=8: %d bytes of fixed occupancy beside weights, want 6202327040", nonWeight)
+	if nonWeight := got.Total() - got.Weights - got.EPLBRedundant; nonWeight != 2033188864 {
+		t.Errorf("tp=8: %d bytes of fixed occupancy beside weights, want 2033188864", nonWeight)
 	}
 	in := fixtureInputs(t, memoryFixture)
 	in.Deployment.Pools[0].Parallel.TP = 2
@@ -112,7 +115,7 @@ func TestFixedOccupancyMatchesTheFiguresTheIssueStates(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if comm := at2.FixedBytes().CommBuffers - 3758096384; comm != 358612992 {
+	if comm := at2.PreSnapshotBytes() - 3758096384; comm != 358612992 {
 		t.Errorf("tp=2: communicator %d bytes, want 358612992", comm)
 	}
 }
@@ -694,10 +697,16 @@ func TestADataParallelMoEWithoutExpertParallelismIsShared(t *testing.T) {
 		t.Errorf("at dp=1 inflating the all-to-all floors moved the step from %v to %v; a "+
 			"tensor-parallel MoE dispatches nothing", a, b)
 	}
-	if a, b := build(2, nil).StepTime(decode).NoOverlap,
-		build(2, inflate).StepTime(decode).NoOverlap; b <= a {
-		t.Errorf("at dp=2 inflating the all-to-all floors left the step at %v; the MoE's "+
-			"dispatch runs over the data-parallel ranks", b)
+	// At dp=2 the fallback dispatch is an all-gather and a reduce-scatter over the
+	// data-parallel ranks (AgRsAll2AllManager, all2all.py:84-157), so inflating the
+	// all-gather floors moves the step by more than the tensor-parallel all-gathers alone
+	// do at dp=1.
+	gather := func(in *Inputs) { in.Coefficients = scaleFloors(in.Coefficients, "all_gather", 10) }
+	d1 := build(1, gather).StepTime(decode).NoOverlap - build(1, nil).StepTime(decode).NoOverlap
+	d2 := build(2, gather).StepTime(decode).NoOverlap - build(2, nil).StepTime(decode).NoOverlap
+	if d2 <= d1 {
+		t.Errorf("inflating the all-gather floors moved the step %v at dp=2 and %v at dp=1; "+
+			"the MoE's dispatch gathers over the data-parallel ranks", d2, d1)
 	}
 
 	named := build(2, func(in *Inputs) {
@@ -902,5 +911,485 @@ func TestUnderDCPAMixedStepGetsNoOneLaunchRebate(t *testing.T) {
 	if a, c := busy(fa, mixed), busy(fi, mixed); a != c {
 		t.Errorf("at dcp=2 a mixed step priced %v on FlashAttention and %v on FlashInfer; "+
 			"_forward_with_dcp is two launches on both", a, c)
+	}
+}
+
+// DeepSeek-V4.1's engine buffers are charged beside the registry's activation scratch, at
+// the figures its model code allocates (engineBufferBytes; inference-sim/blis-latency-kernel
+// #52). At the fixture -- tp 8, 8,192 batched tokens, a 131,072-token context, DSpark -- they
+// are:
+//   - the target's workspace, the indexer's 693,108,736 B request (40 x 131,072 entries of
+//     128 FP8 values and 4 scale bytes, and 1 MiB of radix top-k), which exceeds the
+//     attention's 591,953,920 B (4 x (131,072 + 128 + 8,192) x 512 BF16 and its indices);
+//   - DSpark's workspace in its own lane, 38,305,792 B (4 x (128 + 8,192) x 512 BF16,
+//     8,192 x 128 and 8,192 int32);
+//   - the indexer's 536,870,912 B logits stand-in;
+//   - two 16,777,216 B top-k buffers (target and DSpark), a 67,108,864 B candidate-block
+//     buffer and DSpark's 335,544,320 B hidden-state buffer;
+//   - two 268,435,456 B rotary caches, plain and YaRN, at the model's 1,048,576-position
+//     window x 64 FP32 values, whatever the context bound.
+func TestV41EngineBuffersAreChargedAtTheEnginesFigures(t *testing.T) {
+	in := fixtureInputs(t, v41)
+	k := build(t, in)
+	generic := math.Max(
+		registryValue(t, in, k, "activation_buffer_count_moe_8rank")*8192*5120*2,
+		registryValue(t, in, k, "activation_scratch_floor_bytes"))
+	const buffers = 693108736 + 38305792 + 536870912 + 2*16777216 + 67108864 + 335544320 +
+		2*268435456
+	if got := k.FixedBytes().ActivationPeak; got != int64(generic)+buffers {
+		t.Errorf("activation %d B, want the registry's %d plus %d of engine buffers",
+			got, int64(generic), buffers)
+	}
+}
+
+// The buffers scale as vLLM sizes them: the indexer's gather with the context bound, at 40 x
+// 132 B a token of context on a ratio-1 layer, and the drafter's hidden-state and top-k
+// buffers and its workspace lane only while the deployment speculates.
+func TestV41EngineBuffersFollowTheContextBoundAndSpeculation(t *testing.T) {
+	with := func(edit func(*deployment.Engine)) *Kernel {
+		in := fixtureInputs(t, v41)
+		edit(&in.Deployment.Pools[0].Engine)
+		return build(t, in)
+	}
+	base := with(func(*deployment.Engine) {})
+	longer := with(func(e *deployment.Engine) { e.MaxModelLen = 262144 })
+	if d := longer.FixedBytes().ActivationPeak - base.FixedBytes().ActivationPeak; d != 40*131072*132 {
+		t.Errorf("doubling the context bound to 262,144 moved the activation by %d B, want "+
+			"the indexer gather's 40 x 131,072 x 132 = %d", d, 40*131072*132)
+	}
+	plain := with(func(e *deployment.Engine) { e.Speculative = nil })
+	const drafter = 8192*20480*2 + 8192*512*4 + 38305792
+	if d := base.FixedBytes().ActivationPeak - plain.FixedBytes().ActivationPeak; d != drafter {
+		t.Errorf("speculation adds %d B of buffers, want DSpark's hidden-state and top-k "+
+			"buffers and its workspace lane, %d", d, drafter)
+	}
+}
+
+// PROPERTY: fixed occupancy never falls as the token budget or the context bound grows,
+// since every buffer the engine sizes from either is sized at least as large.
+func TestFixedOccupancyIsMonotoneInTheTokenBudgetAndContextBound(t *testing.T) {
+	for _, scenario := range []string{v41, memoryFixture} {
+		total := func(mnbt, mml int) int64 {
+			in := fixtureInputs(t, scenario)
+			e := &in.Deployment.Pools[0].Engine
+			e.MaxNumBatchedTokens, e.MaxModelLen = mnbt, deployment.MaxModelLen(mml)
+			return build(t, in).FixedBytes().Total()
+		}
+		prev := int64(0)
+		for _, mnbt := range []int{2048, 4096, 8192, 16384, 32768, 65536} {
+			if got := total(mnbt, 65536); got < prev {
+				t.Errorf("%s: %d batched tokens hold %d B, fewer than a smaller budget's %d",
+					scenario, mnbt, got, prev)
+			}
+			prev = total(mnbt, 65536)
+		}
+		prev = 0
+		for _, mml := range []int{8192, 65536, 131072, 262144, 1048576} {
+			if mml > 163840 && scenario == memoryFixture {
+				continue // past deepseek-v3's context window
+			}
+			if got := total(8192, mml); got < prev {
+				t.Errorf("%s: a %d-token bound holds %d B, fewer than a shorter one's %d",
+					scenario, mml, got, prev)
+			}
+			prev = total(8192, mml)
+		}
+	}
+}
+
+// A STATED CAPTURE SIZE IS THE CEILING (inference-sim/blis-latency-kernel#54). vLLM v0.31.0
+// captures up to max_cudagraph_capture_size and runs a larger step with no graph
+// (vllm/v1/worker/gpu/cudagraph_utils.py:499-529). Stated at 64 with DSpark's K = 5, a
+// uniform decode of n requests verifies 6n tokens, so ten requests replay a graph and eleven
+// run the target eager. The drafter has its own graphs of 5n tokens
+// (dflash/speculator.py:126-150), so at eleven and twelve it still replays one, and only at
+// thirteen does the whole step price like cudagraph_mode NONE.
+func TestAStatedCaptureSizeIsTheCeiling(t *testing.T) {
+	with := func(edit func(*deployment.Engine)) *Kernel {
+		in := fixtureInputs(t, v41)
+		edit(&in.Deployment.Pools[0].Engine)
+		return build(t, in)
+	}
+	size := 64
+	stated := with(func(e *deployment.Engine) { e.MaxCUDAGraphCaptureSize = &size })
+	none := with(func(e *deployment.Engine) { e.CUDAGraphMode = "NONE" })
+	if got := stated.CaptureTokens(); got != 64 {
+		t.Fatalf("CaptureTokens() = %d with 64 stated", got)
+	}
+	if hasAssumption(stated, "max_cudagraph_capture_size") {
+		t.Error("a stated capture size is still recorded as an assumption")
+	}
+	host := func(k *Kernel, n int) time.Duration {
+		return k.StepTime(decodeBatch(n, 6, 8192)).PerResource[kernel.ResourceHost]
+	}
+	if host(stated, 10) == host(none, 10) {
+		t.Error("ten requests verify 60 tokens, within the stated 64, yet run eager")
+	}
+	d := stated.plan.Draft
+	draft := time.Duration(d.Kernels + d.ContextKernels + 5*d.SequentialKernels)
+	for _, n := range []int{11, 12} {
+		want := host(none, n) - draft*stated.launchEager + stated.replayPerStep
+		if got := host(stated, n); got != want {
+			t.Errorf("%d requests verify %d tokens, past the stated 64, and draft %d, "+
+				"within it: %v of host time, want NONE's less the drafter's eager launches "+
+				"plus its replay, %v", n, 6*n, 5*n, got, want)
+		}
+	}
+	if a, b := host(stated, 13), host(none, 13); a != b {
+		t.Errorf("thirteen requests draft 65 tokens, past the stated 64: %v of host time, "+
+			"want NONE's %v", a, b)
+	}
+}
+
+// METAMORPHIC: stating the default capture size prices every step as leaving it unstated;
+// only Provenance changes, as nothing was assumed.
+func TestStatingTheDefaultCaptureSizeChangesNoPrice(t *testing.T) {
+	unstated := build(t, fixtureInputs(t, v41))
+	def := unstated.CaptureTokens()
+	in := fixtureInputs(t, v41)
+	in.Deployment.Pools[0].Engine.MaxCUDAGraphCaptureSize = &def
+	stated := build(t, in)
+	for _, b := range []kernel.Batch{decodeBatch(1, 6, 8192), decodeBatch(85, 6, 8192),
+		decodeBatch(86, 6, 8192), prefillOf(512, 0), prefillOf(8192, 90000)} {
+		if a, s := unstated.StepTime(b), stated.StepTime(b); !reflect.DeepEqual(a, s) {
+			t.Errorf("%d tokens: stating the default %d priced %v against %v", b.Tokens(), def,
+				s.NoOverlap, a.NoOverlap)
+		}
+	}
+	if !hasAssumption(unstated, "max_cudagraph_capture_size") {
+		t.Error("an unstated capture size is not recorded as an assumption")
+	}
+}
+
+// The stated knobs resolve as the engine resolves them: a maximum above the token budget is
+// capped at it, and reported; a maximum that is not the largest of the stated sizes is
+// refused, as vLLM refuses it at startup.
+func TestStatedCaptureSizesResolveAsTheEngineDoes(t *testing.T) {
+	in := fixtureInputs(t, v41)
+	big := 100000
+	in.Deployment.Pools[0].Engine.MaxCUDAGraphCaptureSize = &big
+	k := build(t, in)
+	if got := k.CaptureTokens(); got != 8192 {
+		t.Errorf("a stated 100,000 runs as %d, want the 8,192-token budget", got)
+	}
+	reported := false
+	for _, o := range k.Resolved().Overrides {
+		reported = reported || (o.Field == "max_cudagraph_capture_size" && o.Resolved == "8192")
+	}
+	if !reported {
+		t.Error("the cap at max_num_batched_tokens is not reported as an override")
+	}
+	in = fixtureInputs(t, v41)
+	m := 64
+	in.Deployment.Pools[0].Engine.MaxCUDAGraphCaptureSize = &m
+	in.Deployment.Pools[0].Engine.CUDAGraphCaptureSizes = []int{8, 16, 32}
+	if _, err := New(in); err == nil {
+		t.Error("a maximum of 64 over sizes up to 32 was priced; vLLM refuses it")
+	}
+}
+
+// GraphModes reports the modes that run, after the engine's own overrides.
+func TestGraphModesAreTheResolvedOnes(t *testing.T) {
+	for _, c := range []struct {
+		mode, decode, other string
+		edit                func(*Inputs)
+	}{
+		{"", "FULL", "PIECEWISE", nil},
+		{"PIECEWISE", "PIECEWISE", "PIECEWISE", nil},
+		{"NONE", "NONE", "NONE", nil},
+		{"FULL_AND_PIECEWISE", "NONE", "NONE", func(in *Inputs) {
+			pl := &in.Deployment.Pools[0].Parallel
+			pl.TP, pl.DP, pl.EnableExpertParallel = 4, 2, true
+			in.Deployment.Pools[0].Engine.All2AllBackend = "deepep_high_throughput"
+		}},
+	} {
+		in := fixtureInputs(t, v41)
+		in.Deployment.Pools[0].Engine.CUDAGraphMode = c.mode
+		if c.edit != nil {
+			c.edit(&in)
+		}
+		k := build(t, in)
+		if d, o := k.GraphModes(); d != c.decode || o != c.other {
+			t.Errorf("mode %q: GraphModes() = %s, %s; want %s, %s", c.mode, d, o, c.decode,
+				c.other)
+		}
+		if (c.decode == "NONE") != (k.CaptureTokens() == 0) {
+			t.Errorf("mode %q: CaptureTokens() = %d", c.mode, k.CaptureTokens())
+		}
+	}
+}
+
+// A RECURRENT STATE IS SHARDED BY TENSOR PARALLELISM. vLLM divides a recurrent layer's
+// conv and temporal state by the tensor-parallel width (mamba2_state_shape,
+// gated_delta_net_state_shape, kda_state_shape, vllm/model_executor/layers/mamba/
+// mamba_utils.py:195-326 at v0.31.0), so a sequence's fixed state halves each time the width
+// doubles. The graph states the whole model's heads. An earlier form charged every rank
+// the whole state: about 377 MB a sequence at every width on Qwen3.5-397B.
+func TestRecurrentStateIsShardedByTensorParallelism(t *testing.T) {
+	at := func(tp int) int64 {
+		in := fixtureInputs(t, "nemotron3-ultra-h100-agg.yaml")
+		in.Deployment.Pools[0].Parallel.TP = tp
+		return build(t, in).SequenceFixedBytes()
+	}
+	two, four, eight := at(2), at(4), at(8)
+	if two <= 0 || two != 2*four || four != 2*eight {
+		t.Errorf("a sequence's recurrent state is %d, %d and %d B at tp 2, 4 and 8; each "+
+			"doubling of the width must halve it", two, four, eight)
+	}
+}
+
+// captureContract is docs/COEFF_CONTRACT.md v2.3's capture entries for FULL_AND_PIECEWISE,
+// at test magnitudes: a floor and a per-token cost for each graph family.
+func captureContract(drop ...string) []coefficient.Entry {
+	var out []coefficient.Entry
+	for name, v := range map[string]float64{
+		"cudagraph_capture_floor_bytes_full_and_piecewise":            256 << 20,
+		"cudagraph_capture_bytes_per_mixed_token_full_and_piecewise":  1 << 20,
+		"cudagraph_capture_bytes_per_decode_token_full_and_piecewise": 8 << 20,
+	} {
+		skip := false
+		for _, d := range drop {
+			skip = skip || d == name
+		}
+		if !skip {
+			out = append(out, coefficient.Entry{Name: name, Value: v, Units: "bytes_per_rank",
+				Method: "assumed", Rationale: "test", Scope: coefficient.Scope{
+					Hardware: []string{"h200"}, Model: []string{"deepseek-v4.1-flash"}}})
+		}
+	}
+	return out
+}
+
+// v41Engine is the V4.1 fixture at the stated engine knobs, less the registry's capture
+// entries, with entries appended as their own set.
+func v41Engine(t *testing.T, entries []coefficient.Entry, seqs, mnbt, capture int) *Kernel {
+	t.Helper()
+	// blis-registry v0.2.0 publishes the three capture entries for V4.1 on h100 and h200;
+	// strip them so each test here states its own (or none, for the flat fallback).
+	names := map[string]bool{}
+	for _, e := range captureContract() {
+		names[e.Name] = true
+	}
+	in := withoutEntries(fixtureInputs(t, v41), names)
+	e := &in.Deployment.Pools[0].Engine
+	e.MaxNumSeqs, e.MaxNumBatchedTokens, e.MaxCUDAGraphCaptureSize = seqs, mnbt, &capture
+	if len(entries) > 0 {
+		in.Coefficients = append(append([]*coefficient.Set{}, in.Coefficients...),
+			&coefficient.Set{Kind: "CoefficientSet", Name: "test-capture", Coefficients: entries})
+	}
+	return build(t, in)
+}
+
+// THE UNIFORM-DECODE CEILING IS vLLM's. Each capture size is rounded up to a multiple of
+// 1 + K and kept within max_num_seqs requests and the capture ceiling
+// (vllm/v1/worker/gpu/cudagraph_utils.py:313-327 at v0.31.0). K = 5: at 56 requests and a
+// 512 ceiling the largest is 336 tokens; with requests to spare it is 498, from the 496
+// size, since 512 rounds to 516 and is dropped.
+func TestTheDecodeCaptureCeilingIsTheEnginesRounding(t *testing.T) {
+	for _, c := range []struct{ seqs, capture, want int }{
+		{56, 512, 336}, {48, 512, 288}, {256, 512, 498}, {2, 16, 12}, {16, 64, 60},
+		{1024, 1024, 1008},
+	} {
+		if got := v41Engine(t, nil, c.seqs, 8192, c.capture).decodeCaptureTokens(); got != c.want {
+			t.Errorf("max_num_seqs %d, capture %d: decode ceiling %d tokens, want %d",
+				c.seqs, c.capture, got, c.want)
+		}
+	}
+}
+
+// WITHOUT THE v2.3 ENTRIES THE CAPTURE IS THE FLAT FIGURE, whatever the capture size or
+// max_num_seqs, so a registry without them prices byte-identically; a partial set falls back
+// to it and says so.
+func TestCaptureMemoryFallsBackToTheFlatFigure(t *testing.T) {
+	flat := v41Engine(t, nil, 256, 8192, 512).FixedBytes().CUDAGraph
+	for _, c := range [][2]int{{2, 16}, {56, 512}, {1024, 1024}} {
+		if got := v41Engine(t, nil, c[0], 8192, c[1]).FixedBytes().CUDAGraph; got != flat {
+			t.Errorf("max_num_seqs %d, capture %d: %d B without the entries, want the flat %d",
+				c[0], c[1], got, flat)
+		}
+	}
+	k := v41Engine(t, captureContract("cudagraph_capture_bytes_per_decode_token_full_and_piecewise"),
+		56, 8192, 512)
+	if got := k.FixedBytes().CUDAGraph; got != flat {
+		t.Errorf("a partial set charges %d B, want the flat %d", got, flat)
+	}
+	if !hasFallback(k, "cudagraph_capture_floor_bytes_full_and_piecewise") {
+		t.Error("a partial capture set fell back with nothing recorded")
+	}
+}
+
+// THE FORM. floor + per-mixed-token x capture ceiling + per-decode-token x decode ceiling:
+// at 56 requests and a 512 ceiling, 256 MiB + 512 MiB + 336 x 8 MiB.
+func TestCaptureMemoryIsTheContractsForm(t *testing.T) {
+	got := v41Engine(t, captureContract(), 56, 8192, 512).FixedBytes().CUDAGraph
+	if want := int64(256<<20 + 512<<20 + 336*8<<20); got != want {
+		t.Errorf("capture %d B, want %d", got, want)
+	}
+}
+
+// PROPERTY: the KV pool never grows as max_num_seqs, the capture ceiling or the token
+// budget grows, with the v2.3 entries present and without them: every term vLLM sizes from
+// them is at least as large (decodeCaptureTokens, samplerPeakBytes, the activation form).
+func TestTheKVPoolIsNonIncreasingInSeqsCaptureAndBudget(t *testing.T) {
+	for _, entries := range [][]coefficient.Entry{nil, captureContract()} {
+		total := func(seqs, mnbt, capture int) int64 {
+			return v41Engine(t, entries, seqs, mnbt, capture).FixedBytes().Total()
+		}
+		check := func(what string, xs []int, at func(int) int64) {
+			prev := int64(0)
+			for _, x := range xs {
+				got := at(x)
+				if got < prev {
+					t.Errorf("entries %v: %s %d holds %d B, fewer than a smaller one's %d",
+						entries != nil, what, x, got, prev)
+				}
+				prev = got
+			}
+		}
+		check("max_num_seqs", []int{1, 2, 8, 32, 56, 128, 1024, 4096},
+			func(x int) int64 { return total(x, 8192, 512) })
+		check("capture", []int{8, 16, 64, 256, 512, 1024, 2048},
+			func(x int) int64 { return total(256, 8192, x) })
+		check("max_num_batched_tokens", []int{1024, 2048, 4096, 8192, 32768},
+			func(x int) int64 { return total(256, x, min(x, 512)) })
+	}
+	k := func(seqs, capture int) int64 {
+		return v41Engine(t, captureContract(), seqs, 8192, capture).FixedBytes().CUDAGraph
+	}
+	if k(56, 512) <= k(48, 512) {
+		t.Error("with the entries, more requests under the same ceiling capture no more")
+	}
+	if k(1024, 512) <= k(1024, 256) {
+		t.Error("with the entries, a higher ceiling captures no more")
+	}
+}
+
+// THE DUMMY SAMPLER can set the profile peak: at a small token budget and many requests its
+// logits outgrow the forward's scratch, and then the peak follows max_num_seqs. DSpark's K
+// query rows a request bound the dummy batch at max_num_batched_tokens / K requests.
+func TestTheDummySamplerRunCanSetTheActivationPeak(t *testing.T) {
+	act := func(seqs int) int64 { return v41Engine(t, nil, seqs, 2048, 512).FixedBytes().ActivationPeak }
+	if act(16) != act(64) {
+		t.Errorf("at 16 and 64 requests the forward's scratch binds, yet the peak moves: %d, %d",
+			act(16), act(64))
+	}
+	if act(409) <= act(64) {
+		t.Errorf("409 requests' logits do not raise the peak: %d against %d", act(409), act(64))
+	}
+	if act(409) != act(4096) {
+		t.Errorf("past 2,048 / 5 = 409 dummy requests the peak still moves: %d, %d",
+			act(409), act(4096))
+	}
+}
+
+// METAMORPHIC, TP: per GPU, the weights are R + S/tp, and nothing else this occupancy
+// charges divides by tensor parallelism -- the capture is measured per rank, and the
+// engine buffers are per rank -- so from TP 8 to TP 4 the non-weight occupancy moves only
+// by the activation multiple's own TP key.
+func TestTPScalesOnlyTheShardedWeightsAndTheActivationKey(t *testing.T) {
+	at := func(tp int) (kernel.MemoryBreakdown, *Kernel, *model.Graph) {
+		in := fixtureInputs(t, v41)
+		in.Deployment.Pools[0].Parallel.TP = tp
+		e := &in.Deployment.Pools[0].Engine
+		capture := 512
+		e.MaxNumSeqs, e.MaxCUDAGraphCaptureSize = 56, &capture
+		in.Coefficients = append(append([]*coefficient.Set{}, in.Coefficients...),
+			&coefficient.Set{Kind: "CoefficientSet", Name: "test-capture",
+				Coefficients: captureContract()})
+		k := build(t, in)
+		return k.FixedBytes(), k, in.Model
+	}
+	f4, k4, g := at(4)
+	f8, k8, _ := at(8)
+	if f4.CUDAGraph != f8.CUDAGraph {
+		t.Errorf("capture %d B at TP 4 and %d at TP 8; it is per rank", f4.CUDAGraph, f8.CUDAGraph)
+	}
+	if s := float64(f4.Weights - f8.Weights); s <= 0 {
+		t.Errorf("TP 4 holds no more weights a rank than TP 8: %d, %d", f4.Weights, f8.Weights)
+	} else if r := float64(8*f8.Weights-4*f4.Weights) / 4; r < 0 || r > float64(f8.Weights) {
+		t.Errorf("the replicated part R = %.0f B is outside [0, W8]", r)
+	}
+	scratch := func(k *Kernel) float64 {
+		return math.Max(math.Max(k.activationBuffers*float64(k.batchedTokens)*
+			k.activationWidth*2, k.activationFloor), k.samplerPeakBytes(g))
+	}
+	b4 := float64(f4.Total()-f4.Weights) - scratch(k4)
+	b8 := float64(f8.Total()-f8.Weights) - scratch(k8)
+	if math.Abs(b4-b8) > 1 {
+		t.Errorf("non-weight, non-scratch occupancy %.0f B at TP 4 and %.0f at TP 8; it is per rank", b4, b8)
+	}
+}
+
+// THE DRAFTER'S CEILING IS ITS OWN ROUNDED SIZE. Its manager rounds each capture size up to
+// K and drops what passes the ceiling (_init_candidates, cudagraph_utils.py:313-327), so at
+// K = 5 under 512 the largest graph is 500 tokens, 100 requests, not floor(512 / 5) = 102;
+// at K = 3 under 64 it is 57 tokens, 19 requests, not 21.
+func TestTheDrafterCeilingIsTheLargestRoundedSize(t *testing.T) {
+	for _, c := range []struct{ k, capture, last int }{{5, 512, 100}, {3, 64, 19}} {
+		at := func(mode string) *Kernel {
+			in := fixtureInputs(t, v41)
+			e := &in.Deployment.Pools[0].Engine
+			size := c.capture
+			e.MaxCUDAGraphCaptureSize, e.MaxNumSeqs = &size, 256
+			e.Speculative.NumSpecTokens = c.k
+			if mode != "" {
+				e.CUDAGraphMode = mode
+			}
+			return build(t, in)
+		}
+		stated, none := at(""), at("NONE")
+		host := func(k *Kernel, n int) time.Duration {
+			return k.StepTime(decodeBatch(n, c.k+1, 8192)).PerResource[kernel.ResourceHost]
+		}
+		d := stated.plan.Draft
+		draft := time.Duration(d.Kernels + d.ContextKernels + c.k*d.SequentialKernels)
+		if c.last*(c.k+1) <= c.capture {
+			t.Fatalf("K %d: the target still graphs %d requests; pick a wider batch", c.k, c.last)
+		}
+		want := host(none, c.last) - draft*stated.launchEager + stated.replayPerStep
+		if got := host(stated, c.last); got != want {
+			t.Errorf("K %d, capture %d: %d requests draft %d tokens, within the largest rounded "+
+				"graph: %v of host time, want NONE's less the drafter's eager launches plus "+
+				"its replay, %v", c.k, c.capture, c.last, c.k*c.last, got, want)
+		}
+		for _, n := range []int{c.last + 1, c.last + 2} {
+			if a, b := host(stated, n), host(none, n); a != b {
+				t.Errorf("K %d, capture %d: %d requests draft %d tokens, past every rounded "+
+					"graph: %v of host time, want NONE's %v", c.k, c.capture, n, c.k*n, a, b)
+			}
+		}
+	}
+}
+
+// THE PUBLISHED V4.1 CAPTURE FORM REPRODUCES THE START-UPS IT WAS FITTED TO. blis-registry
+// c5e24a7 fits floor, per-mixed-token and per-decode-token to five InferenceX H200 TP8
+// start-ups (K 5, max_num_seqs 1024, mnbt 8192); vLLM logged "CUDA graph pool memory: ...
+// E GiB (estimated)" per rank at each capture ceiling. At the published values this kernel's
+// form must give each E within 0.15 GiB, and with max_num_seqs cut to 8 at the 512 ceiling
+// (C_decode 48) it must charge less: the decode family follows max_num_seqs, as vLLM's
+// estimate does (_init_candidates, vllm/v1/worker/gpu/cudagraph_utils.py:313-327).
+func TestThePublishedV41CaptureFormReproducesItsStartUps(t *testing.T) {
+	published := []coefficient.Entry{}
+	for name, v := range map[string]float64{
+		"cudagraph_capture_floor_bytes_full_and_piecewise":            849150826,
+		"cudagraph_capture_bytes_per_mixed_token_full_and_piecewise":  9972071,
+		"cudagraph_capture_bytes_per_decode_token_full_and_piecewise": 6772854,
+	} {
+		published = append(published, coefficient.Entry{Name: name, Value: v,
+			Units: "bytes_per_rank", Method: "measured", Fitted: true, Rationale: "test",
+			Scope: coefficient.Scope{Hardware: []string{"h200"},
+				Model: []string{"deepseek-v4.1-flash"}}})
+	}
+	logged := map[int]float64{64: 1.69, 128: 2.71, 256: 4.90, 512: 8.61, 1024: 16.67}
+	for capture, want := range logged {
+		got := float64(v41Engine(t, published, 1024, 8192, capture).FixedBytes().CUDAGraph) /
+			(1 << 30)
+		if math.Abs(got-want) > 0.15 {
+			t.Errorf("capture %d: %.2f GiB, vLLM estimated %.2f", capture, got, want)
+		}
+	}
+	few := v41Engine(t, published, 8, 8192, 512).FixedBytes().CUDAGraph
+	if want := int64(849150826 + 9972071*512 + 6772854*48); few != want {
+		t.Errorf("max_num_seqs 8, capture 512: %d B, want %d (decode ceiling 48)", few, want)
 	}
 }

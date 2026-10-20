@@ -8,9 +8,13 @@
 # moe_ep_size 1, moe_tp_size 2. Workloads scored at this
 # deployment: 8k1k.
 #
-# max_num_seqs, block_size, gpu_memory_utilization and cudagraph_mode are not in the
-# corpus, so they are set here -- and not to vLLM's defaults. block_size 16 is its nominal
-# default, which a backend may raise; gpu_memory_utilization's default is 0.92, not 0.9;
+# gpu_memory_utilization 0.92: not stated, so vLLM v0.31.0's default (vllm/config/cache.py:103).
+# block_size 16: not stated; see below.
+# enable_prefix_caching: stated by the run.
+#
+# max_num_seqs and cudagraph_mode are not in the corpus, nor is an unstated
+# block_size, so they are set here -- and not to vLLM's defaults. block_size 16 is its
+# nominal default, which a backend may raise;
 # max_num_seqs 256 is its default only below 70 GiB or on an A100; and its cudagraph_mode
 # default is FULL_AND_PIECEWISE, not PIECEWISE (all at v0.29.0 and v0.31.0). They are held
 # fixed so committed scores stay comparable; moving them to the engine's defaults is a
@@ -49,4 +53,5 @@ pools:
       max_num_seqs: 256
       max_model_len: 32768
       cudagraph_mode: PIECEWISE
-      gpu_memory_utilization: 0.9
+      gpu_memory_utilization: 0.92
+      enable_prefix_caching: false

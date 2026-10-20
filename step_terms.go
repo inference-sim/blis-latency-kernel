@@ -76,7 +76,7 @@ func (k *Kernel) prefillAttention(work float64, s *stepShape) (smSeconds, flops 
 	if k.attentionPrefillScale <= 0 {
 		return 0, work
 	}
-	scale := price.Efficiency(s.tokensF, k.epsMax, k.mHalf) * k.attentionPrefillScale
+	scale := price.Efficiency(s.attnTokensF, k.epsMax, k.mHalf) * k.attentionPrefillScale
 	return k.attentionPrefillFloor.Seconds() +
 		work/(k.computeFLOPsPerSecond*scale)*s.smDerate, 0
 }
@@ -317,6 +317,10 @@ func (k *Kernel) priceHead(head price.PlannedLayer, s *stepShape,
 	} else {
 		elementwise += s.tokensF * head.ElementwiseTokenShardedBytesPerToken
 	}
+	// The final mHC post, where the measured form covers it.
+	mhcSM, mhcBytes := k.mhcSeconds(&head, s, k.layout.ModelSequenceParallel)
+	elementwise = math.Max(elementwise-mhcBytes, 0)
+	headSM += mhcSM
 	for _, g := range head.DenseGEMMs {
 		div := k.tp
 		if g.Replicated {

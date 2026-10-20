@@ -2,6 +2,8 @@ package price
 
 import (
 	"fmt"
+	"regexp"
+	"strings"
 
 	"github.com/inference-sim/blis-schemas/spec/model"
 )
@@ -45,6 +47,10 @@ type Plan struct {
 	// The per-kernel dispatch cost multiplies it, and that product dominates a
 	// single-request decode step; eager launches multiply it too.
 	TotalKernels int
+	// PrefillOnlyKernels is how many of TotalKernels belong to nodes the graph marks
+	// phase: prefill, which a step with no prefill row does not launch (see
+	// PlannedLayer.PrefillOnlyKernels).
+	PrefillOnlyKernels int
 
 	// Embedding is the graph's embedding nodes -- the vocabulary lookup and the reduction
 	// that completes it -- planned as one entry run once per step. Its Count is zero when
@@ -107,6 +113,9 @@ type PlannedGEMM struct {
 	// zero on an alias, whose weights are resident where they live. WeightReadBytes is
 	// what a step reads, which on an alias is its target's.
 	WeightBytes, WeightReadBytes float64
+	// MHCFn is a hyper-connection mixing GEMM (role ^hc_.*fn, DeepSeek-V4.1's hc_attn_fn and
+	// hc_ffn_fn), which a measured mHC form covers (see PlannedMHC).
+	MHCFn bool
 	// Format is the weight format the GEMM computes from, which selects its compute rate.
 	Format Format
 }
@@ -238,6 +247,13 @@ type PlannedLayer struct {
 	// the primitives imply. So the count is the primitive count, and the per-launch
 	// constant it multiplies is calibrated against measurement with that in mind.
 	Kernels int
+	// PrefillOnlyKernels is how many of Kernels come from nodes whose context traffic the
+	// graph marks phase: prefill. The engine runs those only when the batch has prefills --
+	// DeepSeek-V4.1's KV dequantize-and-gather (vllm/models/deepseek_v41/nvidia/
+	// flashmla.py:143-165, 305, 317 at v0.31.0) and its indexer's K gather
+	// (vllm/model_executor/layers/sparse_attn_indexer.py:416-417, 481) -- so a decode-only
+	// step launches Kernels minus these.
+	PrefillOnlyKernels int
 
 	// RoutedFormat is the routed experts' compute format, Experts their count, and
 	// RoutedTokenSharded whether they see a token shard under the model's sequence
@@ -267,12 +283,30 @@ type PlannedLayer struct {
 	// Gathers are the table lookups this layer runs.
 	Gathers []PlannedGather
 
+	// MHC are the layer's manifold-constrained hyper-connection nodes (Elementwise nodes
+	// whose role starts mhc_), kept apart from the elementwise sums they are also in so a
+	// measured mHC form can replace their bytes.
+	MHC []PlannedMHC
+
 	// AttnReplicated is a primary attention every rank runs over every head.
 	AttnReplicated bool
 	// AttnCaches are the caches the primary attention states, empty where the graph leaves
 	// them to inference.
 	AttnCaches []PlannedCache
 }
+
+// PlannedMHC is one mHC node. Pre and Post are the components it runs, from its role: pre
+// where the role ends _pre, post where it contains post (mhc_attn_post_pre runs both, the
+// previous site's post fused with this one's pre). Bytes is what the node adds to its
+// elementwise sum per token, and Replicated and TokenSharded say which sum.
+type PlannedMHC struct {
+	Pre, Post                bool
+	Bytes                    float64
+	Replicated, TokenSharded bool
+}
+
+// mhcFn matches a hyper-connection mixing GEMM's role.
+var mhcFn = regexp.MustCompile(`^hc_.*fn`)
 
 // PlannedCache is one cache an attention node names, with its record resolved.
 type PlannedCache struct {
@@ -526,6 +560,11 @@ func BuildPlanWith(g *model.Graph, em Emitter, o PlanOptions) (*Plan, error) {
 		p.TotalKernels += emb.Kernels
 	}
 
+	p.PrefillOnlyKernels = p.Head.PrefillOnlyKernels + p.Embedding.PrefillOnlyKernels
+	for _, l := range p.Layers {
+		p.PrefillOnlyKernels += l.PrefillOnlyKernels * l.Count
+	}
+
 	if sp := g.Speculator; sp != nil {
 		d := &DraftPlan{Method: sp.Method, NumSpec: sp.NumSpec, Drafting: sp.Drafting}
 		if d.Layers, d.Kernels, err = planStack(sp.Stack, byID, em, o, hidden); err != nil {
@@ -664,10 +703,13 @@ func planNodes(nodes []model.Node, em Emitter, o PlanOptions,
 		}
 		// Every surviving node launches at least one kernel. Counted here, once, so a
 		// conditional node that was resolved away costs no launch either.
-		if launches, ok := kernelsPerPrimitive[n.Op]; ok {
-			pl.Kernels += launches
-		} else {
-			pl.Kernels++
+		launches, ok := kernelsPerPrimitive[n.Op]
+		if !ok {
+			launches = 1
+		}
+		pl.Kernels += launches
+		if n.Context != nil && n.Context.Phase == model.PhasePrefill {
+			pl.PrefillOnlyKernels += launches
 		}
 		// Any node that is not a dense GEMM breaks a fusion chain: the engine fuses
 		// projections of one hidden state, and an op between them consumes that state.
@@ -702,6 +744,7 @@ func planNodes(nodes []model.Node, em Emitter, o PlanOptions,
 				N: n.N, K: n.K, FLOPsPerToken: f, ShardN: shardN,
 				Replicated: n.TP == model.TPReplicated, TokenSharded: tokenSharded,
 				WeightBytes: resident, WeightReadBytes: read, Format: o.Format(n),
+				MHCFn: mhcFn.MatchString(n.Role),
 			}
 			// Fuse into the previous GEMM when the engine would. vLLM concatenates
 			// column-parallel projections that share an input ALONG THE OUTPUT
@@ -848,6 +891,12 @@ func planNodes(nodes []model.Node, em Emitter, o PlanOptions,
 			// A node that runs once per compressed entry runs once every PerTokens tokens.
 			if n.PerTokens > 1 {
 				b /= float64(n.PerTokens)
+			}
+			if strings.HasPrefix(n.Role, "mhc_") {
+				pl.MHC = append(pl.MHC, PlannedMHC{
+					Pre: strings.HasSuffix(n.Role, "_pre"), Post: strings.Contains(n.Role, "post"),
+					Bytes: b, Replicated: n.TP == model.TPReplicated, TokenSharded: tokenSharded,
+				})
 			}
 			switch {
 			case n.TP == model.TPReplicated && tokenSharded:

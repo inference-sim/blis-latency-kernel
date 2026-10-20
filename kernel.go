@@ -30,6 +30,7 @@ import (
 	"github.com/inference-sim/blis-schemas/spec/deployment"
 	"github.com/inference-sim/blis-schemas/spec/hardware"
 	"github.com/inference-sim/blis-schemas/spec/model"
+	"github.com/inference-sim/blis-schemas/spec/routing"
 
 	"github.com/inference-sim/blis-latency-kernel/internal/price"
 	"github.com/inference-sim/blis-latency-kernel/internal/resolve"
@@ -71,8 +72,11 @@ type Kernel struct {
 
 	// layerKV is each target layer's cache view, caches every cache a layer owns with its
 	// paging resolved (caches.go), and draftLayerKV the drafter's layers' views.
-	layerKV      []layerKV
-	caches       []cacheTerm
+	layerKV []layerKV
+	caches  []cacheTerm
+	// kvPool is the engine's shared block pool the stated caches are drawn from, nil where
+	// the graph states none or the grouping could not be resolved (caches.go).
+	kvPool       *kvPool
 	draftLayerKV []layerKV
 	// draftContextKV is the drafter's context stack's views.
 	draftContextKV []layerKV
@@ -85,6 +89,17 @@ type Kernel struct {
 	// attentionByRole holds a secondary attention kernel's measured form where the registry
 	// carries one under its role, as it does for DeepSeek-V4.1's block_index_scores.
 	attentionByRole map[string]floorRate
+	// attentionPrefillByKind and attentionPrefillByRole hold a measured prefill form for a
+	// primary attention kind and for a secondary kernel's role, where the registry carries
+	// the whole family (see liftPrefillForms); otherwise prefill is priced with the
+	// part-wide pair.
+	attentionPrefillByKind map[model.AttentionKind]prefillForm
+	attentionPrefillByRole map[string]prefillForm
+	// mhcPre and mhcPost are the measured mHC components' forms, zero where the registry
+	// carries neither member of the pair (see liftPrefillForms).
+	mhcPre, mhcPost floorRate
+	// hiddenSize is the model's hidden width, which the mHC form's work is counted in.
+	hiddenSize int
 	// recurrentPrefill holds a recurrent kind's measured prefill form, where one exists.
 	recurrentPrefill map[model.RecurrentKind]floorRate
 	// padFlashMLA is a DeepSeek-V4-family model on SM90 under tensor parallelism, whose
@@ -115,6 +130,14 @@ type Kernel struct {
 	nicBytesPerSecond    float64
 	hostBytesPerSecond   float64
 	moeImbalance         float64
+	// asyncScheduling is the engine's resolved async_scheduling (resolveAsyncScheduling).
+	asyncScheduling bool
+	// schedPerRequest is the engine-core scheduler CPU cost per scheduled request
+	// (host_step_per_request), exposed per step as schedulerHost says.
+	schedPerRequest time.Duration
+	// routing is the run's cross-rank routing imbalance; nil prices the expert-parallel
+	// group as evenly loaded (adoptRouting).
+	routing *routing.Resolution
 
 	// Per-operation collective floors and peak rates, resolved once. Keyed by op
 	// because an all-reduce floor and an all-to-all floor differ by more than 2x on
@@ -131,6 +154,10 @@ type Kernel struct {
 	collectiveFloors      map[collKey]time.Duration
 	collectiveRates       map[collKey]float64
 	collectiveTransitions map[collKey]float64
+
+	// deepEP prices the MoE dispatch and combine where a measured DeepEP backend runs on
+	// one node; nil leaves the generic routed all-to-all.
+	deepEP *deepEPA2A
 
 	// Recurrent families' measured floor and rate, keyed by kind. A kind absent from the
 	// map has no measurement for this part and contributes nothing.
@@ -224,6 +251,12 @@ type Kernel struct {
 	// captureTokens is the largest batch a captured graph covers, decode or not; a step
 	// with more tokens runs with no graph. Zero when nothing is captured.
 	captureTokens int
+	// captureSizes are the captured step sizes, ascending, and maxNumSeqs the resolved
+	// max_num_seqs; together they set the capture memory's decode family (captureMemory).
+	captureSizes []int
+	maxNumSeqs   int
+	// draftCaptureTokens is the largest graph a parallel-block drafter captures (draftHost).
+	draftCaptureTokens int
 	// mlaContextChunk is how many context tokens one chunk of an MLA prefill's context
 	// gather covers (see dcpPrefillContextGathers).
 	mlaContextChunk int
@@ -265,6 +298,21 @@ type collKey struct {
 }
 
 // floorRate is a primitive's two-parameter measured form: a fixed setup cost plus a rate.
+// prefillForm is a measured prefill form for one attention kernel, per layer, rank and step
+// that holds a prefill: floor + perRequest x prefill requests + perToken x prefill query
+// tokens + bytes / rate, the bytes counted as the form was fitted (see the callers). The
+// terms are in seconds and rate in bytes per second: float, not time.Duration, because a
+// per-token term of a few nanoseconds (the indexer's is 4.66 ns) would truncate.
+type prefillForm struct {
+	floor, perRequest, perToken, rate float64
+}
+
+// seconds is the form's time for a step with requests prefill requests of tokens query
+// tokens that read bytes.
+func (f prefillForm) seconds(requests, tokens, bytes float64) float64 {
+	return f.floor + requests*f.perRequest + tokens*f.perToken + bytes/f.rate
+}
+
 type floorRate struct {
 	floor time.Duration
 	// rate is tokens per second, converted from the registry's tokens-per-microsecond.
@@ -283,7 +331,75 @@ func (k *Kernel) FixedBytes() kernel.MemoryBreakdown { return k.fixed }
 // recurrent state, where the model has it and the cache mode keeps it bounded, and the
 // bounded caches a graph states -- window rings and fixed state (cacheFixedBytes).
 func (k *Kernel) SequenceFixedBytes() int64 {
-	total := k.cacheFixedBytes()
+	return k.sequenceBoundedBytes(k.cacheFixedBytes())
+}
+
+// SequenceAdmissionBytes returns the per-sequence bytes the engine reserves for a request's
+// bounded state at admission: SequenceFixedBytes with each window ring at vLLM's admission
+// cap rather than its steady decode hold -- cdiv(window - 1 + extra_retained +
+// max_in_flight_tokens, block) + 1 pages, max_in_flight_tokens being the concurrent batches
+// times max_num_batched_tokens (vllm/v1/kv_cache_interface.py:840-866;
+// vllm/config/vllm.py:592-613) -- in whole blocks of the shared pool.
+//
+// It is what vLLM sizes a request at when it reports its KV capacity: the engine's
+// "GPU KV cache size" is the pool's blocks over SequenceAdmissionBytes plus
+// SequenceVariableBytes(max_model_len), in blocks, times max_model_len
+// (get_kv_cache_capacity, vllm/v1/core/kv_cache_utils.py:2444-2471), and its runtime
+// admission gate clamps a request's window reservation to the same cap
+// (vllm/v1/core/single_type_kv_cache_manager.py:216-229). It grows with
+// max_num_batched_tokens: on DeepSeek-V4.1-Flash at 8,192 tokens, 517 pages in each of eight
+// window groups against the six SequenceFixedBytes holds. A caller charging every resident
+// sequence the engine's reservation charges this; one charging the steady decode hold
+// charges SequenceFixedBytes. It equals SequenceFixedBytes for a model with no window cache.
+func (k *Kernel) SequenceAdmissionBytes() int64 {
+	return k.sequenceBoundedBytes(k.cacheAdmissionBytes())
+}
+
+// SequenceBoundedBytes returns the per-sequence bytes of a request's bounded state with
+// inFlightTokens scheduled but not yet settled: each window ring at
+// cdiv(window - 1 + extra_retained + inFlightTokens, block) + 1 pages in whole pool blocks
+// (SlidingWindowSpec.max_admission_blocks_per_request, vllm/v1/kv_cache_interface.py:840-866
+// at v0.31.0), the state caches and the recurrent state as SequenceFixedBytes holds them.
+// At 1 + num_spec_tokens it is SequenceFixedBytes, the steady decode hold, wherever the
+// drafter retains no extra tokens (all but multi-module MTP); at the engine's
+// max_in_flight_tokens it is SequenceAdmissionBytes. A simulator that grows a sequence's
+// window reservation with the tokens it actually has in flight, as vLLM's scheduler does,
+// charges this per step instead of holding the admission cap for the sequence's life.
+func (k *Kernel) SequenceBoundedBytes(inFlightTokens int) int64 {
+	return k.sequenceBoundedBytes(k.cacheBoundedBytes(max(inFlightTokens, 0),
+		k.extraRetainedTokens()))
+}
+
+// SequenceBoundedBytesAt is SequenceBoundedBytes for a request that has computed only
+// computedTokens: a window ring holds no page for a token it has not seen, so each ring
+// pages min(computedTokens + inFlightTokens, window - 1 + extra_retained +
+// inFlightTokens) tokens, plus the rules pack's page for a window that does not start on a
+// page edge. That is the hold vLLM's allocate_slots reaches after remove_skipped_blocks:
+// blocks wholly before the window's trailing edge are freed (get_num_skipped_tokens,
+// SlidingWindowManager, vllm/v1/core/single_type_kv_cache_manager.py:1153-1175, applied by
+// remove_skipped_blocks, :687-725), and new ones are allocated only for the tokens
+// scheduled (get_num_blocks_to_allocate, :178-238). Past the window it equals
+// SequenceBoundedBytes.
+//
+// KNOWN over-charge: a ring that has not yet outgrown its window starts on a page edge,
+// so its trailing page is charged though vLLM holds none, at most one page a ring.
+func (k *Kernel) SequenceBoundedBytesAt(computedTokens, inFlightTokens int) int64 {
+	inFlight := max(inFlightTokens, 0)
+	seen := max(computedTokens, 0) + inFlight
+	if k.maxModelLen > 0 {
+		seen = min(seen, k.maxModelLen)
+	}
+	if seen == 0 {
+		seen = -1
+	}
+	return k.sequenceBoundedBytes(k.cacheBoundedBytesUpTo(inFlight, k.extraRetainedTokens(),
+		seen))
+}
+
+// sequenceBoundedBytes adds the recurrent state a request holds whatever its length to the
+// stated bounded caches' bytes.
+func (k *Kernel) sequenceBoundedBytes(caches float64) int64 {
+	total := caches
 	mode := k.recurrentCacheMode
 	if mode.ProportionalToContext() {
 		// Under this mode the state scales with the context bound, so it belongs in the
@@ -298,13 +414,32 @@ func (k *Kernel) SequenceFixedBytes() int64 {
 		if k.pool.Engine.Speculative != nil {
 			spec = k.pool.Engine.Speculative.NumSpecTokens
 		}
-		per := price.RecurrentStateBytes(l.RecurrentStateBytes, mode,
+		per := price.RecurrentStateBytes(k.recurrentRankBytes(l), mode,
 			k.maxModelLen, k.blockSize, spec, 0)
 		// The state is replicated across context-parallel ranks and sharded by tensor
-		// parallelism through its head count, which the graph already reflects.
+		// parallelism (recurrentRankBytes).
 		total += per * float64(l.Count)
 	}
 	return int64(total)
+}
+
+// recurrentRankBytes is one rank's share of a recurrent layer's state, which the graph
+// states for the whole model. vLLM divides both the convolutional and the temporal state by
+// the tensor-parallel width -- the conv channels and the heads -- for every recurrent family
+// (MambaStateShapeCalculator.mamba2_state_shape, gated_delta_net_state_shape and
+// kda_state_shape, vllm/model_executor/layers/mamba/mamba_utils.py:195-326 at v0.31.0), as
+// the step's recurrent scan already does with the heads. A head is never split, so the
+// divisor is at most the head count.
+//
+// COVERAGE LIMIT: where tp exceeds a Mamba-2 layer's group count, vLLM widens the groups
+// to cover every head's shard (extra_groups_for_head_shards, mamba_utils.py:206-210), which
+// this division leaves out.
+func (k *Kernel) recurrentRankBytes(l price.PlannedLayer) float64 {
+	shards := k.tp
+	if h := float64(l.RecurrentHeads); h > 0 && h < shards {
+		shards = h
+	}
+	return l.RecurrentStateBytes / shards
 }
 
 // SequenceVariableBytes returns per-sequence KV bytes for a token count, quantized to the
@@ -380,7 +515,7 @@ func (k *Kernel) SequenceVariableBytes(tokens int) int64 {
 			if l.RecurrentStateBytes == 0 {
 				continue
 			}
-			total += int64(price.RecurrentStateBytes(l.RecurrentStateBytes, mode,
+			total += int64(price.RecurrentStateBytes(k.recurrentRankBytes(l), mode,
 				tokens, k.blockSize, spec, 0) * float64(l.Count))
 		}
 	}
@@ -417,6 +552,9 @@ func (k *Kernel) StepTimeInto(b kernel.Batch,
 // rate. Both are per operation: charging an all-to-all the all-reduce floor would
 // overstate it by 2.2x on H200, and the rates differ by a similar factor.
 func (k *Kernel) collectiveSeconds(key collKey, bytes float64) float64 {
+	if k.deepEP != nil && key.Op == model.OpAll2All && key.Group == price.GroupExpert {
+		return k.deepEP.seconds(bytes)
+	}
 	peak, ok := k.collectiveRates[key]
 	if !ok || peak <= 0 {
 		// Every op the plan can emit is resolved at construction, so this is
@@ -568,6 +706,30 @@ func (k *Kernel) spanFor(key collKey) float64 {
 	return price.RingSpan(group, perNode, ratio)
 }
 
+// denseDispatch reports whether this collective is the MoE dispatch and combine run as
+// allgather_reducescatter: the default backend, and what pplx and naive resolve to.
+func (k *Kernel) denseDispatch(key collKey) bool {
+	return key.Op == model.OpAll2All && key.Group == price.GroupExpert &&
+		k.layout.MoEDispatches() && !k.routedAll2All()
+}
+
+// agrsDispatchSeconds prices allgather_reducescatter's dispatch and combine for a rank
+// holding `bytes` of hidden state. AgRsAll2AllManager gathers EVERY DP rank's tokens to
+// every rank with all_gatherv and returns them with reduce_scatterv over the same group
+// (vllm/distributed/device_communicators/all2all.py:84-157 at v0.31.0), so each phase's
+// tensor is the whole group's tokens -- the DP funnel the expert GEMM already charges
+// (moeDPFunnel) -- not one rank's. Each phase is priced as the NCCL collective it is, on
+// the tensor's full size as the TP all-gather is.
+func (k *Kernel) agrsDispatchSeconds(bytes float64) float64 {
+	ag := collKey{Op: model.OpAllGather, Group: price.GroupExpert}
+	rs := collKey{Op: model.OpReduceScatter, Group: price.GroupExpert}
+	full := bytes * k.moeDPFunnel()
+	if k.crossesNodes(ag) {
+		full *= k.spanFor(ag)
+	}
+	return k.collectiveSeconds(ag, full) + k.collectiveSeconds(rs, full)
+}
+
 // routedAll2All reports whether the resolved MoE backend moves top-k-selected bytes point
 // to point, rather than dense per-token bytes in two ring phases. The distinction changes
 // both the volume and the cross-node scaling, and it is a property of the backend rather
@@ -577,6 +739,11 @@ func (k *Kernel) routedAll2All() bool {
 		// With expert parallelism off, a data-parallel MoE always falls back to the
 		// all-gather/reduce-scatter dispatch, whatever backend is named
 		// (vllm/model_executor/layers/fused_moe/all2all_utils.py:202-214 at v0.31.0).
+		return false
+	}
+	if !k.layout.MoEDispatches() {
+		// use_all2all_kernels is false, so no backend's kernels run
+		// (vllm/model_executor/layers/fused_moe/config.py:1024-1027).
 		return false
 	}
 	// The backend that runs: the release's default for an unstated one, and the
@@ -1374,16 +1541,30 @@ func (k *Kernel) moeDPFunnel() float64 {
 func (k *Kernel) hostPerStep(b kernel.Batch) time.Duration { return k.hostPerStepWith(b, 0) }
 
 // hostPerStepWith is hostPerStep for a step that also runs draftKernels drafter launches.
+// A drafter with its own graphs (draftHasOwnGraphs) is charged apart from the target's,
+// under its own mode and ceiling (draftHost); any other drafter's launches run under the
+// target's.
 func (k *Kernel) hostPerStepWith(b kernel.Batch, draftKernels int) time.Duration {
+	if draftKernels > 0 && k.draftHasOwnGraphs() {
+		return k.targetHost(b, 0) + k.draftHost(b, draftKernels)
+	}
+	return k.targetHost(b, draftKernels)
+}
+
+// targetHost is the target forward's launch-and-replay cost, with draftKernels drafter
+// launches run under the same mode.
+func (k *Kernel) targetHost(b kernel.Batch, draftKernels int) time.Duration {
 	mode := k.graphOther
 	// An empty step runs no forward; it is charged as the decode loop's idle step.
 	if len(b.Reqs) == 0 || b.UniformDecode(k.uniformDecodeWidth) {
 		mode = k.graphDecode
 	}
-	captured := k.modeHost(mode, draftKernels)
-	if b.Tokens() > k.captureTokens && mode != graphModeEager {
+	kernels := k.stepKernels(b) + draftKernels
+	captured := k.modeHost(mode, kernels)
+	// The graph is dispatched at the padded count (gpu_model_runner.py:4407-4413).
+	if b.PaddedTokens() > k.captureTokens && mode != graphModeEager {
 		// Past every captured size: the engine runs this step with no graph.
-		eager := k.modeHost(graphModeEager, draftKernels)
+		eager := k.modeHost(graphModeEager, kernels)
 		if eager < captured {
 			eager = captured
 		}
@@ -1392,8 +1573,9 @@ func (k *Kernel) hostPerStepWith(b kernel.Batch, draftKernels int) time.Duration
 	return captured
 }
 
-// modeHost is one step's launch-and-replay host cost under a graph mode.
-func (k *Kernel) modeHost(mode graphMode, draftKernels int) time.Duration {
+// modeHost is one step's launch-and-replay host cost under a graph mode, for a step that
+// launches kernels kernels (stepKernels plus the drafter's).
+func (k *Kernel) modeHost(mode graphMode, kernels int) time.Duration {
 	switch mode {
 	case graphModeFull:
 		return k.replayPerStep
@@ -1410,8 +1592,7 @@ func (k *Kernel) modeHost(mode graphMode, draftKernels int) time.Duration {
 		}
 		return time.Duration(float64(k.replayPerStep) * float64(k.plan.PiecewiseSegments()))
 	default:
-		return time.Duration(float64(k.launchEager) *
-			float64(k.plan.TotalKernels+draftKernels))
+		return time.Duration(float64(k.launchEager) * float64(kernels))
 	}
 }
 
@@ -1434,12 +1615,37 @@ func (k *Kernel) modeHost(mode graphMode, draftKernels int) time.Duration {
 // 2.3 microseconds, which is the conventional captured-graph dispatch figure the registry
 // already cites for a single launch.
 //
+// IT IS CHARGED UNDER A FULL REPLAY TOO, and that is not a second charge of the replay. A
+// FULL replay makes no per-kernel CPU launch: vLLM v0.31.0 calls one graph.replay() for the
+// whole step (CudaGraphManager.run_fullgraph, vllm/v1/worker/gpu/cudagraph_utils.py:531-544),
+// which replayPerStep prices. What this term carries is the per-node cost the GPU still pays
+// inside a replayed graph, the gap between one node's end and the next's start: the registry
+// defines and would measure it that way ("the gap between kernel end and next kernel start,
+// summed over the step", blis-registry cost-model-host-overheads.yaml,
+// host_launch_per_kernel), and backed it out of single-request decode steps that ran FULL
+// graphs. Dropping it under FULL would remove the term from the steps it was fitted on.
+// Under NONE it is charged beside the eager launch, additively, which is the composition
+// DeepSeek-V4.1's model-scoped eager constant was derived on.
+//
 // It does NOT overlap with device work, and that is the point rather than a simplification:
 // a dispatch that has not happened cannot have its kernel running. At large batch the
 // device work per kernel dwarfs it and it vanishes into the noise, which is why a model
 // fitted only at high concurrency would miss it.
-func (k *Kernel) launchSeconds(draftKernels int) float64 {
-	return k.launchPerKernel.Seconds() * float64(k.plan.TotalKernels+draftKernels)
+func (k *Kernel) launchSeconds(b kernel.Batch, draftKernels int) float64 {
+	return k.launchPerKernel.Seconds() * float64(k.stepKernels(b)+draftKernels)
+}
+
+// stepKernels is how many of the target's kernels a step launches: every planned kernel
+// when a request in it prefills, and all but the graph's prefill-only ones otherwise
+// (price.PlannedLayer.PrefillOnlyKernels). A request prefills on the rule shapeOf uses:
+// more scheduled tokens than the batch's decode threshold.
+func (k *Kernel) stepKernels(b kernel.Batch) int {
+	for _, r := range b.Reqs {
+		if r.Computed+r.Scheduled > 0 && r.Scheduled > b.DecodeThreshold {
+			return k.plan.TotalKernels
+		}
+	}
+	return k.plan.TotalKernels - k.plan.PrefillOnlyKernels
 }
 
 // graphMode is how much of a step a captured graph covers.
@@ -1454,6 +1660,17 @@ const (
 	// graphModeFull captures the whole step as one graph.
 	graphModeFull
 )
+
+// String is the mode's vLLM name.
+func (m graphMode) String() string {
+	switch m {
+	case graphModePiecewise:
+		return "PIECEWISE"
+	case graphModeFull:
+		return "FULL"
+	}
+	return "NONE"
+}
 
 // TierTime prices one transfer between GPU and an offload tier.
 func (k *Kernel) TierTime(tier string, dir kernel.Direction, bytes int64,
@@ -1637,6 +1854,39 @@ func (k *Kernel) DecodeContextParallelWidth() int { return max(k.layout.DCP, 1) 
 //
 // Interim for the same reason as DecodeContextParallelWidth.
 func (k *Kernel) PrefillContextParallelWidth() int { return max(k.layout.PCP, 1) }
+
+// PreSnapshotBytes returns what a rank holds before vLLM measures the memory its
+// gpu_memory_utilization budget is drawn from: the collective library's communicator
+// reservation and the engine workspace -- NVIDIA's lumped allowance for the CUDA context,
+// cuBLAS and allocator slack (blis-registry nccl_communicator_bytes_<N>rank,
+// engine_workspace_bytes). vLLM v0.31.0 initializes the device and the distributed
+// environment, NCCL included, and only then takes the snapshot both its requested memory
+// (total x gpu_memory_utilization) and its non-KV figure are measured against
+// (Worker.init_device, vllm/v1/worker/gpu_worker.py:466-493; request_memory,
+// vllm/v1/worker/utils.py:539-557; memory_profiling, vllm/utils/mem_utils.py:300-330). So
+// these take their room from the part's memory beyond the budget, not from the KV cache,
+// and FixedBytes leaves them out of its Total. A consumer checking that the deployment
+// starts at all compares gpu_memory_utilization x memory + PreSnapshotBytes with the part.
+//
+// KNOWN DIVERGENCE: the workspace allowance is one lumped figure, and the part of it that
+// arises after the snapshot -- cuBLAS and other library workspaces made at the first
+// forward -- is charged against the KV cache by vLLM and is left out here with the rest;
+// the registry states no split.
+func (k *Kernel) PreSnapshotBytes() int64 { return k.commBytes + k.workspaceBytes }
+
+// CaptureTokens returns the largest step, in tokens, a captured CUDA graph covers: the
+// deployment's max_cudagraph_capture_size or cudagraph_capture_sizes as vLLM v0.31.0 resolves
+// them, or its default where neither is stated (see Provenance). A step of more tokens runs
+// with no graph whatever the mode. Zero when the resolved mode captures nothing.
+func (k *Kernel) CaptureTokens() int { return k.captureTokens }
+
+// GraphModes returns the CUDA graph mode the engine runs a uniform decode step under and the
+// one it runs every other step under, as vLLM names them -- "FULL", "PIECEWISE" or "NONE" --
+// after the overrides Resolved reports. A step above CaptureTokens runs with no graph under
+// either.
+func (k *Kernel) GraphModes() (decode, other string) {
+	return k.graphDecode.String(), k.graphOther.String()
+}
 
 // Resource indices for the hot path's fixed array. A map allocation per step would show
 // up in a simulator calling this millions of times, so the accumulation is positional and
