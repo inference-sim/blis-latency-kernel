@@ -14,10 +14,16 @@ import (
 
 // dep8 is DeepSeek-V4.1-Flash as one DEP8 engine on the fixture's node: tp 1, dp 8, expert
 // parallelism on, so the MoE dispatch runs over an 8-rank expert group inside the node.
-// entries are extra moe_a2a_* coefficients for the fixture's part, as {name: value}.
-func dep8(t *testing.T, backend, mode string, mnbt int, entries map[string]float64) *Kernel {
+// entries are extra moe_a2a_* coefficients for the fixture's part, as {name: value}; drop
+// names registry entries to remove first.
+func dep8(t *testing.T, backend, mode string, mnbt int, entries map[string]float64,
+	drop ...string) *Kernel {
 	t.Helper()
-	in := fixtureInputs(t, v41)
+	names := map[string]bool{}
+	for _, n := range drop {
+		names[n] = true
+	}
+	in := withoutEntries(fixtureInputs(t, v41), names)
 	pl := &in.Deployment.Pools[0].Parallel
 	pl.TP, pl.DP, pl.EnableExpertParallel = 1, 8, true
 	e := &in.Deployment.Pools[0].Engine
@@ -78,8 +84,12 @@ func TestDeepEPDispatchIsPricedFromItsOwnMeasurement(t *testing.T) {
 }
 
 // Without a measurement for the part, the routed all-to-all stands and that is recorded.
+// blis-registry v0.2.0 measures deepep_high_throughput on h200, so the fixture's own
+// measurements are stripped first.
 func TestAnUnmeasuredDeepEPBackendIsRecorded(t *testing.T) {
-	k := dep8(t, "deepep_high_throughput", "", 8192, nil)
+	k := dep8(t, "deepep_high_throughput", "", 8192, nil,
+		"moe_a2a_floor_deepep_high_throughput_8rank_h200",
+		"moe_a2a_rate_deepep_high_throughput_8rank_h200")
 	if k.deepEP != nil {
 		t.Fatal("priced from a DeepEP measurement the scenario does not carry")
 	}

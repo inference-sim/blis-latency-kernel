@@ -59,11 +59,43 @@ func contractEntries(families ...string) []coefficient.Entry {
 	return out
 }
 
-// withEntries is the V4.1 fixture with entries appended as their own set, less any entry
-// named in drop.
+// contractNames is every entry name contractEntries can return, and the Rust-frontend
+// admission rate TestTheFrontendChoosesTheAdmissionRate supplies itself.
+func contractNames() map[string]bool {
+	names := map[string]bool{"host_admission_per_token_rust_frontend": true}
+	for _, e := range contractEntries("sparse_mla", "block_index_scores", "mhc", "host") {
+		names[e.Name] = true
+	}
+	return names
+}
+
+// withoutContractEntries is in with every contractEntries name removed from its sets, so a
+// test controls those families itself. blis-registry v0.2.0 commits them for V4.1 on h200;
+// without this the "without" side of every comparison below would carry them.
+func withoutContractEntries(in Inputs) Inputs { return withoutEntries(in, contractNames()) }
+
+// withoutEntries is in with every entry whose name is in names removed from its sets.
+func withoutEntries(in Inputs, names map[string]bool) Inputs {
+	var sets []*coefficient.Set
+	for _, set := range in.Coefficients {
+		c := *set
+		c.Coefficients = nil
+		for _, e := range set.Coefficients {
+			if !names[e.Name] {
+				c.Coefficients = append(c.Coefficients, e)
+			}
+		}
+		sets = append(sets, &c)
+	}
+	in.Coefficients = sets
+	return in
+}
+
+// withEntries is the V4.1 fixture, less the registry's contract entries, with entries
+// appended as their own set, less any entry named in drop.
 func withEntries(t *testing.T, entries []coefficient.Entry, drop ...string) *Kernel {
 	t.Helper()
-	in := fixtureInputs(t, v41)
+	in := withoutContractEntries(fixtureInputs(t, v41))
 	var kept []coefficient.Entry
 	for _, e := range entries {
 		dropped := false
@@ -342,7 +374,7 @@ func TestTheFrontendChoosesTheAdmissionRate(t *testing.T) {
 		Scope: coefficient.Scope{Hardware: []string{"h200"}}}
 	admit := func(frontend deployment.Frontend, extra ...coefficient.Entry) (*Kernel, time.Duration) {
 		t.Helper()
-		in := fixtureInputs(t, v41)
+		in := withoutContractEntries(fixtureInputs(t, v41))
 		in.Deployment.Pools[0].Engine.Frontend = frontend
 		entries := append(contractEntries("host"), extra...)
 		in.Coefficients = append(append([]*coefficient.Set{}, in.Coefficients...),

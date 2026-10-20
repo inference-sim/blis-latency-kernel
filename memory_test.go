@@ -1160,11 +1160,17 @@ func captureContract(drop ...string) []coefficient.Entry {
 	return out
 }
 
-// v41Engine is the V4.1 fixture at the stated engine knobs, with entries appended as their
-// own set.
+// v41Engine is the V4.1 fixture at the stated engine knobs, less the registry's capture
+// entries, with entries appended as their own set.
 func v41Engine(t *testing.T, entries []coefficient.Entry, seqs, mnbt, capture int) *Kernel {
 	t.Helper()
-	in := fixtureInputs(t, v41)
+	// blis-registry v0.2.0 publishes the three capture entries for V4.1 on h100 and h200;
+	// strip them so each test here states its own (or none, for the flat fallback).
+	names := map[string]bool{}
+	for _, e := range captureContract() {
+		names[e.Name] = true
+	}
+	in := withoutEntries(fixtureInputs(t, v41), names)
 	e := &in.Deployment.Pools[0].Engine
 	e.MaxNumSeqs, e.MaxNumBatchedTokens, e.MaxCUDAGraphCaptureSize = seqs, mnbt, &capture
 	if len(entries) > 0 {

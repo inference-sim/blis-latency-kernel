@@ -196,7 +196,10 @@ func TestAModelScopedEagerCostWinsWhateverItsOrder(t *testing.T) {
 	}
 	eager := func(before bool, extra ...coefficient.Entry) time.Duration {
 		t.Helper()
-		in := fixtureInputs(t, v41)
+		// blis-registry v0.2.0 commits a model-scoped host_launch_eager_per_kernel for
+		// V4.1, which would outrank every entry below; the cases supply their own.
+		in := withoutEntries(fixtureInputs(t, v41),
+			map[string]bool{"host_launch_eager_per_kernel": true})
 		in.Deployment.Pools[0].Engine.CUDAGraphMode = "NONE"
 		set := &coefficient.Set{Kind: "CoefficientSet", Name: "test-eager",
 			Coefficients: extra}
