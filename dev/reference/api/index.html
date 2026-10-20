@@ -1304,6 +1304,8 @@
       
         
       
+        
+      
     
     
     
@@ -1373,6 +1375,34 @@
     
   
     Documentation and releases
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../contributing/cross-repo-changes/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Changes across the repositories
   
 
     
@@ -1547,7 +1577,7 @@ its arguments and safe to call from many goroutines at once.</p>
 </tr>
 <tr>
 <td><code>SequenceVariableBytes(tokens)</code></td>
-<td>One request's <abbr title="The attention keys and values a request keeps for every token it has processed">KV</abbr> cache at a length, in whole pages.</td>
+<td>One request's <abbr title="The attention keys and values a request keeps for every token it has processed">KV</abbr> cache at a length, in whole pages, and for a graph that states its caches in whole blocks of the engine's shared pool.</td>
 </tr>
 <tr>
 <td><code>SequenceFixedBytes()</code></td>
@@ -1591,7 +1621,7 @@ its arguments and safe to call from many goroutines at once.</p>
 </tr>
 </tbody>
 </table>
-<p>And four that are not on the interface:</p>
+<p>And ten that are not on the interface:</p>
 <table>
 <thead>
 <tr>
@@ -1603,6 +1633,30 @@ its arguments and safe to call from many goroutines at once.</p>
 <tr>
 <td><code>Evidence()</code></td>
 <td>How many of the values in <code>Provenance</code> rest on evidence, of how many, and which were assumed. <a href="../provenance/#evidence">Evidence</a>.</td>
+</tr>
+<tr>
+<td><code>SequenceAdmissionBytes()</code></td>
+<td>What the engine reserves for one request whatever its length when it admits it: <code>SequenceFixedBytes</code> with each window ring at vLLM's admission cap, which grows with <code>max_num_batched_tokens</code>, rather than its steady decode hold. vLLM's reported <abbr title="The attention keys and values a request keeps for every token it has processed">KV</abbr> capacity sizes a request with it. <a href="../../concepts/memory/#what-each-request-holds-regardless-of-length">Memory</a>.</td>
+</tr>
+<tr>
+<td><code>SequenceBoundedBytes(inFlight)</code></td>
+<td>A request's bounded state with <code>inFlight</code> tokens scheduled but not settled: each window ring at the pages that many in-flight tokens hold, in whole pool blocks. At 1 + num_spec_tokens it is <code>SequenceFixedBytes</code>; at the engine's max in-flight tokens it is <code>SequenceAdmissionBytes</code>.</td>
+</tr>
+<tr>
+<td><code>SequenceBoundedBytesAt(computed, inFlight)</code></td>
+<td>The same for a request that has computed only <code>computed</code> tokens: a ring holds pages only for tokens it has seen, as vLLM allocates them. Past the window it equals <code>SequenceBoundedBytes(inFlight)</code>.</td>
+</tr>
+<tr>
+<td><code>PreSnapshotBytes()</code></td>
+<td>What a rank holds before vLLM measures its <code>gpu_memory_utilization</code> budget: the communicator reservation and the engine workspace. <code>FixedBytes</code> leaves it out of its total. <a href="../../concepts/memory/">Memory</a>.</td>
+</tr>
+<tr>
+<td><code>CaptureTokens()</code></td>
+<td>The largest step, in tokens, a captured CUDA graph covers: the stated <code>max_cudagraph_capture_size</code> or <code>cudagraph_capture_sizes</code> as vLLM resolves them, or its default. A larger step runs with no graph. Zero when nothing is captured.</td>
+</tr>
+<tr>
+<td><code>GraphModes()</code></td>
+<td>The CUDA graph mode a uniform decode step runs under and the one every other step runs under (<code>FULL</code>, <code>PIECEWISE</code> or <code>NONE</code>), after the engine's overrides.</td>
 </tr>
 <tr>
 <td><code>DecodeContextParallelWidth()</code></td>

@@ -1348,6 +1348,8 @@
       
         
       
+        
+      
     
     
     
@@ -1417,6 +1419,34 @@
     
   
     Documentation and releases
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../contributing/cross-repo-changes/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Changes across the repositories
   
 
     
@@ -1671,18 +1701,21 @@ kernel it returned.</p>
 <a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a><span class="nx">fmt</span><span class="p">.</span><span class="nx">Printf</span><span class="p">(</span><span class="s">"comm buffers %5.1f GiB\n"</span><span class="p">,</span><span class="w"> </span><span class="kt">float64</span><span class="p">(</span><span class="nx">m</span><span class="p">.</span><span class="nx">CommBuffers</span><span class="p">)</span><span class="o">/</span><span class="nx">gib</span><span class="p">)</span>
 <a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a><span class="nx">fmt</span><span class="p">.</span><span class="nx">Printf</span><span class="p">(</span><span class="s">"EPLB         %5.1f GiB\n"</span><span class="p">,</span><span class="w"> </span><span class="kt">float64</span><span class="p">(</span><span class="nx">m</span><span class="p">.</span><span class="nx">EPLBRedundant</span><span class="p">)</span><span class="o">/</span><span class="nx">gib</span><span class="p">)</span>
 <a id="__codelineno-6-8" name="__codelineno-6-8" href="#__codelineno-6-8"></a><span class="nx">fmt</span><span class="p">.</span><span class="nx">Printf</span><span class="p">(</span><span class="s">"total        %5.1f GiB per rank\n"</span><span class="p">,</span><span class="w"> </span><span class="kt">float64</span><span class="p">(</span><span class="nx">m</span><span class="p">.</span><span class="nx">Total</span><span class="p">())</span><span class="o">/</span><span class="nx">gib</span><span class="p">)</span>
-<a id="__codelineno-6-9" name="__codelineno-6-9" href="#__codelineno-6-9"></a>
-<a id="__codelineno-6-10" name="__codelineno-6-10" href="#__codelineno-6-10"></a><span class="c1">// KV cache for one request, rounded up to whole pages.</span>
-<a id="__codelineno-6-11" name="__codelineno-6-11" href="#__codelineno-6-11"></a><span class="nx">fmt</span><span class="p">.</span><span class="nx">Printf</span><span class="p">(</span><span class="s">"a 4,096-token request: %.0f MiB of KV cache per rank\n"</span><span class="p">,</span>
-<a id="__codelineno-6-12" name="__codelineno-6-12" href="#__codelineno-6-12"></a><span class="w">    </span><span class="kt">float64</span><span class="p">(</span><span class="nx">k</span><span class="p">.</span><span class="nx">SequenceVariableBytes</span><span class="p">(</span><span class="mi">4096</span><span class="p">))</span><span class="o">/</span><span class="p">(</span><span class="mi">1</span><span class="o">&lt;&lt;</span><span class="mi">20</span><span class="p">))</span>
+<a id="__codelineno-6-9" name="__codelineno-6-9" href="#__codelineno-6-9"></a><span class="c1">// The communicator and engine workspace, held before the budget is measured.</span>
+<a id="__codelineno-6-10" name="__codelineno-6-10" href="#__codelineno-6-10"></a><span class="nx">fmt</span><span class="p">.</span><span class="nx">Printf</span><span class="p">(</span><span class="s">"before the budget %4.1f GiB\n"</span><span class="p">,</span><span class="w"> </span><span class="kt">float64</span><span class="p">(</span><span class="nx">k</span><span class="p">.</span><span class="nx">PreSnapshotBytes</span><span class="p">())</span><span class="o">/</span><span class="nx">gib</span><span class="p">)</span>
+<a id="__codelineno-6-11" name="__codelineno-6-11" href="#__codelineno-6-11"></a>
+<a id="__codelineno-6-12" name="__codelineno-6-12" href="#__codelineno-6-12"></a><span class="c1">// KV cache for one request, rounded up to whole pages.</span>
+<a id="__codelineno-6-13" name="__codelineno-6-13" href="#__codelineno-6-13"></a><span class="nx">fmt</span><span class="p">.</span><span class="nx">Printf</span><span class="p">(</span><span class="s">"a 4,096-token request: %.0f MiB of KV cache per rank\n"</span><span class="p">,</span>
+<a id="__codelineno-6-14" name="__codelineno-6-14" href="#__codelineno-6-14"></a><span class="w">    </span><span class="kt">float64</span><span class="p">(</span><span class="nx">k</span><span class="p">.</span><span class="nx">SequenceVariableBytes</span><span class="p">(</span><span class="mi">4096</span><span class="p">))</span><span class="o">/</span><span class="p">(</span><span class="mi">1</span><span class="o">&lt;&lt;</span><span class="mi">20</span><span class="p">))</span>
 </code></pre></div>
 <div class="language-text highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>weights       78.2 GiB
 <a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>activations    1.1 GiB
 <a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a>CUDA graphs    0.8 GiB
-<a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a>comm buffers   3.9 GiB
+<a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a>comm buffers   0.0 GiB
 <a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a>EPLB           0.0 GiB
-<a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a>total         84.0 GiB per rank
-<a id="__codelineno-7-7" name="__codelineno-7-7" href="#__codelineno-7-7"></a>a 4,096-token request: 137 MiB of KV cache per rank
+<a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a>total         80.1 GiB per rank
+<a id="__codelineno-7-7" name="__codelineno-7-7" href="#__codelineno-7-7"></a>before the budget  3.9 GiB
+<a id="__codelineno-7-8" name="__codelineno-7-8" href="#__codelineno-7-8"></a>a 4,096-token request: 137 MiB of KV cache per rank
 </code></pre></div>
 <p><a href="../../concepts/memory/">Memory</a> explains each figure.</p>
 <h2 id="read-the-evidence">Read the evidence<a class="headerlink" href="#read-the-evidence" title="Permanent link">&para;</a></h2>
@@ -1707,11 +1740,11 @@ kernel it returned.</p>
 <a id="__codelineno-8-19" name="__codelineno-8-19" href="#__codelineno-8-19"></a><span class="w">    </span><span class="p">}</span>
 <a id="__codelineno-8-20" name="__codelineno-8-20" href="#__codelineno-8-20"></a><span class="p">}</span>
 </code></pre></div>
-<div class="language-text highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>109 of 151 values rest on evidence; 41 were assumed
+<div class="language-text highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>113 of 155 values rest on evidence; 41 were assumed
 <a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a>  assumed       41
-<a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a>  measured      94
+<a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a>  measured      99
 <a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a>  not_charged    1
-<a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a>  vendor_spec   15
+<a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a>  vendor_spec   14
 <a id="__codelineno-9-6" name="__codelineno-9-6" href="#__codelineno-9-6"></a>the kernel assumed max_cudagraph_capture_size
 <a id="__codelineno-9-7" name="__codelineno-9-7" href="#__codelineno-9-7"></a>the kernel assumed engine_version
 </code></pre></div>

@@ -1304,6 +1304,8 @@
       
         
       
+        
+      
     
     
     
@@ -1373,6 +1375,34 @@
     
   
     Documentation and releases
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../contributing/cross-repo-changes/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Changes across the repositories
   
 
     
@@ -1540,6 +1570,10 @@ which <code>OpenInputs</code> returns beside the documents the kernel was built 
 <tr>
 <td><code>SMBudget</code></td>
 <td>The <abbr title="Streaming multiprocessors: the GPU's arithmetic units">SMs</abbr> available this step, if fewer than the chip's; zero means all</td>
+</tr>
+<tr>
+<td><code>PadTokens</code></td>
+<td>Under data-parallel lockstep, the tokens this rank pads its step with to the group's largest count; zero means none. Pad tokens run the GEMMs, the <abbr title="Mixture of experts">MoE</abbr> dispatch and the experts, but no attention and no LM head, and the capture ceiling is met at the padded count. A rank with nothing scheduled sends an empty <code>Reqs</code> and its pad. Do not add pad tokens as requests, which would charge them attention and logits</td>
 </tr>
 </tbody>
 </table>

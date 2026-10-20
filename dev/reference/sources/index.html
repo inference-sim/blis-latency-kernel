@@ -1304,6 +1304,8 @@
       
         
       
+        
+      
     
     
     
@@ -1373,6 +1375,34 @@
     
   
     Documentation and releases
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../contributing/cross-repo-changes/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Changes across the repositories
   
 
     
@@ -1501,32 +1531,34 @@ pins themselves.</p>
 <td><code>EngineBehaviourVersion</code>, <code>EngineBehaviourCommit</code> in <code>new.go</code></td>
 </tr>
 <tr>
-<td>Interfaces and document types: <a href="https://github.com/inference-sim/blis-schemas/tree/v0.3.0">blis-schemas</a></td>
-<td><code>v0.3.0</code></td>
+<td>Interfaces and document types: <a href="https://github.com/inference-sim/blis-schemas/tree/v0.4.0">blis-schemas</a></td>
+<td><code>v0.4.0</code></td>
 <td>—</td>
 <td><code>go.mod</code></td>
 </tr>
 <tr>
-<td>Declared facts: <a href="https://github.com/inference-sim/blis-catalog/tree/3ed02ff75e6bf505f64cf7a54aa5e3bd626f85a5">blis-catalog</a></td>
-<td><code>0.2.2</code></td>
-<td><code>3ed02ff75e6b</code></td>
+<td>Declared facts: <a href="https://github.com/inference-sim/blis-catalog/tree/676326ec6c708e91ec4981bd6b03922a7fe60512">blis-catalog</a></td>
+<td><code>0.3.0</code></td>
+<td><code>676326ec6c70</code></td>
 <td><code>testdata/upstream.lock</code></td>
 </tr>
 <tr>
-<td>Coefficients: <a href="https://github.com/inference-sim/blis-registry/tree/45ec59cc41d1ddf402233612462c4e04d0168521">blis-registry</a></td>
-<td><code>v0.1.2</code></td>
-<td><code>45ec59cc41d1</code></td>
+<td>Coefficients: <a href="https://github.com/inference-sim/blis-registry/tree/7f6662d7188dc3dc873a37623e1f7bbfe1d6081b">blis-registry</a></td>
+<td><code>v0.2.0</code></td>
+<td><code>7f6662d7188d</code></td>
 <td><code>testdata/upstream.lock</code></td>
 </tr>
 </tbody>
 </table>
 <h2 id="two-sources-of-engine-behavior">Two sources of engine behavior<a class="headerlink" href="#two-sources-of-engine-behavior" title="Permanent link">&para;</a></h2>
 <p>Most of what the kernel knows about vLLM is encoded here, at v0.31.0: which kernels run, how
-work is split, what an unstated setting defaults to, which layouts start. Three version-scoped
-facts are read instead from the blis-schemas rules pack for the release the scenario declares:
-which tensor-parallel widths the custom all-reduce supports, when the <abbr title="Mixture of experts">MoE</abbr> input is made
-sequence-parallel, and which decode-context combine backends the release accepts. Only the pack
-for v0.29 is published today, so those three follow v0.29.</p>
+work is split, what an unstated setting defaults to, which layouts start. Some version-scoped
+facts are read instead from the blis-schemas rules pack for the release the scenario declares,
+among them which tensor-parallel widths the custom all-reduce supports, when the <abbr title="Mixture of experts">MoE</abbr> input is
+made sequence-parallel, which decode-context combine backends the release accepts, how many
+pages a window cache holds, how stated caches group into the shared <abbr title="The attention keys and values a request keeps for every token it has processed">KV</abbr> block pool, and the
+CUDA graph capture sizes a deployment's stated knobs resolve to (<code>resolve.EngineRules</code> lists
+them).</p>
 <h2 id="reading-a-citation">Reading a citation<a class="headerlink" href="#reading-a-citation" title="Permanent link">&para;</a></h2>
 <p>A comment in the source that cites <code>vllm/&lt;path&gt;:&lt;lines&gt;</code> means those lines at the commit
 above. To read them in a vLLM checkout:</p>

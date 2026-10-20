@@ -1326,6 +1326,8 @@
       
         
       
+        
+      
     
     
     
@@ -1395,6 +1397,34 @@
     
   
     Documentation and releases
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../contributing/cross-repo-changes/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Changes across the repositories
   
 
     
@@ -1561,6 +1591,10 @@ scenario in this repository declares v0.29.0, the only release blis-schemas publ
 for, so every one of them records it. Three facts do follow the declared version, because
 they are read from those rules; <a href="../../reference/sources/#two-sources-of-engine-behavior">Sources of truth</a>
 names them.</p>
+<p>A coefficient whose scope excludes the deployment's chip, model or widths is not used. Where
+two entries of one name both apply, the later set wins, except that an entry scoped to the
+deployment's model is never displaced by one that states no model: a value fitted on one
+model is the narrower claim, and file order should not decide between them.</p>
 <p>Some coefficients are optional: the kernel can price without them, by leaving out the term
 they set or, for the experts' routing imbalance, by taking the experts as evenly loaded. A
 host overhead is an example. When one the deployment needs is missing, that too
@@ -1598,11 +1632,11 @@ the deployment on <a href="../step/">Pricing a step</a>:</p>
 <a id="__codelineno-0-19" name="__codelineno-0-19" href="#__codelineno-0-19"></a><span class="w">    </span><span class="p">}</span>
 <a id="__codelineno-0-20" name="__codelineno-0-20" href="#__codelineno-0-20"></a><span class="p">}</span>
 </code></pre></div>
-<div class="language-text highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>109 of 151 values rest on evidence; 41 were assumed
+<div class="language-text highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>113 of 155 values rest on evidence; 41 were assumed
 <a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>  assumed       41
-<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>  measured      94
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>  measured      99
 <a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>  not_charged    1
-<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>  vendor_spec   15
+<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>  vendor_spec   14
 <a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a>the kernel assumed max_cudagraph_capture_size
 <a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a>the kernel assumed engine_version
 </code></pre></div>

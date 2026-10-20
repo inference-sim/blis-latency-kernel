@@ -1332,6 +1332,8 @@
       
         
       
+        
+      
     
     
     
@@ -1401,6 +1403,34 @@
     
   
     Documentation and releases
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../contributing/cross-repo-changes/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Changes across the repositories
   
 
     
@@ -1544,7 +1574,10 @@ the engine would not honor. This page lists what each can contain.</p>
 produced it, and its scope. Most entries are registry coefficients: every entry of the
 scenario's sets whose scope covers this chip and model, whether or not this deployment's
 steps use it. Their set is the registry set that supplied them, such as
-<code>cost-model-primitives</code>. The registry's
+<code>cost-model-primitives</code>. Their scope names the deployment's part, the model where the entry is
+scoped to one, and, for a <code>copied</code> entry, the scope it was copied from: DeepSeek-V4.1's eager
+launch cost on h100 reads <code>hardware: h100, model: deepseek-v4.1-flash; copied from
+hardware=h200,model=deepseek-v4.1-flash</code>. The registry's
 documentation describes each set and method.</p>
 <p>Entries the kernel supplied itself carry the set <code>blis-latency-kernel</code> (the constant
 <code>KernelAssumptionSet</code>) and the method <code>assumed</code>. Their scope holds the value used and the
@@ -1560,6 +1593,14 @@ reason. They are of two kinds.</p>
 </tr>
 </thead>
 <tbody>
+<tr>
+<td><code>attention_prefill_&lt;kind&gt;</code></td>
+<td>A measured prefill family for an attention kind (<code>sparse_mla</code>) or a scorer's role (<code>block_index_scores</code>) is only partly in the scenario's sets, so it is not used, and prefill is priced as without it. Value <code>fallback</code>.</td>
+</tr>
+<tr>
+<td><code>async_scheduling_spec</code></td>
+<td>The deployment speculates and the engine rules carry no async-compatible draft list, so the draft method is taken as leaving async scheduling on.</td>
+</tr>
 <tr>
 <td><code>block_size</code></td>
 <td>The deployment states no block size. 64 for a <abbr title="DeepSeek sparse attention">DSA</abbr> sparse-attention model, whose indexer accepts only 64; for a DeepSeek-V4-family model the one kernel block its sparse backends accept on the part (for DeepSeek-V4.1 64 on SM90 and 128 on SM100; for DeepSeek-V4 256 on every part); otherwise vLLM's default of 16.</td>
@@ -1579,6 +1620,10 @@ reason. They are of two kinds.</p>
 <tr>
 <td><code>cudagraph_mode</code></td>
 <td>No CUDA graph mode is stated. vLLM's default, <code>FULL_AND_PIECEWISE</code>.</td>
+</tr>
+<tr>
+<td><code>deepep_v2_mode</code></td>
+<td>The <abbr title="Mixture of experts">MoE</abbr> dispatch runs DeepEP v2, whose path vLLM picks from <code>enforce_eager</code>, which a deployment cannot state: a resolved <code>cudagraph_mode</code> of <code>NONE</code> is read as it. Value <code>deepep_v2_eager</code> or <code>deepep_v2_graph</code>.</td>
 </tr>
 <tr>
 <td><code>dcp_comm_backend</code></td>
@@ -1609,12 +1654,16 @@ reason. They are of two kinds.</p>
 <td>A graph states window caches and the deployment runs a <abbr title="The attention keys and values a request keeps for every token it has processed">KV</abbr> connector, which can turn the hybrid <abbr title="The attention keys and values a request keeps for every token it has processed">KV</abbr> cache manager off and the window rings into full-length caches.</td>
 </tr>
 <tr>
+<td><code>kv_cache_grouping</code></td>
+<td>A graph states its caches and the rules pack cannot group them into the engine's shared block pool, so each cache is sized at its own page rather than in whole pool blocks. The reason names what the pack does not model.</td>
+</tr>
+<tr>
 <td><code>mamba_cache_mode</code></td>
 <td>A model with recurrent layers states no recurrent cache mode: <code>align</code> with prefix caching on, <code>none</code> with it off.</td>
 </tr>
 <tr>
 <td><code>max_cudagraph_capture_size</code></td>
-<td>Any CUDA graph is captured. The largest batch a graph covers cannot be stated in a deployment, so it is always vLLM's default.</td>
+<td>Any CUDA graph is captured and the deployment states neither <code>max_cudagraph_capture_size</code> nor <code>cudagraph_capture_sizes</code>: vLLM's default ceiling, above which a step runs with no graph.</td>
 </tr>
 <tr>
 <td><code>max_model_len</code></td>
@@ -1631,6 +1680,18 @@ reason. They are of two kinds.</p>
 <tr>
 <td><code>modality</code></td>
 <td>The graph prices the text decoder of a multimodal model; its vision or audio tower is not priced.</td>
+</tr>
+<tr>
+<td><code>mhc</code></td>
+<td>Only one of the mHC pre and post forms resolves, so neither is used. Value <code>fallback</code>.</td>
+</tr>
+<tr>
+<td><code>moe_a2a_&lt;kind&gt;</code></td>
+<td>A DeepEP backend (<code>deepep_high_throughput</code>, <code>deepep_low_latency</code>, <code>deepep_v2_eager</code>, <code>deepep_v2_graph</code>) runs the <abbr title="Mixture of experts">MoE</abbr> dispatch but has no measured price for the part and expert width, or the expert group spans nodes, so it is priced as the generic routed all-to-all.</td>
+</tr>
+<tr>
+<td><code>mhc_&lt;kind&gt;</code></td>
+<td>An mHC component's rate (<code>pre</code> or <code>post</code>) is in the scenario's sets without its floor, so the measured mHC form is not used. Value <code>fallback</code>.</td>
 </tr>
 <tr>
 <td><code>mla_context_chunk</code></td>
@@ -1689,6 +1750,14 @@ the model has a layer of that kind.</p>
 <td>Prefill attention is charged on the plain efficiency ramp, with no floor</td>
 </tr>
 <tr>
+<td><code>attention_prefill_rate_&lt;kind&gt;</code></td>
+<td>Prefill of that attention kind (<code>sparse_mla</code>) or scorer role (<code>block_index_scores</code>) is priced with the part-wide prefill pair on its FLOPs, not with its own measured floor, per-request, per-token and byte terms</td>
+</tr>
+<tr>
+<td><code>mhc_rate_&lt;kind&gt;</code></td>
+<td>The mHC nodes running that component (<code>pre</code>, <code>post</code>) are charged their stated bytes at memory bandwidth, and, without the <code>pre</code> form, the <code>hc_*fn</code> GEMMs on the dense ramp</td>
+</tr>
+<tr>
 <td><code>recurrent_decode_floor_&lt;kind&gt;</code>, <code>recurrent_decode_rate_&lt;kind&gt;</code></td>
 <td>The recurrent mixer's decode term is not charged</td>
 </tr>
@@ -1705,11 +1774,18 @@ the model has a layer of that kind.</p>
 <td>An offload transfer is not capped at the host link's rate</td>
 </tr>
 <tr>
+<td><code>host_step_per_request</code></td>
+<td>The scheduler's per-request CPU cost is charged at zero; with it, a step without async scheduling carries it in series and one with async scheduling shows only its excess over the device work</td>
+</tr>
+<tr>
 <td><code>host_admission_per_token</code>, <code>host_admission_per_request</code>, <code>host_output_token</code>, <code>host_completion</code>, <code>host_launch_eager_per_layer</code>, <code>host_launch_per_kernel</code>, <code>host_replay_graph_per_step</code></td>
 <td>That host cost is charged at zero</td>
 </tr>
 </tbody>
 </table>
+<p>The eager launch cost is read as <code>host_launch_eager_per_kernel</code> where a set carries it, and as
+<code>host_launch_eager_per_layer</code> otherwise; both are charged per kernel. A model-scoped entry
+under either name is taken over a part-wide one.</p>
 <h2 id="evidence">Evidence<a class="headerlink" href="#evidence" title="Permanent link">&para;</a></h2>
 <p><code>Evidence()</code> returns three things: how many entries of <code>Provenance</code> rest on evidence (method
 <code>measured</code>, <code>literature</code> or <code>vendor_spec</code>), how many there are in all, and the names of those
@@ -1733,6 +1809,10 @@ these:</p>
 </thead>
 <tbody>
 <tr>
+<td><code>all2all_backend</code></td>
+<td>An <abbr title="Mixture of experts">MoE</abbr> dispatch backend is stated for an expert-parallel layout that runs no dispatch: dp 1, pcp 1 and no sequence-parallel <abbr title="Mixture of experts">MoE</abbr> input, where vLLM's <code>use_all2all_kernels</code> is false. The experts run on the replicated tokens and the tensor-parallel all-reduce combines them, so the backend is resolved as <code>none</code> and every backend prices the same step.</td>
+</tr>
+<tr>
 <td><code>allreduce_backend</code></td>
 <td>The custom all-reduce was requested at a tensor-parallel width it does not support, or across nodes on a chip without multi-node NVLink. <abbr title="NVIDIA's collective communications library">NCCL</abbr> runs instead.</td>
 </tr>
@@ -1745,8 +1825,20 @@ these:</p>
 <td>Decode-context parallelism is on, the interleave is unstated, the block size is above one, and a <abbr title="NVIDIA's inference transfer library, used to move KV caches between engines">NIXL</abbr> connector is configured, so vLLM sets the interleave to the block size.</td>
 </tr>
 <tr>
+<td><code>cudagraph_capture_sizes</code></td>
+<td>Stated capture sizes above <code>max_num_batched_tokens</code>, which vLLM drops.</td>
+</tr>
+<tr>
+<td><code>cudagraph_mode</code></td>
+<td>DeepEP high-throughput with dp above one, or MoonEP where its all-to-all runs: the engine cannot capture the dispatch and runs with no CUDA graphs.</td>
+</tr>
+<tr>
 <td><code>mamba_cache_mode</code></td>
 <td>A hybrid model states <code>none</code> with prefix caching on, which vLLM runs as <code>align</code>.</td>
+</tr>
+<tr>
+<td><code>max_cudagraph_capture_size</code></td>
+<td>A stated maximum that vLLM lowers: capped at <code>max_num_batched_tokens</code>, or off the sizes it captures (1, 2, 4, every 8 below 256, every 16 from it). The largest size that runs is the ceiling.</td>
 </tr>
 </tbody>
 </table>
