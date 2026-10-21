@@ -57,3 +57,4 @@ jobs:
         run: |
           python3 scripts/test_extract_inferencex_engine_settings.py
           python3 scripts/test_gen_aisimulate_scenarios.py
+          python3 scripts/test_extract_agentic_replay_args.py
