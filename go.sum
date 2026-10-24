@@ -1,5 +1,7 @@
-github.com/inference-sim/blis-schemas v0.4.0 h1:0vs4rLxdl0neSizFWCIE7A9fTm5YtYr0aSEf5jl311g=
-github.com/inference-sim/blis-schemas v0.4.0/go.mod h1:RyL296oIGyK+JJtU74h6vh4PNmzxajVeKeuymZfGJOE=
+github.com/inference-sim/blis-schemas v0.6.1-0.20261024062559-1571a115227a h1:sy9jtZEEs6MmMpmaqs1FXGirdo+SQemL0WXad+DyFxk=
+github.com/inference-sim/blis-schemas v0.6.1-0.20261024062559-1571a115227a/go.mod h1:RyL296oIGyK+JJtU74h6vh4PNmzxajVeKeuymZfGJOE=
+github.com/inference-sim/blis-vllm/rules v0.0.0-20261024062740-0f264b2c9eba h1:wTdClEDZ2EZDLRWfwR/uEUEKmH7NOK2BFxz4XvxHVS4=
+github.com/inference-sim/blis-vllm/rules v0.0.0-20261024062740-0f264b2c9eba/go.mod h1:GDq5IUF2YE//GgTAlVAJavWm2Wc+e6dV8gSo1XzhIIo=
 gopkg.in/check.v1 v0.0.0-20161208181325-20d25e280405 h1:yhCVgyC4o1eVCa2tZl7eS0r+SDo693bJlVdllGtEeKM=
 gopkg.in/check.v1 v0.0.0-20161208181325-20d25e280405/go.mod h1:Co6ibVJAznAaIkqp8huTwlJQCZ016jof/cbN4VW5Yz0=
 gopkg.in/yaml.v3 v3.0.1 h1:fxVm/GzAzEWqLHuvctI91KS9hhNmmWOoWu0XTYJS7CA=

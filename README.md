@@ -22,8 +22,13 @@ go get github.com/inference-sim/blis-latency-kernel@latest
 ```
 
 ```go
+import vllmrules "github.com/inference-sim/blis-vllm/rules"
+
 k, err := latencykernel.Open("my-deployment.yaml", latencykernel.Repos{
 	Scenarios: "scenarios", Catalog: "blis-catalog", Registry: "blis-registry",
+	// The engine rules for the scenario's engine_version: the kernel takes them from its
+	// caller and looks none up itself.
+	Rules: latencykernel.RulesFrom(vllmrules.Lookup), RulesVersions: vllmrules.Versions,
 })
 if err != nil {
 	panic(err)

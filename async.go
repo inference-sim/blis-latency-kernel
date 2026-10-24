@@ -5,7 +5,6 @@ import (
 	"time"
 
 	"github.com/inference-sim/blis-schemas/kernel"
-	"github.com/inference-sim/blis-schemas/rules"
 
 	"github.com/inference-sim/blis-latency-kernel/internal/resolve"
 )
@@ -24,16 +23,16 @@ import (
 // multiprocessing (vllm/config/parallel.py:990-1030), which supports async scheduling
 // (vllm/v1/executor/multiproc_executor.py:560-561).
 func (k *Kernel) resolveAsyncScheduling(r resolve.EngineRules) error {
-	var compatible map[string]bool
-	if pack, ok := r.(*rules.Pack); ok && pack != nil {
-		compatible = pack.AsyncCompatibleSpec
-	}
 	method := ""
 	if s := k.pool.Engine.Speculative; s != nil && s.NumSpecTokens > 0 {
 		method = s.Method
 	}
-	knownIncompatible := method != "" && compatible != nil && !compatible[method]
-	if method != "" && compatible == nil {
+	var compatible, known bool
+	if method != "" {
+		compatible, known = r.AsyncCompatibleSpeculative(method)
+	}
+	knownIncompatible := method != "" && known && !compatible
+	if method != "" && !known {
 		k.assume("async_scheduling_spec", method,
 			"the rules value carries no async-compatible draft list, so the draft method is "+
 				"taken as compatible with async scheduling")

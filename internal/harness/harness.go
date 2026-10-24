@@ -17,6 +17,8 @@ import (
 	"path/filepath"
 
 	"github.com/inference-sim/blis-schemas/kernel"
+	schemarules "github.com/inference-sim/blis-schemas/rules"
+	vllmrules "github.com/inference-sim/blis-vllm/rules"
 
 	latencykernel "github.com/inference-sim/blis-latency-kernel"
 )
@@ -32,9 +34,27 @@ type Repos = latencykernel.Repos
 // repository calls harness.Open, and the move was about making the sequence REACHABLE from
 // other modules rather than about relocating callers. Keeping the name means the promotion
 // is a visibility change and nothing else.
+//
+// It supplies the engine rules, which the root package no longer looks up: a Repos without
+// a rules source gets the vLLM packs (WithVLLMRules). The commands and this repository's
+// tests are the kernel's own callers, so they take the packs from the engine model's rules
+// module like any other caller; the library itself never imports it.
 func Open(scenario string, r Repos) (*latencykernel.Kernel, error) {
-	return latencykernel.Open(scenario, r)
+	return latencykernel.Open(scenario, WithVLLMRules(r))
 }
+
+// WithVLLMRules returns r with the vLLM rules packs (github.com/inference-sim/blis-vllm/rules)
+// as its rules source, where it states none.
+func WithVLLMRules(r Repos) Repos {
+	if r.Rules == nil {
+		r.Rules = VLLMRules
+		r.RulesVersions = vllmrules.Versions
+	}
+	return r
+}
+
+// VLLMRules is the vLLM rules pack for a release, nil for a release with none.
+var VLLMRules = latencykernel.RulesFrom(func(v string) *schemarules.Pack { return vllmrules.Lookup(v) })
 
 // DecodeThreshold is the scheduled-token count above which the kernel prices a request as
 // prefill, for the batches the scoring commands build. It is this harness's cutoff, not a

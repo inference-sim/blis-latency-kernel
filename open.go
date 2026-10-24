@@ -17,14 +17,41 @@ import (
 	"github.com/inference-sim/blis-schemas/spec/scenario"
 )
 
-// Repos locates the roots a scenario's names resolve against.
+// Repos locates the roots a scenario's names resolve against, and the engine rules its
+// engine_version selects.
 //
 // A scenario names its model, hardware, fabric and coefficient sets without saying where
 // they live — it describes a deployment, not a filesystem — so a caller supplies the roots.
+// It names its engine release the same way, without the rules: those belong to the engine
+// model (blis-vllm), not to this cost model, so a caller supplies them too.
 type Repos struct {
 	Scenarios string // directory holding scenario files
 	Catalog   string // a blis-catalog checkout, or a pinned copy of one
 	Registry  string // a blis-registry checkout, or a pinned copy of one
+
+	// Rules returns the engine rules for a release, or nil for a release it has none for:
+	// for vLLM, the packs of github.com/inference-sim/blis-vllm/rules (its Lookup, wrapped
+	// as RulesFrom does). Required: the kernel no longer looks rules up itself.
+	Rules func(version string) rules.EngineRules
+	// RulesVersions lists the releases Rules answers for, for the error a scenario naming
+	// another one gets. Optional.
+	RulesVersions func() []string
+}
+
+// RulesFrom adapts a lookup returning a concrete rules type, such as blis-vllm/rules'
+// Lookup returning *rules.Pack, to Repos.Rules. It keeps a nil result nil: a nil *Pack in a
+// non-nil interface would read as rules that exist.
+func RulesFrom[R interface {
+	comparable
+	rules.EngineRules
+}](lookup func(version string) R) func(string) rules.EngineRules {
+	return func(version string) rules.EngineRules {
+		var none R
+		if r := lookup(version); r != none {
+			return r
+		}
+		return nil
+	}
 }
 
 // Open resolves one scenario file into a kernel.
@@ -41,9 +68,10 @@ type Repos struct {
 // duplication was tolerable only because it was confined to loading — but "which files a
 // scenario implies" is this package's answer to give, not each caller's to guess.
 //
-// Every artifact is loaded through blis-schemas' own loaders, and the engine rules come from
-// that package's version registry rather than from a caller, so a scenario pinned to an
-// older release cannot silently get current behaviour.
+// Every artifact is loaded through blis-schemas' own loaders. The engine rules are the ones
+// the caller's Repos.Rules returns for the scenario's own engine_version, so a scenario
+// pinned to an older release cannot silently get current behaviour, and a release the
+// caller has no rules for is refused.
 //
 // It prices the deployment's FIRST pool, which is what a colocated deployment has. Use
 // OpenPool to price one pool of a disaggregated one.
@@ -129,17 +157,26 @@ func OpenInputs(scenario string, r Repos, poolIndex int) (Inputs, error) {
 	if err != nil {
 		return Inputs{}, err
 	}
-	pack := rules.Lookup(sc.EngineVersion)
-	if pack == nil {
+	if r.Rules == nil {
+		return Inputs{}, fmt.Errorf("%s: no engine rules source: Repos.Rules is unset, and the "+
+			"kernel looks no rules up itself. Pass the engine model's rules for the scenario's "+
+			"engine_version (for vLLM, github.com/inference-sim/blis-vllm/rules)", scenario)
+	}
+	er := r.Rules(sc.EngineVersion)
+	if er == nil {
+		var known []string
+		if r.RulesVersions != nil {
+			known = r.RulesVersions()
+		}
 		return Inputs{}, fmt.Errorf(
 			"no engine rules for version %q; known versions are %v. A layout cannot be "+
 				"resolved without them, and a nearby version would misprice whatever "+
-				"changed between the two", sc.EngineVersion, rules.Versions())
+				"changed between the two", sc.EngineVersion, known)
 	}
 	return Inputs{
 		Scenario: sc, Deployment: dep, PoolIndex: poolIndex,
 		Model: graph, Chip: chip, Fabric: fabric,
-		Devices: devices, Coefficients: sets, Rules: pack,
+		Devices: devices, Coefficients: sets, Rules: er,
 	}, nil
 }
 

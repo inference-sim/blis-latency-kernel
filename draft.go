@@ -436,10 +436,7 @@ func (k *Kernel) assumeEngram() {
 // dp_shared_memory resolves on (the engine's default when cpu_offload is on, use_thp is off
 // and dp exceeds one), and otherwise split across them too, tp x local-dp ways.
 func (k *Kernel) resolveEngram(r resolve.EngineRules) {
-	k.engramOnHost = true
-	if pack, ok := r.(*rules.Pack); ok && pack != nil {
-		k.engramOnHost = pack.EngramCPUOffloadDefault
-	}
+	k.engramOnHost = r.EngramOnHostByDefault()
 	ec := k.pool.Engine.EngramConfig
 	if ec != nil && ec.CPUOffload != nil {
 		k.engramOnHost = *ec.CPUOffload

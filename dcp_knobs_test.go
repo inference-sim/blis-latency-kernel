@@ -8,10 +8,10 @@ import (
 	"time"
 
 	"github.com/inference-sim/blis-schemas/kernel"
-	"github.com/inference-sim/blis-schemas/rules/v0_29"
 	"github.com/inference-sim/blis-schemas/spec/coefficient"
 	"github.com/inference-sim/blis-schemas/spec/deployment"
 	"github.com/inference-sim/blis-schemas/vocab"
+	"github.com/inference-sim/blis-vllm/rules/v0_29"
 
 	schemas "github.com/inference-sim/blis-schemas"
 )

@@ -19,7 +19,8 @@ import latencykernel "github.com/inference-sim/blis-latency-kernel"
 | `OpenInputs(scenario, repos, i)` | Loads the documents without building a kernel, for a caller that needs them too. |
 | `New(inputs)` | Builds a kernel from documents already in memory. `Open` and `OpenPool` end here. |
 | `Inputs` | The documents a kernel is built from: scenario, deployment, pool index, model graph, chip, fabric, storage devices, coefficient sets and engine rules. |
-| `Repos` | The three roots a scenario's names resolve against: scenarios, catalog, registry. |
+| `Repos` | The three roots a scenario's names resolve against (scenarios, catalog, registry) and `Rules`, the engine rules for a release, which the caller supplies. |
+| `RulesFrom(lookup)` | Adapts a lookup returning a concrete rules type, such as blis-vllm/rules' `Lookup`, to `Repos.Rules`. |
 | `LoadBundle(path)` | Reads a scenario and its deployment from one file of two YAML documents. |
 
 [Price a batch from Go](../guides/go.md) shows each in use.

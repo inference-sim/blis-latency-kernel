@@ -126,11 +126,12 @@ func DefaultMeasurements() string {
 	return underRoot("testdata", "measurements")
 }
 
-// DefaultRepos is the three roots together, which is how every caller uses them.
+// DefaultRepos is the three roots together, with the vLLM rules packs, which is how every
+// caller uses them.
 func DefaultRepos() Repos {
-	return Repos{
+	return WithVLLMRules(Repos{
 		Scenarios: DefaultScenarios(),
 		Catalog:   DefaultCatalog(),
 		Registry:  DefaultRegistry(),
-	}
+	})
 }

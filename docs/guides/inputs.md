@@ -29,7 +29,7 @@ loaders do, and validates them before building anything.
 | `cluster.fabric`, if present | `<catalog>/networks/<fabric>.yaml`: the network between nodes |
 | (always) | `<catalog>/devices/storage.yaml`: the storage tiers offload can use |
 | `coefficients: [...]` | `<registry>/coefficients/<set>.yaml`, one file per set |
-| `engine_version` | The validation rules blis-schemas publishes for that version of vLLM |
+| `engine_version` | The engine rules for that version of vLLM, from the caller's `Repos.Rules` (the vLLM rules packs in [blis-vllm](https://github.com/inference-sim/blis-vllm)) |
 
 A deployment that spans nodes should name its fabric, because collectives that cross nodes
 are priced from it. Of the six coefficient sets above, three are required:
@@ -39,7 +39,9 @@ unpriced, and the kernel records each missing coefficient the deployment needed 
 assumption.
 
 `Repos` gives the three roots: where the scenario files are, the catalog checkout, and the
-registry checkout. [Price a batch from Go](go.md) shows it in use.
+registry checkout. It also carries the engine rules, `Rules`, which the caller supplies: the
+kernel looks no rules up itself, so `Open` refuses a `Repos` without them.
+[Price a batch from Go](go.md) shows it in use.
 
 ## In this repository
 

@@ -410,15 +410,11 @@ func (k *Kernel) resolveContextParallel(in Inputs) error {
 		}
 	}
 
-	// The release's own list of backend names, where the rules value is a blis-schemas pack.
-	// resolve.EngineRules cannot ask for it -- rules.Pack carries the list as a field, with no
-	// method an interface could name -- so any other rules value leaves the release's check
-	// undone, and that is disclosed rather than silent: the name is still checked against
-	// what this kernel prices, but not against what the engine release accepts.
-	var accepted map[string]bool
-	if pack, ok := in.Rules.(*rules.Pack); ok && pack != nil {
-		accepted = pack.DCPCommBackends
-	}
+	// The release's own list of backend names. A rules value that states none leaves the
+	// release's check undone, and that is disclosed rather than silent: the name is still
+	// checked against what this kernel prices, but not against what the engine release
+	// accepts.
+	accepted := in.Rules.DCPCommBackendNames()
 	if b := k.pool.Engine.DCPCommBackend; b != "" && accepted == nil {
 		k.assume("dcp_comm_backend", b,
 			"stated, and checked against the backends this kernel prices, but not against "+
@@ -506,8 +502,7 @@ func refuseV4Layouts(in Inputs, cacheDType string) error {
 	}
 	pool := in.Deployment.Pools[in.PoolIndex]
 	family, _ := in.Chip.CapabilityMajor()
-	if pack, ok := in.Rules.(*rules.Pack); ok && pack != nil &&
-		pack.MegaMoEBackends[rules.NormalizeMoEBackend(pool.Engine.MoEBackend)] {
+	if in.Rules.MegaMoEBackend(pool.Engine.MoEBackend) {
 		if !pool.Parallel.EnableExpertParallel {
 			return fmt.Errorf("moe_backend %q on %s needs expert parallelism: vLLM v0.31.0 "+
 				"refuses mega-MoE without it", pool.Engine.MoEBackend, arch)
