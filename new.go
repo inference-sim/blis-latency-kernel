@@ -75,7 +75,7 @@ func New(in Inputs) (*Kernel, error) {
 		return nil, fmt.Errorf("pool index %d is outside the deployment's %d pool(s)",
 			in.PoolIndex, len(in.Deployment.Pools))
 	}
-	if in.Rules == nil {
+	if isNil(in.Rules) {
 		return nil, fmt.Errorf("a kernel needs engine rules for version %q",
 			in.Scenario.EngineVersion)
 	}

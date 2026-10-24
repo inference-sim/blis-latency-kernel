@@ -141,6 +141,40 @@ func TestEachRulesFactIsReadThroughTheInterface(t *testing.T) {
 	}
 }
 
+// ownAnswerRules answer the decode-context backend and mega-MoE questions themselves, with
+// sets no registered release has: a2a is not an accepted decode-context backend, and a
+// backend no release treats as mega-MoE is one. They forward every other question.
+type ownAnswerRules struct{ resolve.EngineRules }
+
+func (ownAnswerRules) DCPCommBackendNames() map[string]bool { return map[string]bool{"ag_rs": true} }
+func (ownAnswerRules) MegaMoEBackend(name string) bool      { return name == "triton" }
+
+// A rules value that is not a pack, wrapped or otherwise, is obeyed on the facts it answers:
+// its own decode-context backend list refuses a backend the release would accept, and its own
+// mega-MoE set gates a backend no release gates. Wrapping a pack cannot show this, because a
+// wrapper answers as the pack does.
+func TestTheCallersOwnAnswersAreObeyed(t *testing.T) {
+	_, err := dcpVariant(t, dcpMLAFixture, 8, 1, 8, func(in *Inputs) {
+		in.Deployment.Pools[0].Engine.DCPCommBackend = "a2a"
+		in.Rules = ownAnswerRules{in.Rules}
+	})
+	if err == nil || !strings.Contains(err.Error(), "ag_rs") {
+		t.Errorf("rules accepting only ag_rs let dcp_comm_backend a2a through: %v", err)
+	}
+
+	in := fixtureInputs(t, "deepseek-v41-flash-h200-tp8.yaml")
+	p := &in.Deployment.Pools[in.PoolIndex]
+	p.Engine.MoEBackend = "triton"
+	p.Parallel.EnableExpertParallel = false
+	if _, err := New(in); err != nil && strings.Contains(err.Error(), "needs expert parallelism") {
+		t.Fatalf("the release's own rules gate triton as mega-MoE (%v); the case shows nothing", err)
+	}
+	in.Rules = ownAnswerRules{in.Rules}
+	if _, err := New(in); err == nil || !strings.Contains(err.Error(), "needs expert parallelism") {
+		t.Errorf("rules calling triton mega-MoE did not gate it on expert parallelism: %v", err)
+	}
+}
+
 // hbmEngramRules are a release's rules whose Engram tables default to device memory, the
 // value no registered release has, so a kernel that skipped the fact (taking host memory, the
 // kernel's own fallback) would be told apart from one that read it.
@@ -223,6 +257,47 @@ func TestRulesFromKeepsAMissingReleaseMissing(t *testing.T) {
 	}
 	if r := lookup("known"); r == nil || r.EngineVersion() != "known" {
 		t.Errorf("a known release gave %v", r)
+	}
+
+	// The same holds when the lookup's own result type is an interface whose value holds a
+	// nil pointer: comparing it with the interface's zero value would call it present.
+	var missing *rules.Pack
+	viaInterface := RulesFrom(func(string) rules.EngineRules { return missing })
+	if r := viaInterface("unknown"); r != nil {
+		t.Errorf("a nil *rules.Pack inside an interface gave non-nil rules %#v", r)
+	}
+}
+
+// A Rules source that answers with a nil pointer inside a non-nil interface, bypassing
+// RulesFrom, has no rules for the release: Open refuses it as it refuses nil, rather than
+// building a kernel whose first rules call dereferences nil.
+func TestOpenRefusesATypedNilAsNoRules(t *testing.T) {
+	r := repos()
+	var missing *rules.Pack
+	r.Rules = func(string) rules.EngineRules { return missing }
+	_, err := Open("minimax-m25-h200-ep8.yaml", r)
+	if err == nil || !strings.Contains(err.Error(), "no engine rules for version") {
+		t.Fatalf("Open with a typed-nil rules value: %v, want the no-rules refusal", err)
+	}
+}
+
+// The refusal for a release with no rules lists the releases that have them only when the
+// caller said which; with no RulesVersions it does not claim the list is empty.
+func TestTheMissingReleaseRefusalListsVersionsOnlyWhenKnown(t *testing.T) {
+	r := repos()
+	r.Rules = func(string) rules.EngineRules { return nil }
+	r.RulesVersions = nil
+	_, err := Open("minimax-m25-h200-ep8.yaml", r)
+	if err == nil {
+		t.Fatal("Open built a kernel for a release with no rules")
+	}
+	if strings.Contains(err.Error(), "known versions") {
+		t.Errorf("with no RulesVersions the refusal still claims a version list: %v", err)
+	}
+	r.RulesVersions = func() []string { return []string{"0.29.0", "0.31.0"} }
+	_, err = Open("minimax-m25-h200-ep8.yaml", r)
+	if err == nil || !strings.Contains(err.Error(), "known versions are [0.29.0 0.31.0]") {
+		t.Errorf("with RulesVersions the refusal does not list them: %v", err)
 	}
 }
 

@@ -106,7 +106,7 @@ func TestADecodeReadsTheCacheItHolds(t *testing.T) {
 }
 
 // THE ENGINE RELEASE PRICED IS DISCLOSED WHEN IT IS NOT THE ONE DECLARED. The fixtures declare
-// 0.29.0, the one release with a rules pack, and the kernel encodes 0.31.0's behaviour; that
+// 0.29.0, a release the vLLM rules packs cover, and the kernel encodes 0.31.0's behaviour; that
 // must show in Provenance, and must not when the scenario declares 0.31.0 itself.
 func TestTheEngineReleasePricedIsDisclosed(t *testing.T) {
 	in := fixtureInputs(t, dcpMLAFixture)

@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"reflect"
 
 	"gopkg.in/yaml.v3"
 
@@ -40,18 +41,32 @@ type Repos struct {
 
 // RulesFrom adapts a lookup returning a concrete rules type, such as blis-vllm/rules'
 // Lookup returning *rules.Pack, to Repos.Rules. It keeps a nil result nil: a nil *Pack in a
-// non-nil interface would read as rules that exist.
+// non-nil interface would read as rules that exist. That holds also when R is itself an
+// interface type whose value holds a nil pointer.
 func RulesFrom[R interface {
 	comparable
 	rules.EngineRules
 }](lookup func(version string) R) func(string) rules.EngineRules {
 	return func(version string) rules.EngineRules {
-		var none R
-		if r := lookup(version); r != none {
-			return r
+		r := lookup(version)
+		if isNil(r) {
+			return nil
 		}
-		return nil
+		return r
 	}
+}
+
+// isNil reports whether v is nil or an interface holding a nil pointer, map, slice, func or
+// channel: a value that cannot answer for a release.
+func isNil(v any) bool {
+	if v == nil {
+		return true
+	}
+	switch rv := reflect.ValueOf(v); rv.Kind() {
+	case reflect.Pointer, reflect.Map, reflect.Slice, reflect.Func, reflect.Chan, reflect.Interface:
+		return rv.IsNil()
+	}
+	return false
 }
 
 // Open resolves one scenario file into a kernel.
@@ -163,15 +178,15 @@ func OpenInputs(scenario string, r Repos, poolIndex int) (Inputs, error) {
 			"engine_version (for vLLM, github.com/inference-sim/blis-vllm/rules)", scenario)
 	}
 	er := r.Rules(sc.EngineVersion)
-	if er == nil {
-		var known []string
+	if isNil(er) {
+		known := ""
 		if r.RulesVersions != nil {
-			known = r.RulesVersions()
+			known = fmt.Sprintf("; known versions are %v", r.RulesVersions())
 		}
 		return Inputs{}, fmt.Errorf(
-			"no engine rules for version %q; known versions are %v. A layout cannot be "+
-				"resolved without them, and a nearby version would misprice whatever "+
-				"changed between the two", sc.EngineVersion, known)
+			"no engine rules for version %q%s. A layout cannot be resolved without them, "+
+				"and a nearby version would misprice whatever changed between the two",
+			sc.EngineVersion, known)
 	}
 	return Inputs{
 		Scenario: sc, Deployment: dep, PoolIndex: poolIndex,
