@@ -40,9 +40,9 @@ A deployment that states every setting carries almost no such entries. The excep
 listed on [Provenance, Evidence, Resolved](../reference/provenance.md). The one that
 matters most is the version of vLLM: the kernel prices v0.31.0's behavior whatever version a
 scenario declares, and records `engine_version` as an assumption when the two differ. Every
-scenario in this repository declares v0.29.0, the only release blis-schemas publishes rules
-for, so every one of them records it. Three facts do follow the declared version, because
-they are read from those rules; [Sources of truth](../reference/sources.md#two-sources-of-engine-behavior)
+scenario in this repository declares v0.29.0 or v0.31.0, releases the vLLM rules packs
+cover, so every one of them records it. The facts read from those rules do follow the
+declared version; [Sources of truth](../reference/sources.md#two-sources-of-engine-behavior)
 names them.
 
 A coefficient whose scope excludes the deployment's chip, model or widths is not used. Where

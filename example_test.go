@@ -12,16 +12,20 @@ import (
 	"time"
 
 	"github.com/inference-sim/blis-schemas/kernel"
+	vllmrules "github.com/inference-sim/blis-vllm/rules"
 
 	latencykernel "github.com/inference-sim/blis-latency-kernel"
 )
 
 // --8<-- [start:repos]
-// The roots a scenario's names resolve against: its model, chip, fabric and coefficient sets.
+// The roots a scenario's names resolve against (its model, chip, fabric and coefficient
+// sets), and the engine rules its engine_version selects: vLLM's, from the engine model.
 var repos = latencykernel.Repos{
-	Scenarios: "testdata",
-	Catalog:   "testdata/catalog",
-	Registry:  "testdata/registry",
+	Scenarios:     "testdata",
+	Catalog:       "testdata/catalog",
+	Registry:      "testdata/registry",
+	Rules:         latencykernel.RulesFrom(vllmrules.Lookup),
+	RulesVersions: vllmrules.Versions,
 }
 
 // --8<-- [end:repos]

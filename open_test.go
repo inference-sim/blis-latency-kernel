@@ -12,7 +12,7 @@ import (
 // repos points Open at the fixtures and the pinned catalog and registry, which is the
 // configuration every other test in this package reads.
 func repos() Repos {
-	return Repos{Scenarios: "testdata", Catalog: catalogRoot, Registry: registryRoot}
+	return withRules(Repos{Scenarios: "testdata", Catalog: catalogRoot, Registry: registryRoot})
 }
 
 // TestOpenAndNewAgreeOnTheSameScenario is the property that makes two constructors safe.
@@ -65,13 +65,13 @@ func TestOpenNamesWhatItCouldNotRead(t *testing.T) {
 		{
 			what:     "a catalog root that holds no models",
 			scenario: "minimax-m25-h200-ep8.yaml",
-			r:        Repos{Scenarios: "testdata", Catalog: t.TempDir(), Registry: registryRoot},
+			r:        withRules(Repos{Scenarios: "testdata", Catalog: t.TempDir(), Registry: registryRoot}),
 			wantIn:   []string{"model", "minimax-m2.5"},
 		},
 		{
 			what:     "a registry root that holds no coefficients",
 			scenario: "minimax-m25-h200-ep8.yaml",
-			r:        Repos{Scenarios: "testdata", Catalog: catalogRoot, Registry: t.TempDir()},
+			r:        withRules(Repos{Scenarios: "testdata", Catalog: catalogRoot, Registry: t.TempDir()}),
 			wantIn:   []string{"coefficient set"},
 		},
 	} {
@@ -91,10 +91,10 @@ func TestOpenNamesWhatItCouldNotRead(t *testing.T) {
 
 // TestOpenRefusesAnUnregisteredEngineVersion keeps the version coupling honest.
 //
-// The rules pack comes from the scenario's own engine_version, not from the caller, so a
-// scenario pinned to a release this build does not carry must be refused rather than priced
-// with whatever pack happens to be current. The error names the versions that do exist,
-// because the next question a reader has is which one to use.
+// The rules pack is the one the caller's rules source returns for the scenario's own
+// engine_version, so a scenario pinned to a release the caller has no rules for must be
+// refused rather than priced with whatever pack happens to be current. The error names the
+// versions that do exist, because the next question a reader has is which one to use.
 func TestOpenRefusesAnUnregisteredEngineVersion(t *testing.T) {
 	dir := t.TempDir()
 	sc, dep, err := LoadBundle(filepath.Join("testdata", "minimax-m25-h200-ep8.yaml"))
@@ -116,9 +116,9 @@ func TestOpenRefusesAnUnregisteredEngineVersion(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err = Open("bogus.yaml", Repos{
+	_, err = Open("bogus.yaml", withRules(Repos{
 		Scenarios: dir, Catalog: catalogRoot, Registry: registryRoot,
-	})
+	}))
 	if err == nil {
 		t.Fatal("a scenario naming an unregistered engine version built a kernel")
 	}

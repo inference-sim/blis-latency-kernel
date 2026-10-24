@@ -59,20 +59,35 @@ func (r stubRules) DBOEngages(enabled bool, tokens int, uniform bool) bool {
 	return tokens >= 512
 }
 
+// The rest of rules.EngineRules: facts the resolver does not read, answered inertly so a
+// test here cannot pass by reading one.
+func (r stubRules) EngineVersion() string                          { return "stub" }
+func (r stubRules) Check(rules.Input) *rules.Problems              { return &rules.Problems{} }
+func (r stubRules) RuleNames() []string                            { return nil }
+func (r stubRules) SpeculativeMethodAccepted(string) bool          { return false }
+func (r stubRules) SpeculativeMethodNames() []string               { return nil }
+func (r stubRules) AsyncCompatibleSpeculative(string) (bool, bool) { return false, false }
+func (r stubRules) EngramOnHostByDefault() bool                    { return true }
+func (r stubRules) DCPCommBackendNames() map[string]bool           { return nil }
+func (r stubRules) MegaMoEBackend(string) bool                     { return false }
+func (r stubRules) ResolveDPLoadBalancing(deployment.Parallelism) deployment.DPLoadBalancing {
+	return deployment.DPLBInternal
+}
+
 // scenarioWith builds the pair a resolver needs: the immutable problem and the
 // deployment applied to it. They are two documents in the schema, so a helper that
 // returned only a scenario would leave every caller to construct the other half.
 func scenarioWith(nodes, gpusPerNode int,
 	pools ...deployment.Pool) (*scenario.Scenario, *deployment.Deployment) {
 	return &scenario.Scenario{
-			Kind: "Scenario", Name: "t", Model: "m",
-			Coefficients: []string{"c"}, EngineVersion: "0.29.0",
-			Cluster: scenario.Cluster{
-				Hardware: "h", Nodes: nodes, GPUsPerNode: gpusPerNode,
-			},
-		}, &deployment.Deployment{
-			Kind: "Deployment", Name: "t", Pools: pools,
-		}
+		Kind: "Scenario", Name: "t", Model: "m",
+		Coefficients: []string{"c"}, EngineVersion: "0.29.0",
+		Cluster: scenario.Cluster{
+			Hardware: "h", Nodes: nodes, GPUsPerNode: gpusPerNode,
+		},
+	}, &deployment.Deployment{
+		Kind: "Deployment", Name: "t", Pools: pools,
+	}
 }
 
 func pool(pl deployment.Parallelism, e deployment.Engine) deployment.Pool {

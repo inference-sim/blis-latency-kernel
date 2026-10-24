@@ -9,9 +9,10 @@ import (
 
 	schemas "github.com/inference-sim/blis-schemas"
 	"github.com/inference-sim/blis-schemas/rules"
-	"github.com/inference-sim/blis-schemas/rules/v0_29"
 	"github.com/inference-sim/blis-schemas/spec/coefficient"
 	"github.com/inference-sim/blis-schemas/spec/hardware"
+	vllmrules "github.com/inference-sim/blis-vllm/rules"
+	"github.com/inference-sim/blis-vllm/rules/v0_29"
 )
 
 // The catalog and registry are pinned copies under testdata, fetched by
@@ -85,13 +86,21 @@ func fixtureInputs(t testing.TB, scenario string) Inputs {
 	}
 }
 
-// rulesFor is the rules pack a fixture's declared release registers, and the 0.29.0 pack
-// for a release blis-schemas does not register, as these fixtures were written against.
+// rulesFor is the vLLM rules pack for a fixture's declared release, and the 0.29.0 pack for
+// a release with none, as these fixtures were written against. The packs come from the
+// engine model's rules module, as every caller's do: the kernel looks none up itself.
 func rulesFor(version string) *rules.Pack {
-	if p := rules.Lookup(version); p != nil {
+	if p := vllmrules.Lookup(version); p != nil {
 		return p
 	}
 	return v0_29.Pack()
+}
+
+// withRules gives a Repos the vLLM rules packs, as a caller of Open does.
+func withRules(r Repos) Repos {
+	r.Rules = RulesFrom(vllmrules.Lookup)
+	r.RulesVersions = vllmrules.Versions
+	return r
 }
 
 // withModel replaces a fixture's model graph with the catalog's graph for name, so one
