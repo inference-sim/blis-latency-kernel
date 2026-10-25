@@ -56,6 +56,20 @@ func RulesFrom[R interface {
 	}
 }
 
+// rulesAnswer asks a rules value the one question every value answers, its release, and
+// reports a value that cannot: a forwarding struct around a nil rules value is not nil, so
+// isNil passes it, but its first call dereferences nil. Asking once here turns that panic,
+// which would come from deep inside pricing, into a refusal at construction.
+func rulesAnswer(r rules.EngineRules) (err error) {
+	defer func() {
+		if p := recover(); p != nil {
+			err = fmt.Errorf("EngineVersion panicked: %v", p)
+		}
+	}()
+	r.EngineVersion()
+	return nil
+}
+
 // isNil reports whether v is nil or an interface holding a nil pointer, map, slice, func or
 // channel: a value that cannot answer for a release.
 func isNil(v any) bool {

@@ -507,21 +507,35 @@ func exprString(e ast.Expr) string {
 // ---------------------------------------------------------------------------------------------
 // The pins.
 
+// pseudoCommit is the commit a Go pseudo-version names (its last 12 hex digits), or the
+// version itself for a release tag, which is also a ref the repository serves.
+func pseudoCommit(v string) string {
+	if i := strings.LastIndexByte(v, '-'); i >= 0 && len(v)-i-1 == 12 {
+		return v[i+1:]
+	}
+	return v
+}
+
 func sources(root string) ([]byte, error) {
 	gomod, err := os.ReadFile(filepath.Join(root, "go.mod"))
 	if err != nil {
 		return nil, err
 	}
-	schemas := ""
+	required := map[string]string{}
 	for _, line := range strings.Split(string(gomod), "\n") {
 		// Either form: inside a require block, or a single `require` line.
 		f := strings.Fields(strings.TrimPrefix(strings.TrimSpace(line), "require "))
-		if len(f) >= 2 && f[0] == "github.com/inference-sim/blis-schemas" {
-			schemas = f[1]
+		if len(f) >= 2 && strings.HasPrefix(f[0], "github.com/inference-sim/") {
+			required[f[0]] = f[1]
 		}
 	}
+	schemas := required["github.com/inference-sim/blis-schemas"]
 	if schemas == "" {
 		return nil, fmt.Errorf("go.mod requires no github.com/inference-sim/blis-schemas")
+	}
+	vllmRules := required["github.com/inference-sim/blis-vllm/rules"]
+	if vllmRules == "" {
+		return nil, fmt.Errorf("go.mod requires no github.com/inference-sim/blis-vllm/rules")
 	}
 	lock, err := os.ReadFile(filepath.Join(root, "testdata", "upstream.lock"))
 	if err != nil {
@@ -535,6 +549,8 @@ func sources(root string) ([]byte, error) {
 			"`EngineBehaviourVersion`, `EngineBehaviourCommit` in `new.go`"},
 		{"Interfaces and document types: [blis-schemas](https://github.com/inference-sim/blis-schemas/tree/" +
 			schemas + ")", schemas, "", "`go.mod`"},
+		{"Engine rules for the commands, docs and tests: [blis-vllm/rules](https://github.com/inference-sim/blis-vllm/tree/" +
+			pseudoCommit(vllmRules) + "/rules)", vllmRules, "", "`go.mod`"},
 	}
 	names := map[string]string{"catalog": "Declared facts", "registry": "Coefficients"}
 	for _, line := range strings.Split(string(lock), "\n") {

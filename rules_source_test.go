@@ -281,6 +281,26 @@ func TestOpenRefusesATypedNilAsNoRules(t *testing.T) {
 	}
 }
 
+// A rules value that cannot answer -- here a wrapper around nothing, the shape of a
+// forwarding struct someone forgot to fill -- is refused when the kernel is built, as missing
+// rules are, rather than built into a kernel whose first rules call panics.
+func TestNewRefusesRulesThatCannotAnswer(t *testing.T) {
+	in := fixtureInputs(t, "minimax-m25-h200-ep8.yaml")
+	in.Rules = opaqueRules{} // embeds a nil rules.EngineRules
+	var err error
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				err = fmt.Errorf("panicked: %v", r)
+			}
+		}()
+		_, err = New(in)
+	}()
+	if err == nil || !strings.Contains(err.Error(), "cannot answer") {
+		t.Fatalf("New with an empty rules wrapper: %v, want a refusal naming rules that cannot answer", err)
+	}
+}
+
 // The refusal for a release with no rules lists the releases that have them only when the
 // caller said which; with no RulesVersions it does not claim the list is empty.
 func TestTheMissingReleaseRefusalListsVersionsOnlyWhenKnown(t *testing.T) {

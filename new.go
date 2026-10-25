@@ -79,6 +79,10 @@ func New(in Inputs) (*Kernel, error) {
 		return nil, fmt.Errorf("a kernel needs engine rules for version %q",
 			in.Scenario.EngineVersion)
 	}
+	if err := rulesAnswer(in.Rules); err != nil {
+		return nil, fmt.Errorf("the engine rules for version %q cannot answer: %w",
+			in.Scenario.EngineVersion, err)
+	}
 	if err := validateDocuments(in); err != nil {
 		return nil, err
 	}

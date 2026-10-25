@@ -36,3 +36,18 @@ func TestGeneratedDocsAreCurrent(t *testing.T) {
 		}
 	}
 }
+
+// TestSourcesNamesEveryInferenceSimPin: the pins table lists each module go.mod requires from
+// this project, so a reader can see which rules packs priced the documented figures as well as
+// which document types.
+func TestSourcesNamesEveryInferenceSimPin(t *testing.T) {
+	body, err := sources(repoRoot())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, mod := range []string{"blis-schemas", "blis-vllm/rules"} {
+		if !bytes.Contains(body, []byte("["+mod+"]")) {
+			t.Errorf("docs/generated/sources.md names no %s pin:\n%s", mod, body)
+		}
+	}
+}
