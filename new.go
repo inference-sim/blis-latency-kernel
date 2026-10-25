@@ -2144,11 +2144,16 @@ func (k *Kernel) fit(f price.Format, grouped bool) gemmFit {
 //
 // Warnings are not failures: Problems.OK ignores them by design, so an out-of-tree
 // quantization name reported as "not in-tree for 0.29.0" still builds.
+//
+// The rule layer is still computed, so it is computed with the caller's rules (Bundle.Rules,
+// inference-sim#2021 B4), never the packs blis-schemas registers for itself: the kernel
+// consults no rules but its caller's, even in a layer it does not enforce.
 func validateDocuments(in Inputs) error {
 	rep := schemas.Validate(schemas.Bundle{
 		Scenario: in.Scenario, Deployment: in.Deployment, Model: in.Model,
 		Chip: in.Chip, Fabric: in.Fabric, Devices: in.Devices,
 		Coefficients: in.Coefficients,
+		Rules:        func(string) rules.EngineRules { return in.Rules },
 	})
 	if !rep.Field.OK() {
 		return fmt.Errorf("the documents do not validate:\n%w", rep.Field)

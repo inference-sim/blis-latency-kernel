@@ -366,3 +366,30 @@ func TestTheLibraryImportsNoEngineModel(t *testing.T) {
 		}
 	}
 }
+
+// countingRules counts how often the caller's rule checks run.
+type countingRules struct {
+	rules.EngineRules
+	checked *int
+}
+
+func (c countingRules) Check(in rules.Input) *rules.Problems {
+	*c.checked++
+	return c.EngineRules.Check(in)
+}
+
+// Building a kernel validates its documents with the caller's rules, never the packs a library
+// happens to register: blis-schemas' Validate runs the rules it is handed (Bundle.Rules), and a
+// release they do not know is refused by them. Only the field layer can refuse the documents
+// (validateDocuments), so this pins whose rules the rule layer reads, not that it refuses.
+func TestNewValidatesWithTheCallersRules(t *testing.T) {
+	in := fixtureInputs(t, "minimax-m25-h200-ep8.yaml")
+	n := 0
+	in.Rules = countingRules{in.Rules, &n}
+	if _, err := New(in); err != nil {
+		t.Fatal(err)
+	}
+	if n != 1 {
+		t.Errorf("the caller's rule checks ran %d times while the kernel was built, want once", n)
+	}
+}
