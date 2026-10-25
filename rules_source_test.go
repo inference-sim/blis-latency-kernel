@@ -301,6 +301,36 @@ func TestNewRefusesRulesThatCannotAnswer(t *testing.T) {
 	}
 }
 
+// halfRules answer their release but panic on the first fact pricing needs, the shape of a
+// rules implementation with one unfinished method. EngineVersion alone cannot catch it.
+type halfRules struct{ resolve.EngineRules }
+
+func (halfRules) SequenceParallelMoE(string, bool, int, int) bool {
+	panic("halfRules: SequenceParallelMoE is not implemented")
+}
+
+// A rules method that panics while the kernel is built is a refusal naming the rules, not a
+// panic out of New: a caller searching configurations gets an error it can report and move
+// past, whichever method of the rules failed.
+func TestNewRefusesRulesThatPanicLater(t *testing.T) {
+	in := fixtureInputs(t, "minimax-m25-h200-ep8.yaml")
+	in.Rules = halfRules{in.Rules}
+	var err error
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				err = fmt.Errorf("panicked: %v", r)
+			}
+		}()
+		_, err = New(in)
+	}()
+	if err == nil || !strings.Contains(err.Error(), "cannot answer") ||
+		!strings.Contains(err.Error(), "SequenceParallelMoE is not implemented") {
+		t.Fatalf("New with rules that panic in SequenceParallelMoE: %v, want a refusal naming "+
+			"rules that cannot answer and the panic", err)
+	}
+}
+
 // The refusal for a release with no rules lists the releases that have them only when the
 // caller said which; with no RulesVersions it does not claim the list is empty.
 func TestTheMissingReleaseRefusalListsVersionsOnlyWhenKnown(t *testing.T) {

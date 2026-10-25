@@ -83,6 +83,35 @@ func New(in Inputs) (*Kernel, error) {
 		return nil, fmt.Errorf("the engine rules for version %q cannot answer: %w",
 			in.Scenario.EngineVersion, err)
 	}
+	return buildGuarded(in)
+}
+
+// buildGuarded is New past its nil checks. The rules value is the caller's code, so a rules method
+// that panics while the kernel is built is reported as a refusal naming the rules, not let
+// out of New: a configuration search gets an error it can report and move past. It covers
+// construction only; a rules method that panics later, inside a pricing call, is a defect
+// in the caller's rules and panics there.
+func buildGuarded(in Inputs) (k *Kernel, err error) {
+	defer func() {
+		if p := recover(); p != nil {
+			if _, ok := p.(rulesPanic); !ok {
+				panic(p)
+			}
+			k, err = nil, fmt.Errorf("the engine rules for version %q cannot answer: %v",
+				in.Scenario.EngineVersion, p.(rulesPanic).v)
+		}
+	}()
+	in.Rules = panicTagged{in.Rules}
+	k, err = construct(in)
+	if k != nil {
+		k.rules = k.rules.(panicTagged).EngineRules
+	}
+	return k, err
+}
+
+// construct builds the kernel. It runs only under buildGuarded, whose rules are tagged so a panic
+// they raise is told apart from one the kernel raises.
+func construct(in Inputs) (*Kernel, error) {
 	if err := validateDocuments(in); err != nil {
 		return nil, err
 	}
