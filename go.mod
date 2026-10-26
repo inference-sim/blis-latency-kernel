@@ -5,8 +5,8 @@ go 1.24.0
 toolchain go1.24.2
 
 require (
-	// TEMPORARY: head of inference-sim/blis-schemas#102 (https://github.com/inference-sim/blis-schemas/pull/102),
-	// which adds rules.EngineRules. Moves to a blis-schemas release tag before this merges:
+	// TEMPORARY: inference-sim/blis-schemas#102 at 630937e (https://github.com/inference-sim/blis-schemas/pull/102),
+	// which adds rules.EngineRules; #102's later commits change only comments. Moves to a blis-schemas release tag before this merges:
 	// https://github.com/inference-sim/blis-latency-kernel/issues/88.
 	github.com/inference-sim/blis-schemas v0.6.1-0.20261025121631-630937e6f21f
 	// TEMPORARY: blis-vllm main at f43fad16b584 (the vLLM rules packs, moved from blis-schemas
