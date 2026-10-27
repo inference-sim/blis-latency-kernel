@@ -40,6 +40,9 @@ func (r stubRules) ResolveCacheDType(_ string, _, _ int, requested string) strin
 func (r stubRules) WindowPagesPerRequest(model.Cache, int, int, int, int) int       { return 0 }
 func (r stubRules) CheckEngineBlock(string, deployment.EngineBlock) *rules.Problems { return nil }
 func (r stubRules) DraftTokens(deployment.EngineBlock) int                          { return 0 }
+func (r stubRules) CheckConnectorOptions(string, deployment.EngineBlock) *rules.Problems {
+	return nil
+}
 func (r stubRules) CUDAGraphCaptureSizes(rules.CUDAGraphCaptureInput) (rules.CUDAGraphCapture, bool, error) {
 	return rules.CUDAGraphCapture{}, false, nil
 }

@@ -119,6 +119,11 @@ func (r panicTagged) CheckEngineBlock(at string, b deployment.EngineBlock) *rule
 	return r.EngineRules.CheckEngineBlock(at, b)
 }
 
+func (r panicTagged) CheckConnectorOptions(at string, b deployment.EngineBlock) *rules.Problems {
+	defer tag()
+	return r.EngineRules.CheckConnectorOptions(at, b)
+}
+
 func (r panicTagged) DraftTokens(b deployment.EngineBlock) int {
 	defer tag()
 	return r.EngineRules.DraftTokens(b)
