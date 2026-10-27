@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/inference-sim/blis-schemas/spec/deployment"
+	"github.com/inference-sim/blis-vllm/rules/engineconfig"
 
 	"github.com/inference-sim/blis-latency-kernel/enginesettings"
 )
@@ -72,11 +73,11 @@ func zeroes(v reflect.Value, path string, out *[]string) {
 	}
 }
 
-// Every setting the kernel prices is filled from the vLLM engine block: Of over a block with every
-// field stated leaves no field of enginesettings.Settings at its zero value. A field added to the
+// Every setting the kernel prices is filled from the vLLM engine block: Of over an
+// engineconfig.Engine with every field stated leaves no field of enginesettings.Settings at its zero value. A field added to the
 // kernel's settings and not to the conversion fails here rather than pricing as unstated.
 func TestOfFillsEverySetting(t *testing.T) {
-	var e deployment.Engine
+	var e engineconfig.Engine
 	populate(t, reflect.ValueOf(&e).Elem(), "Engine")
 	var missing []string
 	zeroes(reflect.ValueOf(Of(e)), "Settings", &missing)
@@ -89,7 +90,7 @@ func TestOfFillsEverySetting(t *testing.T) {
 // field in the block. A string carries its own field name (populate), so a swap of two string
 // fields reads wrong here.
 func TestOfCarriesEachValue(t *testing.T) {
-	var e deployment.Engine
+	var e engineconfig.Engine
 	populate(t, reflect.ValueOf(&e).Elem(), "Engine")
 	s := Of(e)
 	for name, got := range map[string]string{
@@ -121,7 +122,7 @@ func TestOfCarriesEachValue(t *testing.T) {
 
 // The settings are the kernel's own: changing the block after the conversion changes nothing.
 func TestOfSharesNoMemoryWithTheBlock(t *testing.T) {
-	var e deployment.Engine
+	var e engineconfig.Engine
 	populate(t, reflect.ValueOf(&e).Elem(), "Engine")
 	s := Of(e)
 	*e.EnablePrefixCaching = false
@@ -134,4 +135,32 @@ func TestOfSharesNoMemoryWithTheBlock(t *testing.T) {
 	}
 }
 
-var _ = enginesettings.Settings{}
+// OfPool decodes the pool's own block through blis-vllm, strictly, and prices exactly what Of
+// gives for that decoding.
+func TestOfPoolDecodesThePoolsBlock(t *testing.T) {
+	var e engineconfig.Engine
+	populate(t, reflect.ValueOf(&e).Elem(), "Engine")
+	block, err := engineconfig.Encode(e)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var stated deployment.Engine
+	if err := block.Decode(&stated); err != nil {
+		t.Fatalf("the encoded block does not decode as the deployment's engine: %v", err)
+	}
+	dep := &deployment.Deployment{Pools: []deployment.Pool{{}, {Engine: stated}}}
+	got, err := OfPool(dep, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := Decode(dep.Pools[1])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(got, Of(want)) || !reflect.DeepEqual(want, e) {
+		t.Errorf("OfPool = %+v, want Of of the pool's decoded block %+v", got, Of(e))
+	}
+	if empty, err := OfPool(dep, 0); err != nil || !reflect.DeepEqual(empty, enginesettings.Settings{}) {
+		t.Errorf("an unstated block: OfPool = %+v, %v; want no settings and no error", empty, err)
+	}
+}

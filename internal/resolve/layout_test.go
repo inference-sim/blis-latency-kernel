@@ -38,7 +38,7 @@ func (r stubRules) ResolveCacheDType(_ string, _, _ int, requested string) strin
 	return requested
 }
 func (r stubRules) WindowPagesPerRequest(model.Cache, int, int, int, int) int { return 0 }
-func (r stubRules) CUDAGraphCaptureSizes(deployment.Engine) (rules.CUDAGraphCapture, bool, error) {
+func (r stubRules) CUDAGraphCaptureSizes(rules.CUDAGraphCaptureInput) (rules.CUDAGraphCapture, bool, error) {
 	return rules.CUDAGraphCapture{}, false, nil
 }
 func (r stubRules) KVCacheGroups(rules.KVCacheGroupsInput) (rules.KVCacheGrouping, error) {

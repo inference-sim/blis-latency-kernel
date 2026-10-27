@@ -23,7 +23,10 @@ const (
 // database and against formerRulesPinSum here) and compares each v0.29.0 and v0.31.0 pack.go
 // with the one the kernel builds against today. The move rewrote exactly two things, which the
 // comparison undoes and nothing else: a four-line provenance header, and the import of
-// blis-schemas' internal validate package as the exported rules.Problems alias. Any other
+// blis-schemas' internal validate package as the exported rules.Problems alias. One later
+// rewrite is undone too, exactly once per pack: the capture-size check passes the engine-neutral
+// rules.CUDAGraphCaptureInput built from the four fields CUDAGraphCaptureSizes reads, where it
+// passed the whole engine block (blis-vllm 480d434, with blis-schemas#102 ddfd45b). Any other
 // difference, one byte, fails, however the kernel's tests price.
 func TestTheMovedPacksAreTheOnesThisKernelReadBefore(t *testing.T) {
 	out, err := exec.Command("go", "mod", "download", "-json", formerRulesPin).Output()
@@ -58,6 +61,15 @@ func TestTheMovedPacksAreTheOnesThisKernelReadBefore(t *testing.T) {
 			t.Fatalf("%s/pack.go does not open with the move's provenance header", pack)
 		}
 		now = bytes.Join(lines[header:], nil)
+		// Undo the capture-input rewrite: the call took the engine block before.
+		const captureInput = "p.CUDAGraphCaptureSizes(rules.CUDAGraphCaptureInput{Mode: e.CUDAGraphMode,\n" +
+			"\t\t\t\t\t\tMaxCaptureSize: e.MaxCUDAGraphCaptureSize, CaptureSizes: e.CUDAGraphCaptureSizes,\n" +
+			"\t\t\t\t\t\tMaxNumBatchedTokens: e.MaxNumBatchedTokens})"
+		if n := bytes.Count(now, []byte(captureInput)); n != 1 {
+			t.Fatalf("%s/pack.go passes the capture input %d times, want once: the rewrite this test "+
+				"undoes has changed, so re-verify the pack before extending it", pack, n)
+		}
+		now = bytes.Replace(now, []byte(captureInput), []byte("p.CUDAGraphCaptureSizes(e)"), 1)
 		// Undo the import rewrite: drop the internal package's import line, and spell its
 		// Problems type as the alias the moved pack uses.
 		var kept [][]byte

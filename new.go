@@ -1164,7 +1164,7 @@ func (k *Kernel) lift(c *resolve.Coefficients, g *model.Graph, cacheBytes float6
 		if e.MaxNumBatchedTokens <= 0 {
 			e.MaxNumBatchedTokens = k.defaultBatchedTokens()
 		}
-		capture, stated, err := k.rules.CUDAGraphCaptureSizes(e.engine())
+		capture, stated, err := k.rules.CUDAGraphCaptureSizes(e)
 		if err != nil {
 			return fmt.Errorf("resolving the CUDA graph capture sizes: %w", err)
 		}
@@ -1195,7 +1195,7 @@ func (k *Kernel) lift(c *resolve.Coefficients, g *model.Graph, cacheBytes float6
 			k.captureTokens = min(seqs*k.uniformDecodeWidth*2, platform)
 			defaulted := e
 			defaulted.MaxCaptureSize = &k.captureTokens
-			if d, _, err := k.rules.CUDAGraphCaptureSizes(defaulted.engine()); err == nil {
+			if d, _, err := k.rules.CUDAGraphCaptureSizes(defaulted); err == nil {
 				k.captureSizes = d.Sizes
 			}
 			k.assume("max_cudagraph_capture_size", strconv.Itoa(k.captureTokens),

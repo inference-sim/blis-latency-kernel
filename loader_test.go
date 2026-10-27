@@ -80,7 +80,10 @@ func fixtureInputs(t testing.TB, scenario string) Inputs {
 	devicesPath := filepath.Join(catalogRoot, "devices", "storage.yaml")
 	devices, err := schemas.LoadStorageDevices(devicesPath)
 	artifacttest.RequireArtifact(t, catalogRoot, devicesPath, "catalog", err)
-	eng := vllmsettings.Of(dep.Pools[0].Engine)
+	eng, err := vllmsettings.OfPool(dep, 0)
+	if err != nil {
+		t.Fatalf("committed fixture %s: decoding its engine block: %v", scenario, err)
+	}
 	return Inputs{
 		Scenario: sc, Deployment: dep, PoolIndex: 0,
 		Model: graph, Chip: chip, Fabric: fabric,
@@ -123,7 +126,10 @@ func withModel(t testing.TB, in *Inputs, name string) {
 // in.Deployment.Pools[i].Engine prices what it wrote.
 func newKernel(in Inputs) (*Kernel, error) {
 	if in.Deployment != nil && in.PoolIndex >= 0 && in.PoolIndex < len(in.Deployment.Pools) {
-		eng := vllmsettings.Of(in.Deployment.Pools[in.PoolIndex].Engine)
+		eng, err := vllmsettings.OfPool(in.Deployment, in.PoolIndex)
+		if err != nil {
+			return nil, err
+		}
 		in.Engine = &eng
 	}
 	return New(in)

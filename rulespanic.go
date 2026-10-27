@@ -114,9 +114,9 @@ func (r panicTagged) KVCacheGroups(in rules.KVCacheGroupsInput) (rules.KVCacheGr
 	return r.EngineRules.KVCacheGroups(in)
 }
 
-func (r panicTagged) CUDAGraphCaptureSizes(e deployment.Engine) (rules.CUDAGraphCapture, bool, error) {
+func (r panicTagged) CUDAGraphCaptureSizes(in rules.CUDAGraphCaptureInput) (rules.CUDAGraphCapture, bool, error) {
 	defer tag()
-	return r.EngineRules.CUDAGraphCaptureSizes(e)
+	return r.EngineRules.CUDAGraphCaptureSizes(in)
 }
 
 func (r panicTagged) ResolveDPLoadBalancing(pl deployment.Parallelism) deployment.DPLoadBalancing {

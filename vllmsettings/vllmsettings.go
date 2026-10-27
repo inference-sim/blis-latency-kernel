@@ -8,13 +8,19 @@
 package vllmsettings
 
 import (
+	"fmt"
+
+	"gopkg.in/yaml.v3"
+
 	"github.com/inference-sim/blis-schemas/spec/deployment"
+	"github.com/inference-sim/blis-vllm/rules/engineconfig"
 
 	"github.com/inference-sim/blis-latency-kernel/enginesettings"
 )
 
-// Of is the kernel's engine settings for a vLLM engine block.
-func Of(e deployment.Engine) enginesettings.Settings {
+// Of is the kernel's engine settings for a vLLM engine block, as blis-vllm decodes it
+// (engineconfig.Decode).
+func Of(e engineconfig.Engine) enginesettings.Settings {
 	s := enginesettings.Settings{
 		Quantization:            e.Quantization,
 		CacheDType:              e.CacheDType,
@@ -56,7 +62,25 @@ func Of(e deployment.Engine) enginesettings.Settings {
 	return s.Clone()
 }
 
-// OfPool is Of for one pool of a deployment, the shape the kernel's Repos.EngineSettings takes.
+// OfPool is Of for one pool of a deployment, the shape the kernel's Repos.EngineSettings takes:
+// the pool's engine block decoded by blis-vllm, strictly.
 func OfPool(dep *deployment.Deployment, pool int) (enginesettings.Settings, error) {
-	return Of(dep.Pools[pool].Engine), nil
+	e, err := Decode(dep.Pools[pool])
+	if err != nil {
+		return enginesettings.Settings{}, err
+	}
+	return Of(e), nil
+}
+
+// Decode is a pool's engine block as blis-vllm decodes it (engineconfig.Decode).
+//
+// TEMPORARY: blis-schemas#102 at ddfd45b still types Pool.Engine as its own struct, so the block
+// is re-encoded to a node and held as a deployment.EngineBlock first; when #102's switch makes
+// Pool.Engine the EngineBlock, this decodes it directly.
+func Decode(pool deployment.Pool) (engineconfig.Engine, error) {
+	var n yaml.Node
+	if err := n.Encode(pool.Engine); err != nil {
+		return engineconfig.Engine{}, fmt.Errorf("vllmsettings: encoding the engine block: %w", err)
+	}
+	return engineconfig.Decode(deployment.NewEngineBlock(&n))
 }
