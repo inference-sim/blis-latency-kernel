@@ -211,7 +211,7 @@ func deploymentPhrase(in latencykernel.Inputs, model string) string {
 	pool := in.Deployment.Pools[in.PoolIndex]
 	gpus := max(pool.Parallel.TP, 1) * max(pool.Parallel.DP, 1)
 	return fmt.Sprintf("The model %s, served in %s on %d %s GPUs at tensor-parallel width %d",
-		model, pool.Engine.Quantization, gpus, strings.ToUpper(in.Chip.Name),
+		model, in.Engine.Quantization, gpus, strings.ToUpper(in.Chip.Name),
 		max(pool.Parallel.TP, 1))
 }
 

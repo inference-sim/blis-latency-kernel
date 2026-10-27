@@ -9,10 +9,12 @@ import (
 	"github.com/inference-sim/blis-latency-kernel/vllmsettings"
 
 	schemas "github.com/inference-sim/blis-schemas"
-	"github.com/inference-sim/blis-schemas/rules"
 	"github.com/inference-sim/blis-schemas/spec/coefficient"
+	"github.com/inference-sim/blis-schemas/spec/deployment"
 	"github.com/inference-sim/blis-schemas/spec/hardware"
 	vllmrules "github.com/inference-sim/blis-vllm/rules"
+	"github.com/inference-sim/blis-vllm/rules/engineconfig"
+	"github.com/inference-sim/blis-vllm/rules/pack"
 	"github.com/inference-sim/blis-vllm/rules/v0_29"
 )
 
@@ -94,7 +96,7 @@ func fixtureInputs(t testing.TB, scenario string) Inputs {
 // rulesFor is the vLLM rules pack for a fixture's declared release, and the 0.29.0 pack for
 // a release with none, as these fixtures were written against. The packs come from the
 // engine model's rules module, as every caller's do: the kernel looks none up itself.
-func rulesFor(version string) *rules.Pack {
+func rulesFor(version string) *pack.Pack {
 	if p := vllmrules.Lookup(version); p != nil {
 		return p
 	}
@@ -175,4 +177,80 @@ func chipInputs(t testing.TB, name string) *hardware.Chip {
 	c, err := schemas.LoadChip(p)
 	artifacttest.RequireArtifact(t, catalogRoot, p, "catalog", err)
 	return c
+}
+
+// editEngine changes the priced pool's engine block the way a caller changes a scenario: decoded
+// as vLLM's engine configuration (vllmsettings.Decode), edited, and encoded back
+// (engineconfig.Encode). The block is held unopened, so this is the only way a test edits it.
+func editEngine(t testing.TB, in *Inputs, edit func(*engineconfig.Engine)) {
+	t.Helper()
+	editPoolEngine(t, &in.Deployment.Pools[in.PoolIndex], edit)
+}
+
+// editPoolEngine is editEngine for any pool.
+func editPoolEngine(t testing.TB, pool *deployment.Pool, edit func(*engineconfig.Engine)) {
+	t.Helper()
+	e, err := vllmsettings.Decode(*pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	edit(&e)
+	b, err := engineconfig.Encode(e)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pool.Engine = b
+}
+
+// poolEngine is the priced pool's engine block, decoded, for a test that reads a stated setting.
+func poolEngine(t testing.TB, in Inputs) engineconfig.Engine {
+	t.Helper()
+	e, err := vllmsettings.Decode(in.Deployment.Pools[in.PoolIndex])
+	if err != nil {
+		t.Fatal(err)
+	}
+	return e
+}
+
+// engineBlock encodes e as an engine block, for a test that builds a pool from scratch.
+func engineBlock(t testing.TB, e engineconfig.Engine) deployment.EngineBlock {
+	t.Helper()
+	b, err := engineconfig.Encode(e)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return b
+}
+
+// mustDecode is a pool's engine block decoded, for a test that edits several settings and then
+// writes them back with setEngine.
+func mustDecode(t testing.TB, pool deployment.Pool) engineconfig.Engine {
+	t.Helper()
+	e, err := vllmsettings.Decode(pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return e
+}
+
+// setEngine writes e as the pool's engine block.
+func setEngine(t testing.TB, pool *deployment.Pool, e engineconfig.Engine) {
+	t.Helper()
+	pool.Engine = engineBlock(t, e)
+}
+
+// editInputsEngine is editEngine for an Inputs edit applied without a test handle (a func(*Inputs)
+// a table passes to a builder); a block that does not round-trip panics, which fails the test.
+func editInputsEngine(in *Inputs, edit func(*engineconfig.Engine)) {
+	pool := &in.Deployment.Pools[in.PoolIndex]
+	e, err := vllmsettings.Decode(*pool)
+	if err != nil {
+		panic(err)
+	}
+	edit(&e)
+	b, err := engineconfig.Encode(e)
+	if err != nil {
+		panic(err)
+	}
+	pool.Engine = b
 }

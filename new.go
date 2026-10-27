@@ -2,8 +2,8 @@ package latencykernel
 
 import (
 	"fmt"
+	"maps"
 	"math"
-	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -730,37 +730,11 @@ func latentAttention(kind model.AttentionKind) bool {
 	return kind == model.AttentionMLA || kind == model.AttentionSparseMLA
 }
 
-// clonePool copies a pool and everything its engine block points to, so the copy shares no
-// memory with the original. The pointees are flat structs and tri-state flags, so a field
-// copy of each is a deep copy.
+// clonePool copies a pool so the copy shares no memory with the original. The engine block is
+// held unopened and immutable (deployment.EngineBlock: a copy of it is a copy of the node, and its
+// Node returns another copy); the parallel block is flat; the labels are copied.
 func clonePool(p deployment.Pool) deployment.Pool {
-	e := &p.Engine
-	for _, b := range []**bool{&e.DisableCustomAllReduce, &e.AsyncScheduling,
-		&e.DisableCascadeAttn, &e.EnablePrefixCaching, &e.DCPQReplicate} {
-		if *b != nil {
-			v := **b
-			*b = &v
-		}
-	}
-	if e.DBO != nil {
-		v := *e.DBO
-		e.DBO = &v
-	}
-	if e.EPLB != nil {
-		v := *e.EPLB
-		e.EPLB = &v
-	}
-	if e.Speculative != nil {
-		v := *e.Speculative
-		e.Speculative = &v
-	}
-	if e.MaxCUDAGraphCaptureSize != nil {
-		v := *e.MaxCUDAGraphCaptureSize
-		e.MaxCUDAGraphCaptureSize = &v
-	}
-	if e.CUDAGraphCaptureSizes != nil {
-		e.CUDAGraphCaptureSizes = slices.Clone(e.CUDAGraphCaptureSizes)
-	}
+	p.Labels = maps.Clone(p.Labels)
 	return p
 }
 

@@ -17,8 +17,8 @@ import (
 	"path/filepath"
 
 	"github.com/inference-sim/blis-schemas/kernel"
-	schemarules "github.com/inference-sim/blis-schemas/rules"
 	vllmrules "github.com/inference-sim/blis-vllm/rules"
+	"github.com/inference-sim/blis-vllm/rules/pack"
 
 	latencykernel "github.com/inference-sim/blis-latency-kernel"
 	"github.com/inference-sim/blis-latency-kernel/vllmsettings"
@@ -58,7 +58,7 @@ func WithVLLMRules(r Repos) Repos {
 }
 
 // VLLMRules is the vLLM rules pack for a release, nil for a release with none.
-var VLLMRules = latencykernel.RulesFrom(func(v string) *schemarules.Pack { return vllmrules.Lookup(v) })
+var VLLMRules = latencykernel.RulesFrom(func(v string) *pack.Pack { return vllmrules.Lookup(v) })
 
 // DecodeThreshold is the scheduled-token count above which the kernel prices a request as
 // prefill, for the batches the scoring commands build. It is this harness's cutoff, not a

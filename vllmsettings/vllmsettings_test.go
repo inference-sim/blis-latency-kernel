@@ -144,11 +144,7 @@ func TestOfPoolDecodesThePoolsBlock(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var stated deployment.Engine
-	if err := block.Decode(&stated); err != nil {
-		t.Fatalf("the encoded block does not decode as the deployment's engine: %v", err)
-	}
-	dep := &deployment.Deployment{Pools: []deployment.Pool{{}, {Engine: stated}}}
+	dep := &deployment.Deployment{Pools: []deployment.Pool{{}, {Engine: block}}}
 	got, err := OfPool(dep, 1)
 	if err != nil {
 		t.Fatal(err)

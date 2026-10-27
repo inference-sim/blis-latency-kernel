@@ -4,8 +4,8 @@ import (
 	"testing"
 
 	"github.com/inference-sim/blis-schemas/kernel"
-	"github.com/inference-sim/blis-schemas/spec/deployment"
 	"github.com/inference-sim/blis-schemas/spec/model"
+	"github.com/inference-sim/blis-vllm/rules/engineconfig"
 )
 
 // Resident weights and the rates their GEMMs run at, checked as relations between
@@ -38,13 +38,13 @@ const gib = 1 << 30
 func TestMoEWeightsFitTheirCheckpoint(t *testing.T) {
 	in := fixtureInputs(t, "nemotron3-ultra-h100-agg.yaml")
 	in.Deployment.Pools[0].Parallel.EnableExpertParallel = true
-	in.Deployment.Pools[0].Engine.Quantization = "nvfp4"
+	editEngine(t, &in, func(e *engineconfig.Engine) { e.Quantization = "nvfp4" })
 	nvfp4 := build(t, in).FixedBytes().Weights
 
 	in = fixtureInputs(t, "nemotron3-ultra-h100-agg.yaml")
 	in.Deployment.Pools[0].Parallel.EnableExpertParallel = true
 	withModel(t, &in, "nemotron-3-ultra-550b-a55b-bf16")
-	in.Deployment.Pools[0].Engine.Quantization = "fp8"
+	editEngine(t, &in, func(e *engineconfig.Engine) { e.Quantization = "fp8" })
 	fp8 := build(t, in).FixedBytes().Weights
 
 	if float64(nvfp4) > 80*gib {
@@ -272,7 +272,7 @@ func TestEmbeddingAndEngramResidency(t *testing.T) {
 
 	off := false
 	in = fixtureInputs(t, v41)
-	in.Deployment.Pools[0].Engine.EngramConfig = &deployment.EngramConfig{CPUOffload: &off}
+	editEngine(t, &in, func(e *engineconfig.Engine) { e.EngramConfig = &engineconfig.EngramConfig{CPUOffload: &off} })
 	if hbm := build(t, in).FixedBytes().Weights; hbm <= stated {
 		t.Errorf("tables in HBM hold %d bytes, no more than tables in host memory (%d)",
 			hbm, stated)

@@ -37,7 +37,9 @@ func (r stubRules) EffectiveAll2AllBackend(b string) string { return b }
 func (r stubRules) ResolveCacheDType(_ string, _, _ int, requested string) string {
 	return requested
 }
-func (r stubRules) WindowPagesPerRequest(model.Cache, int, int, int, int) int { return 0 }
+func (r stubRules) WindowPagesPerRequest(model.Cache, int, int, int, int) int       { return 0 }
+func (r stubRules) CheckEngineBlock(string, deployment.EngineBlock) *rules.Problems { return nil }
+func (r stubRules) DraftTokens(deployment.EngineBlock) int                          { return 0 }
 func (r stubRules) CUDAGraphCaptureSizes(rules.CUDAGraphCaptureInput) (rules.CUDAGraphCapture, bool, error) {
 	return rules.CUDAGraphCapture{}, false, nil
 }
@@ -92,10 +94,10 @@ func scenarioWith(nodes, gpusPerNode int,
 		}
 }
 
-func pool(pl deployment.Parallelism, e deployment.Engine) deployment.Pool {
-	return deployment.Pool{
-		Role: deployment.RoleColocated, Nodes: 1, Parallel: pl, Engine: e,
-	}
+// pool is a colocated pool with the parallel block pl. Its engine block is unstated: resolve
+// takes the engine settings it reads separately (enginesettings.Settings).
+func pool(pl deployment.Parallelism) deployment.Pool {
+	return deployment.Pool{Role: deployment.RoleColocated, Nodes: 1, Parallel: pl}
 }
 
 // TestEmitsAnswersEveryConditionTheSchemaAllows is the property that makes the enum safe.
@@ -248,7 +250,7 @@ func TestNodesSpannedFollowsTheWidestGroup(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.what, func(t *testing.T) {
-			s, d := scenarioWith(1, c.gpusPerNode, pool(c.pl, deployment.Engine{}))
+			s, d := scenarioWith(1, c.gpusPerNode, pool(c.pl))
 			s.Cluster.GPUsPerRack = c.rack
 			l, err := ResolveLayout(s, d.Pools[0], enginesettings.Settings{},
 				Fabric{RackIsOneDomain: c.rackDomain}, newStubRules())
@@ -284,8 +286,7 @@ func TestCustomAllReduceRequestIsResolvedNotObeyed(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.what, func(t *testing.T) {
 			s, d := scenarioWith(1, c.gpusPerNode, pool(
-				deployment.Parallelism{TP: c.tp, PP: 1, DP: 1},
-				deployment.Engine{DisableCustomAllReduce: &no}))
+				deployment.Parallelism{TP: c.tp, PP: 1, DP: 1}))
 			l, err := ResolveLayout(s, d.Pools[0], enginesettings.Settings{DisableCustomAllReduce: &no},
 				Fabric{RackIsOneDomain: c.rackDomain}, newStubRules())
 			if err != nil {

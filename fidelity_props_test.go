@@ -7,6 +7,7 @@ import (
 	"github.com/inference-sim/blis-schemas/kernel"
 	"github.com/inference-sim/blis-schemas/spec/coefficient"
 	"github.com/inference-sim/blis-schemas/spec/model"
+	"github.com/inference-sim/blis-vllm/rules/engineconfig"
 )
 
 // (#31, stated-cache path) A stated window ring bounds its own decode read: halving
@@ -66,8 +67,8 @@ func TestDraftKindDoesNotGateTheTargetCacheDType(t *testing.T) {
 			}
 		}
 	}
-	in.Deployment.Pools[0].Engine.Speculative = nil
-	in.Deployment.Pools[0].Engine.CacheDType = "fp8_ds_mla"
+	editEngine(t, &in, func(e *engineconfig.Engine) { e.Speculative = nil })
+	editEngine(t, &in, func(e *engineconfig.Engine) { e.CacheDType = "fp8_ds_mla" })
 	if _, err := newKernel(in); err != nil {
 		t.Errorf("an MLA drafter declared last refused fp8_ds_mla for a sparse target: %v", err)
 	}
@@ -211,7 +212,7 @@ func TestRackDomainHandoffAvoidsTheNICs(t *testing.T) {
 func TestHandoffCarriesTheDraftRings(t *testing.T) {
 	spec := build(t, fixtureInputs(t, v41))
 	in := fixtureInputs(t, v41)
-	in.Deployment.Pools[0].Engine.Speculative = nil
+	editEngine(t, &in, func(e *engineconfig.Engine) { e.Speculative = nil })
 	plain := build(t, in)
 	from, to := kernel.Placement{Node: 0}, kernel.Placement{Node: 1}
 	extra := func(n int) int64 {

@@ -8,11 +8,11 @@ import (
 
 	"github.com/inference-sim/blis-schemas/kernel"
 	"github.com/inference-sim/blis-schemas/rules"
-	"github.com/inference-sim/blis-schemas/spec/deployment"
 	"github.com/inference-sim/blis-schemas/spec/model"
 
 	"github.com/inference-sim/blis-latency-kernel/internal/price"
 	"github.com/inference-sim/blis-latency-kernel/internal/resolve"
+	"github.com/inference-sim/blis-vllm/rules/engineconfig"
 )
 
 // Per-layer caches, as a graph states them (blis-schemas model.Cache), checked through
@@ -39,7 +39,7 @@ func ownedRecordRate(t *testing.T, in Inputs) float64 {
 	}
 	pool := in.Deployment.Pools[0]
 	dtype := rulesFor(in.Scenario.EngineVersion).ResolveCacheDType(g.Global.Architecture,
-		family, pool.Parallel.TP, pool.Engine.CacheDType)
+		family, pool.Parallel.TP, mustDecode(t, pool).CacheDType)
 	byID := map[string]model.LayerKind{}
 	for _, lk := range g.LayerKinds {
 		byID[lk.ID] = lk
@@ -133,7 +133,7 @@ func TestCacheStatementsArePerNode(t *testing.T) {
 	if stripped == 0 {
 		t.Fatal("no primary attention stated a cache to strip")
 	}
-	in.Deployment.Pools[0].Engine.Speculative = nil
+	editEngine(t, &in, func(e *engineconfig.Engine) { e.Speculative = nil })
 	partial := build(t, in)
 	if p, f := growth(partial), growth(full); p <= f {
 		t.Errorf("with its primaries' caches inferred a sequence grows %.1f B a token, no "+
@@ -144,7 +144,7 @@ func TestCacheStatementsArePerNode(t *testing.T) {
 	// silenced its primary's inferred cache would grow less.
 	none := fixtureInputs(t, v41)
 	stripCaches(none.Model)
-	none.Deployment.Pools[0].Engine.Speculative = nil
+	editPoolEngine(t, &none.Deployment.Pools[0], func(e *engineconfig.Engine) { e.Speculative = nil })
 	if p, n := growth(partial), growth(build(t, none)); p <= n {
 		t.Errorf("stating only the scorers' caches grows %.1f B a token, no more than "+
 			"stating none (%.1f): a scorer's statement dropped its primary's cache", p, n)
@@ -192,7 +192,7 @@ func TestWindowRingsAreFixedPerSequence(t *testing.T) {
 func TestDraftCachesAreHeldOnlyWhileSpeculating(t *testing.T) {
 	spec := build(t, fixtureInputs(t, v41))
 	in := fixtureInputs(t, v41)
-	in.Deployment.Pools[0].Engine.Speculative = nil
+	editEngine(t, &in, func(e *engineconfig.Engine) { e.Speculative = nil })
 	plain := build(t, in)
 	if spec.SequenceFixedBytes() <= plain.SequenceFixedBytes() {
 		t.Errorf("speculating holds %d fixed bytes a sequence, not more than %d without",
@@ -228,7 +228,7 @@ func TestLayerKindDeclarationOrderDoesNotPrice(t *testing.T) {
 	}
 
 	ds := fixtureInputs(t, v41)
-	ds.Deployment.Pools[0].Engine.CacheDType = "fp8_ds_mla"
+	editPoolEngine(t, &ds.Deployment.Pools[0], func(e *engineconfig.Engine) { e.CacheDType = "fp8_ds_mla" })
 	if _, err := newKernel(ds); err != nil {
 		t.Errorf("fp8_ds_mla refused for a sparse-MLA target stack: %v", err)
 	}
@@ -258,11 +258,12 @@ func TestCachesFollowTheChipsArchitecture(t *testing.T) {
 // kernel takes it at that cap: auto prices as stating the window does.
 func TestAutoMaxModelLenPricesAsTheModelsWindow(t *testing.T) {
 	in := fixtureInputs(t, v41)
-	in.Deployment.Pools[0].Engine.MaxModelLen = deployment.MaxModelLenAuto
+	editEngine(t, &in, func(e *engineconfig.Engine) { e.MaxModelLen = engineconfig.MaxModelLenAuto })
 	auto := build(t, in)
 	in = fixtureInputs(t, v41)
-	in.Deployment.Pools[0].Engine.MaxModelLen =
-		deployment.MaxModelLen(in.Model.Global.DefaultWindow())
+	editEngine(t, &in, func(e *engineconfig.Engine) {
+		e.MaxModelLen = engineconfig.MaxModelLen(in.Model.Global.DefaultWindow())
+	})
 	stated := build(t, in)
 	if auto.SequenceFixedBytes() != stated.SequenceFixedBytes() {
 		t.Errorf("auto holds %d fixed bytes, the stated window %d",
@@ -432,9 +433,10 @@ func engineCapacity(k *Kernel, gib float64, maxModelLen int) (tokens, slack floa
 func TestKVCapacityIsTheEnginesOwnFigureOnH200(t *testing.T) {
 	in := fixtureInputs(t, v41)
 	in.Deployment.Pools[0].Parallel.EnableExpertParallel = true
-	e := &in.Deployment.Pools[0].Engine
+	e := mustDecode(t, in.Deployment.Pools[0])
 	capture := 64
 	e.MaxModelLen, e.BlockSize, e.MaxCUDAGraphCaptureSize = 1<<20, 64, &capture
+	setEngine(t, &in.Deployment.Pools[0], e)
 	tokens, slack := engineCapacity(build(t, in), 61.18, 1<<20)
 	if d := tokens - 28706997; d > slack || d < -slack {
 		t.Errorf("the kernel sizes %.0f tokens in vLLM's 61.18 GiB, against its logged "+
@@ -471,12 +473,13 @@ func TestInternalH200ArmsAreTheEnginesFigures(t *testing.T) {
 		in := fixtureInputs(t, v41)
 		pl := &in.Deployment.Pools[0].Parallel
 		pl.TP, pl.EnableExpertParallel = a.tp, true
-		e := &in.Deployment.Pools[0].Engine
+		e := mustDecode(t, in.Deployment.Pools[0])
 		capture := 64
 		e.MaxModelLen, e.BlockSize, e.MaxCUDAGraphCaptureSize = 1<<20, 64, &capture
 		if !a.dspark {
 			e.Speculative = nil
 		}
+		setEngine(t, &in.Deployment.Pools[0], e)
 		k := build(t, in)
 		tokens, slack := engineCapacity(k, a.kvGiB, 1<<20)
 		if d := tokens - a.tokens; d > slack || d < -slack {
@@ -504,10 +507,11 @@ func TestInternalH200ArmsAreTheEnginesFigures(t *testing.T) {
 func TestKVCapacityIsTheEnginesOwnFigureOnH100(t *testing.T) {
 	in := fixtureInputs(t, v41)
 	in.Chip, in.Scenario.Cluster.Hardware = chipInputs(t, "h100"), "h100"
-	e := &in.Deployment.Pools[0].Engine
+	e := mustDecode(t, in.Deployment.Pools[0])
 	capture := 16
 	e.MaxModelLen, e.MaxNumBatchedTokens, e.MaxNumSeqs = 1<<20, 4096, 2
 	e.GPUMemoryUtilization, e.MaxCUDAGraphCaptureSize = 0.92, &capture
+	setEngine(t, &in.Deployment.Pools[0], e)
 	tokens, slack := engineCapacity(build(t, in), 13.47, 1<<20)
 	if d := tokens - 7022899; d > slack || d < -slack {
 		t.Errorf("the kernel sizes %.0f tokens in vLLM's 13.47 GiB, against its logged "+
@@ -521,7 +525,7 @@ func TestAdmissionReservationProperties(t *testing.T) {
 	prev := int64(0)
 	for _, mnbt := range []int{2048, 8192, 16384, 32768} {
 		in := fixtureInputs(t, v41)
-		in.Deployment.Pools[0].Engine.MaxNumBatchedTokens = mnbt
+		editEngine(t, &in, func(e *engineconfig.Engine) { e.MaxNumBatchedTokens = mnbt })
 		k := build(t, in)
 		adm := k.SequenceAdmissionBytes()
 		if adm < k.SequenceFixedBytes() {

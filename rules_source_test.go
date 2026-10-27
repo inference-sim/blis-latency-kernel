@@ -8,13 +8,14 @@ import (
 	"testing"
 
 	"github.com/inference-sim/blis-schemas/rules"
-	"github.com/inference-sim/blis-schemas/spec/deployment"
 
 	"github.com/inference-sim/blis-latency-kernel/internal/resolve"
+	"github.com/inference-sim/blis-vllm/rules/engineconfig"
+	"github.com/inference-sim/blis-vllm/rules/pack"
 )
 
 // opaqueRules is a release's rules behind the rules.EngineRules interface alone: every method
-// forwards to the wrapped rules, but the value is not a *rules.Pack. It is how a caller whose
+// forwards to the wrapped rules, but the value is not a *pack.Pack. It is how a caller whose
 // rules are not a blis-schemas pack (another engine model's, or a pack wrapped to log or
 // override one fact) reaches the kernel.
 type opaqueRules struct{ resolve.EngineRules }
@@ -23,7 +24,7 @@ type opaqueRules struct{ resolve.EngineRules }
 // question the same way price every committed fixture the same way, to the nanosecond and to
 // the last Provenance entry, whatever their concrete type.
 //
-// This is the regression the four type assertions to *rules.Pack had: for any other rules
+// This is the regression the four type assertions to *pack.Pack had: for any other rules
 // value the kernel took the async-compatible draft list, Engram's cpu_offload default, the
 // release's decode-context backend names and its mega-MoE backends as absent, so the same
 // release priced differently (and recorded assumptions it need not) when it arrived wrapped.
@@ -74,7 +75,7 @@ func TestRulesPriceAlikeWhateverTheirConcreteType(t *testing.T) {
 	}
 }
 
-// Each of the four facts the kernel used to read by type-asserting to *rules.Pack moves an
+// Each of the four facts the kernel used to read by type-asserting to *pack.Pack moves an
 // observable when it is skipped: a stated true async scheduling with a draft method the
 // release refuses is refused, a DCP backend the release cannot check is disclosed as an
 // assumption, and mega-MoE without expert parallelism is refused. Each case is priced through
@@ -90,15 +91,17 @@ func TestEachRulesFactIsReadThroughTheInterface(t *testing.T) {
 		name string
 		// observe builds the case and returns what the fact decides.
 		observe func(t *testing.T, wrap bool) string
-		// want is what a *rules.Pack decides; a skipped fact gives something else.
+		// want is what a *pack.Pack decides; a skipped fact gives something else.
 		want string
 	}{
 		{"async-compatible draft methods", func(t *testing.T, wrap bool) string {
 			in := fixtureInputs(t, "nemotron3-ultra-h100-agg.yaml")
 			p := &in.Deployment.Pools[in.PoolIndex]
 			yes := true
-			p.Engine.AsyncScheduling = &yes
-			p.Engine.Speculative = &deployment.Speculative{Method: "medusa", NumSpecTokens: 1}
+			editPoolEngine(t, p, func(e *engineconfig.Engine) { e.AsyncScheduling = &yes })
+			editPoolEngine(t, p, func(e *engineconfig.Engine) {
+				e.Speculative = &engineconfig.Speculative{Method: "medusa", NumSpecTokens: 1}
+			})
 			if wrap {
 				in.Rules = opaqueRules{in.Rules}
 			}
@@ -107,7 +110,7 @@ func TestEachRulesFactIsReadThroughTheInterface(t *testing.T) {
 		}, "true"},
 		{"decode-context backend names", func(t *testing.T, wrap bool) string {
 			k, err := dcpVariant(t, dcpMLAFixture, 8, 1, 8, func(in *Inputs) {
-				in.Deployment.Pools[0].Engine.DCPCommBackend = "a2a"
+				editEngine(t, in, func(e *engineconfig.Engine) { e.DCPCommBackend = "a2a" })
 				if wrap {
 					in.Rules = opaqueRules{in.Rules}
 				}
@@ -120,7 +123,7 @@ func TestEachRulesFactIsReadThroughTheInterface(t *testing.T) {
 		{"a mega-MoE backend", func(t *testing.T, wrap bool) string {
 			in := fixtureInputs(t, "deepseek-v41-flash-h200-tp8.yaml")
 			p := &in.Deployment.Pools[in.PoolIndex]
-			p.Engine.MoEBackend = "deep_gemm_mega_moe"
+			editPoolEngine(t, p, func(e *engineconfig.Engine) { e.MoEBackend = "deep_gemm_mega_moe" })
 			p.Parallel.EnableExpertParallel = false
 			if wrap {
 				in.Rules = opaqueRules{in.Rules}
@@ -155,7 +158,7 @@ func (ownAnswerRules) MegaMoEBackend(name string) bool      { return name == "tr
 // wrapper answers as the pack does.
 func TestTheCallersOwnAnswersAreObeyed(t *testing.T) {
 	_, err := dcpVariant(t, dcpMLAFixture, 8, 1, 8, func(in *Inputs) {
-		in.Deployment.Pools[0].Engine.DCPCommBackend = "a2a"
+		editEngine(t, in, func(e *engineconfig.Engine) { e.DCPCommBackend = "a2a" })
 		in.Rules = ownAnswerRules{in.Rules}
 	})
 	if err == nil || !strings.Contains(err.Error(), "ag_rs") {
@@ -164,7 +167,7 @@ func TestTheCallersOwnAnswersAreObeyed(t *testing.T) {
 
 	in := fixtureInputs(t, "deepseek-v41-flash-h200-tp8.yaml")
 	p := &in.Deployment.Pools[in.PoolIndex]
-	p.Engine.MoEBackend = "triton"
+	editPoolEngine(t, p, func(e *engineconfig.Engine) { e.MoEBackend = "triton" })
 	p.Parallel.EnableExpertParallel = false
 	if _, err := newKernel(in); err != nil && strings.Contains(err.Error(), "needs expert parallelism") {
 		t.Fatalf("the release's own rules gate triton as mega-MoE (%v); the case shows nothing", err)
@@ -187,7 +190,7 @@ func (hbmEngramRules) EngramOnHostByDefault() bool { return false }
 // tables in HBM, exactly as stating cpu_offload: false does.
 func TestEngramResidencyDefaultIsTheRules(t *testing.T) {
 	in := fixtureInputs(t, v41)
-	if ec := in.Deployment.Pools[0].Engine.EngramConfig; ec != nil && ec.CPUOffload != nil {
+	if ec := poolEngine(t, in).EngramConfig; ec != nil && ec.CPUOffload != nil {
 		t.Fatal("the fixture states cpu_offload; the default would not be read")
 	}
 	onHost := build(t, in).FixedBytes().Weights
@@ -196,7 +199,7 @@ func TestEngramResidencyDefaultIsTheRules(t *testing.T) {
 
 	stated := fixtureInputs(t, v41)
 	off := false
-	stated.Deployment.Pools[0].Engine.EngramConfig = &deployment.EngramConfig{CPUOffload: &off}
+	editPoolEngine(t, &stated.Deployment.Pools[0], func(e *engineconfig.Engine) { e.EngramConfig = &engineconfig.EngramConfig{CPUOffload: &off} })
 	inHBM := build(t, stated).FixedBytes().Weights
 	if byDefault != inHBM || byDefault <= onHost {
 		t.Errorf("rules defaulting Engram to device memory hold %d bytes; stating cpu_offload: "+
@@ -243,12 +246,12 @@ func TestOpenUsesTheCallersRules(t *testing.T) {
 	}
 }
 
-// RulesFrom keeps "no rules for this release" as no rules: a nil *rules.Pack must not become
+// RulesFrom keeps "no rules for this release" as no rules: a nil *pack.Pack must not become
 // a non-nil interface that reads as rules that exist.
 func TestRulesFromKeepsAMissingReleaseMissing(t *testing.T) {
-	lookup := RulesFrom(func(v string) *rules.Pack {
+	lookup := RulesFrom(func(v string) *pack.Pack {
 		if v == "known" {
-			return &rules.Pack{Version: "known"}
+			return &pack.Pack{Version: "known"}
 		}
 		return nil
 	})
@@ -261,10 +264,10 @@ func TestRulesFromKeepsAMissingReleaseMissing(t *testing.T) {
 
 	// The same holds when the lookup's own result type is an interface whose value holds a
 	// nil pointer: comparing it with the interface's zero value would call it present.
-	var missing *rules.Pack
+	var missing *pack.Pack
 	viaInterface := RulesFrom(func(string) rules.EngineRules { return missing })
 	if r := viaInterface("unknown"); r != nil {
-		t.Errorf("a nil *rules.Pack inside an interface gave non-nil rules %#v", r)
+		t.Errorf("a nil *pack.Pack inside an interface gave non-nil rules %#v", r)
 	}
 }
 
@@ -273,7 +276,7 @@ func TestRulesFromKeepsAMissingReleaseMissing(t *testing.T) {
 // building a kernel whose first rules call dereferences nil.
 func TestOpenRefusesATypedNilAsNoRules(t *testing.T) {
 	r := repos()
-	var missing *rules.Pack
+	var missing *pack.Pack
 	r.Rules = func(string) rules.EngineRules { return missing }
 	_, err := Open("minimax-m25-h200-ep8.yaml", r)
 	if err == nil || !strings.Contains(err.Error(), "no engine rules for version") {

@@ -10,6 +10,7 @@ import (
 	"github.com/inference-sim/blis-schemas/spec/coefficient"
 	"github.com/inference-sim/blis-schemas/spec/model"
 	"github.com/inference-sim/blis-schemas/vocab"
+	"github.com/inference-sim/blis-vllm/rules/engineconfig"
 )
 
 // dep8 is DeepSeek-V4.1-Flash as one DEP8 engine on the fixture's node: tp 1, dp 8, expert
@@ -26,7 +27,7 @@ func dep8(t *testing.T, backend, mode string, mnbt int, entries map[string]float
 	in := withoutEntries(fixtureInputs(t, v41), names)
 	pl := &in.Deployment.Pools[0].Parallel
 	pl.TP, pl.DP, pl.EnableExpertParallel = 1, 8, true
-	e := &in.Deployment.Pools[0].Engine
+	e := mustDecode(t, in.Deployment.Pools[0])
 	e.All2AllBackend, e.CUDAGraphMode, e.MaxNumBatchedTokens = backend, mode, mnbt
 	set := &coefficient.Set{Kind: "CoefficientSet", Name: "test-deepep"}
 	for name, v := range entries {
@@ -41,6 +42,7 @@ func dep8(t *testing.T, backend, mode string, mnbt int, entries map[string]float
 	if len(entries) > 0 {
 		in.Coefficients = append(append([]*coefficient.Set{}, in.Coefficients...), set)
 	}
+	setEngine(t, &in.Deployment.Pools[0], e)
 	return build(t, in)
 }
 
@@ -193,14 +195,16 @@ func TestALowLatencyBufferThatCannotBeAllocatedIsRefused(t *testing.T) {
 	in := fixtureInputs(t, v41)
 	pl := &in.Deployment.Pools[0].Parallel
 	pl.TP, pl.DP, pl.EnableExpertParallel = 1, 8, true
-	e := &in.Deployment.Pools[0].Engine
+	e := mustDecode(t, in.Deployment.Pools[0])
 	e.All2AllBackend, e.MaxNumBatchedTokens = "deepep_low_latency", 8192
+	setEngine(t, &in.Deployment.Pools[0], e)
 	_, err := newKernel(in)
 	if err == nil || !strings.Contains(err.Error(), "DeepEP buffers") {
 		t.Fatalf("LL at max_num_batched_tokens 8192 built (err %v); vLLM fails allocating "+
 			"its buffer", err)
 	}
 	e.MaxNumBatchedTokens = 256
+	setEngine(t, &in.Deployment.Pools[0], e)
 	build(t, in)
 }
 
@@ -214,7 +218,7 @@ func TestTheLowLatencyBufferFollowsTheEnginesTokenBudget(t *testing.T) {
 			ll.FixedBytes().CommBuffers, want)
 	}
 	in := fixtureInputs(t, v41)
-	in.Deployment.Pools[0].Engine.All2AllBackend = "deepep_low_latency"
+	editEngine(t, &in, func(e *engineconfig.Engine) { e.All2AllBackend = "deepep_low_latency" })
 	if b := build(t, in).FixedBytes().CommBuffers; b != 0 {
 		t.Errorf("tp8 dp1 dispatches nothing yet holds %d B of DeepEP buffer", b)
 	}

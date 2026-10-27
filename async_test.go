@@ -5,17 +5,18 @@ import (
 	"testing"
 	"time"
 
-	"github.com/inference-sim/blis-schemas/spec/deployment"
+	"github.com/inference-sim/blis-vllm/rules/engineconfig"
 )
 
 // withScheduler builds the fixture with async_scheduling as stated (nil leaves it to the
 // engine) and a per-request scheduler cost of perReq.
-func withScheduler(t *testing.T, async *bool, spec *deployment.Speculative,
+func withScheduler(t *testing.T, async *bool, spec *engineconfig.Speculative,
 	perReq time.Duration) *Kernel {
 	t.Helper()
 	in := fixtureInputs(t, "minimax-m25-h200-tp8.yaml")
-	e := &in.Deployment.Pools[0].Engine
+	e := mustDecode(t, in.Deployment.Pools[0])
 	e.AsyncScheduling, e.Speculative = async, spec
+	setEngine(t, &in.Deployment.Pools[0], e)
 	k := build(t, in)
 	k.schedPerRequest = perReq
 	return k
@@ -60,7 +61,7 @@ func TestAsyncSchedulingResolvesAsVLLMDoes(t *testing.T) {
 	if !withScheduler(t, nil, nil, 0).Resolved().AsyncScheduling {
 		t.Error("left to the engine with no drafter, async scheduling must resolve on")
 	}
-	ngram := &deployment.Speculative{Method: "ngram", NumSpecTokens: 3}
+	ngram := &engineconfig.Speculative{Method: "ngram", NumSpecTokens: 3}
 	if withScheduler(t, nil, ngram, 0).Resolved().AsyncScheduling {
 		t.Error("left to the engine with an n-gram drafter, async scheduling must resolve off")
 	}
@@ -68,8 +69,9 @@ func TestAsyncSchedulingResolvesAsVLLMDoes(t *testing.T) {
 		t.Error("a stated false must stand")
 	}
 	in := fixtureInputs(t, "minimax-m25-h200-tp8.yaml")
-	e := &in.Deployment.Pools[0].Engine
+	e := mustDecode(t, in.Deployment.Pools[0])
 	e.AsyncScheduling, e.Speculative = ptr(true), ngram
+	setEngine(t, &in.Deployment.Pools[0], e)
 	if _, err := newKernel(in); err == nil || !strings.Contains(err.Error(), "async_scheduling") {
 		t.Errorf("async scheduling requested with an n-gram drafter: got %v, want a refusal", err)
 	}

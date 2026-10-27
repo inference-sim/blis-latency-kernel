@@ -10,6 +10,7 @@ import (
 	"github.com/inference-sim/blis-schemas/spec/model"
 
 	"github.com/inference-sim/blis-latency-kernel/internal/price"
+	"github.com/inference-sim/blis-vllm/rules/engineconfig"
 )
 
 // Prefill-context parallelism splits a prefill sequence across ranks, and these pin that
@@ -897,7 +898,7 @@ func TestThePCPGatherIgnoresTheCacheDType(t *testing.T) {
 	prefill := decodeBatch(1, 4096, 4096)
 	coll := func(cache string) float64 {
 		in := pcpInputs(t, pcpFixture, 2)
-		in.Deployment.Pools[0].Engine.CacheDType = cache
+		editEngine(t, &in, func(e *engineconfig.Engine) { e.CacheDType = cache })
 		k, err := newKernel(in)
 		if err != nil {
 			t.Fatal(err)

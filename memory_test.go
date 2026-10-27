@@ -12,11 +12,11 @@ import (
 	schemas "github.com/inference-sim/blis-schemas"
 	"github.com/inference-sim/blis-schemas/kernel"
 	"github.com/inference-sim/blis-schemas/spec/coefficient"
-	"github.com/inference-sim/blis-schemas/spec/deployment"
 	"github.com/inference-sim/blis-schemas/spec/model"
 	"github.com/inference-sim/blis-schemas/vocab"
 
 	"github.com/inference-sim/blis-latency-kernel/internal/resolve"
+	"github.com/inference-sim/blis-vllm/rules/engineconfig"
 )
 
 // Fixed memory occupancy is the registry's magnitudes in NVIDIA's composition, with nothing
@@ -80,7 +80,7 @@ func TestFixedOccupancyIsTheRegistrysComposition(t *testing.T) {
 		if want := int64(v("cudagraph_capture_bytes_piecewise")); got.CUDAGraph != want {
 			t.Errorf("tp=%d: CUDAGraph %d, want the piecewise capture %d", tp, got.CUDAGraph, want)
 		}
-		batched := float64(in.Deployment.Pools[0].Engine.MaxNumBatchedTokens)
+		batched := float64(poolEngine(t, in).MaxNumBatchedTokens)
 		act := math.Max(v(fmt.Sprintf("activation_buffer_count_moe_%drank", tp))*batched*
 			float64(in.Model.Global.HiddenSize)*2, v("activation_scratch_floor_bytes"))
 		if got.ActivationPeak != int64(act) {
@@ -195,7 +195,7 @@ func TestActivationScratchDoesNotFollowTheServedWeightFormat(t *testing.T) {
 		t.Helper()
 		in := fixtureInputs(t, "minimax-m25-h200-tp8.yaml")
 		in.Model, in.Scenario.Model = qwen, qwen.Name
-		in.Deployment.Pools[0].Engine.Quantization = quant
+		editEngine(t, &in, func(e *engineconfig.Engine) { e.Quantization = quant })
 		k, err := newKernel(in)
 		if err != nil {
 			t.Fatalf("quantization %q: %v", quant, err)
@@ -221,7 +221,7 @@ func TestActivationScratchIsLinearInTheBudgetAboveItsFloor(t *testing.T) {
 	at := func(batched int) int64 {
 		t.Helper()
 		in := fixtureInputs(t, memoryFixture)
-		in.Deployment.Pools[0].Engine.MaxNumBatchedTokens = batched
+		editEngine(t, &in, func(e *engineconfig.Engine) { e.MaxNumBatchedTokens = batched })
 		k, err := newKernel(in)
 		if err != nil {
 			t.Fatal(err)
@@ -253,7 +253,7 @@ func TestActivationWidthIsHeadsTimesHeadDim(t *testing.T) {
 	}
 	in := fixtureInputs(t, "minimax-m25-h200-tp8.yaml")
 	in.Model, in.Scenario.Model = qwen, qwen.Name
-	in.Deployment.Pools[0].Engine.Quantization = ""
+	editEngine(t, &in, func(e *engineconfig.Engine) { e.Quantization = "" })
 	k, err := newKernel(in)
 	if err != nil {
 		t.Fatal(err)
@@ -276,7 +276,7 @@ func TestTheCaptureIsTheResolvedModesAndAnUnstatedModeIsTheDefault(t *testing.T)
 	build := func(mode string) *Kernel {
 		t.Helper()
 		in := fixtureInputs(t, memoryFixture)
-		in.Deployment.Pools[0].Engine.CUDAGraphMode = mode
+		editEngine(t, &in, func(e *engineconfig.Engine) { e.CUDAGraphMode = mode })
 		k, err := newKernel(in)
 		if err != nil {
 			t.Fatalf("mode %q: %v", mode, err)
@@ -320,11 +320,12 @@ func TestTheGraphModeIsChosenPerBatch(t *testing.T) {
 	host := func(mode string, spec int, b kernel.Batch) int64 {
 		t.Helper()
 		in := fixtureInputs(t, memoryFixture)
-		e := &in.Deployment.Pools[0].Engine
+		e := mustDecode(t, in.Deployment.Pools[0])
 		e.CUDAGraphMode = mode
 		if spec > 0 {
-			e.Speculative = &deployment.Speculative{Method: "mtp", NumSpecTokens: spec}
+			e.Speculative = &engineconfig.Speculative{Method: "mtp", NumSpecTokens: spec}
 		}
+		setEngine(t, &in.Deployment.Pools[0], e)
 		k, err := newKernel(in)
 		if err != nil {
 			t.Fatalf("%s: %v", mode, err)
@@ -405,8 +406,9 @@ func TestProvenanceSeesEveryFigureFixedBytesReports(t *testing.T) {
 	// Leave the three settings unstated and each becomes a disclosed assumption, counted by
 	// Evidence among the assumptions and in the total.
 	in := fixtureInputs(t, memoryFixture)
-	e := &in.Deployment.Pools[0].Engine
+	e := mustDecode(t, in.Deployment.Pools[0])
 	e.MaxNumBatchedTokens, e.BlockSize, e.CUDAGraphMode = 0, 0, ""
+	setEngine(t, &in.Deployment.Pools[0], e)
 	open, err := newKernel(in)
 	if err != nil {
 		t.Fatal(err)
@@ -451,7 +453,7 @@ func TestAnUnstatedTokenBudgetIsTheEnginesDefaultForThePart(t *testing.T) {
 		}
 	}
 	in := fixtureInputs(t, memoryFixture)
-	in.Deployment.Pools[0].Engine.MaxNumBatchedTokens = 0
+	editEngine(t, &in, func(e *engineconfig.Engine) { e.MaxNumBatchedTokens = 0 })
 	unstated, err := newKernel(in)
 	if err != nil {
 		t.Fatal(err)
@@ -527,9 +529,9 @@ func TestEPLBReplicasAreCountedOnce(t *testing.T) {
 		t.Helper()
 		in := fixtureInputs(t, "minimax-m25-h200-ep8.yaml")
 		if redundant > 0 {
-			in.Deployment.Pools[0].Engine.EPLB = &deployment.EPLB{
-				Enabled: true, NumRedundantExperts: redundant,
-			}
+			editEngine(t, &in, func(e *engineconfig.Engine) {
+				e.EPLB = &engineconfig.EPLB{Enabled: true, NumRedundantExperts: redundant}
+			})
 		}
 		k, err := newKernel(in)
 		if err != nil {
@@ -562,8 +564,9 @@ func TestAnUnstatedRecurrentCacheModeIsTheEnginesEffectiveDefault(t *testing.T) 
 	build := func(mode string, prefixCaching *bool) int64 {
 		t.Helper()
 		in := fixtureInputs(t, "nemotron3-ultra-h100-agg.yaml")
-		e := &in.Deployment.Pools[0].Engine
+		e := mustDecode(t, in.Deployment.Pools[0])
 		e.MambaCacheMode, e.EnablePrefixCaching = mode, prefixCaching
+		setEngine(t, &in.Deployment.Pools[0], e)
 		k, err := newKernel(in)
 		if err != nil {
 			t.Fatal(err)
@@ -581,7 +584,7 @@ func TestAnUnstatedRecurrentCacheModeIsTheEnginesEffectiveDefault(t *testing.T) 
 			"engine overrides it", got, align)
 	}
 	in := fixtureInputs(t, "nemotron3-ultra-h100-agg.yaml")
-	in.Deployment.Pools[0].Engine.MambaCacheMode = "none"
+	editEngine(t, &in, func(e *engineconfig.Engine) { e.MambaCacheMode = "none" })
 	k, err := newKernel(in)
 	if err != nil {
 		t.Fatal(err)
@@ -619,7 +622,7 @@ func TestServingFP8LeavesTheCollectivesWhereTheyWere(t *testing.T) {
 		t.Helper()
 		in := fixtureInputs(t, "minimax-m25-h200-tp8.yaml")
 		in.Model, in.Scenario.Model = qwen, qwen.Name
-		in.Deployment.Pools[0].Engine.Quantization = quant
+		editEngine(t, &in, func(e *engineconfig.Engine) { e.Quantization = quant })
 		k, err := newKernel(in)
 		if err != nil {
 			t.Fatal(err)
@@ -710,7 +713,7 @@ func TestADataParallelMoEWithoutExpertParallelismIsShared(t *testing.T) {
 	}
 
 	named := build(2, func(in *Inputs) {
-		in.Deployment.Pools[0].Engine.All2AllBackend = "deepep_low_latency"
+		editEngine(t, in, func(e *engineconfig.Engine) { e.All2AllBackend = "deepep_low_latency" })
 	})
 	if a, b := build(2, nil).StepTime(decode).NoOverlap, named.StepTime(decode).NoOverlap; a != b {
 		t.Errorf("naming deepep_low_latency with expert parallelism off priced %v against %v "+
@@ -729,7 +732,7 @@ func TestABatchPastTheCaptureCeilingRunsWithNoGraph(t *testing.T) {
 	host := func(mode string, tokens int) time.Duration {
 		t.Helper()
 		in := fixtureInputs(t, memoryFixture)
-		in.Deployment.Pools[0].Engine.CUDAGraphMode = mode
+		editEngine(t, &in, func(e *engineconfig.Engine) { e.CUDAGraphMode = mode })
 		k, err := newKernel(in)
 		if err != nil {
 			t.Fatal(err)
@@ -790,7 +793,7 @@ func TestAPackedSparseMLACacheIsItsOwnSize(t *testing.T) {
 	page := func(cache string, blackwell bool) int64 {
 		t.Helper()
 		in := fixtureInputs(t, dcpSparseFixture)
-		in.Deployment.Pools[0].Engine.CacheDType = cache
+		editEngine(t, &in, func(e *engineconfig.Engine) { e.CacheDType = cache })
 		if blackwell {
 			chip := *in.Chip
 			chip.NVFP4Peak = 1
@@ -946,18 +949,18 @@ func TestV41EngineBuffersAreChargedAtTheEnginesFigures(t *testing.T) {
 // 132 B a token of context on a ratio-1 layer, and the drafter's hidden-state and top-k
 // buffers and its workspace lane only while the deployment speculates.
 func TestV41EngineBuffersFollowTheContextBoundAndSpeculation(t *testing.T) {
-	with := func(edit func(*deployment.Engine)) *Kernel {
+	with := func(edit func(*engineconfig.Engine)) *Kernel {
 		in := fixtureInputs(t, v41)
-		edit(&in.Deployment.Pools[0].Engine)
+		editEngine(t, &in, edit)
 		return build(t, in)
 	}
-	base := with(func(*deployment.Engine) {})
-	longer := with(func(e *deployment.Engine) { e.MaxModelLen = 262144 })
+	base := with(func(*engineconfig.Engine) {})
+	longer := with(func(e *engineconfig.Engine) { e.MaxModelLen = 262144 })
 	if d := longer.FixedBytes().ActivationPeak - base.FixedBytes().ActivationPeak; d != 40*131072*132 {
 		t.Errorf("doubling the context bound to 262,144 moved the activation by %d B, want "+
 			"the indexer gather's 40 x 131,072 x 132 = %d", d, 40*131072*132)
 	}
-	plain := with(func(e *deployment.Engine) { e.Speculative = nil })
+	plain := with(func(e *engineconfig.Engine) { e.Speculative = nil })
 	const drafter = 8192*20480*2 + 8192*512*4 + 38305792
 	if d := base.FixedBytes().ActivationPeak - plain.FixedBytes().ActivationPeak; d != drafter {
 		t.Errorf("speculation adds %d B of buffers, want DSpark's hidden-state and top-k "+
@@ -971,8 +974,9 @@ func TestFixedOccupancyIsMonotoneInTheTokenBudgetAndContextBound(t *testing.T) {
 	for _, scenario := range []string{v41, memoryFixture} {
 		total := func(mnbt, mml int) int64 {
 			in := fixtureInputs(t, scenario)
-			e := &in.Deployment.Pools[0].Engine
-			e.MaxNumBatchedTokens, e.MaxModelLen = mnbt, deployment.MaxModelLen(mml)
+			e := mustDecode(t, in.Deployment.Pools[0])
+			e.MaxNumBatchedTokens, e.MaxModelLen = mnbt, engineconfig.MaxModelLen(mml)
+			setEngine(t, &in.Deployment.Pools[0], e)
 			return build(t, in).FixedBytes().Total()
 		}
 		prev := int64(0)
@@ -1005,14 +1009,14 @@ func TestFixedOccupancyIsMonotoneInTheTokenBudgetAndContextBound(t *testing.T) {
 // (dflash/speculator.py:126-150), so at eleven and twelve it still replays one, and only at
 // thirteen does the whole step price like cudagraph_mode NONE.
 func TestAStatedCaptureSizeIsTheCeiling(t *testing.T) {
-	with := func(edit func(*deployment.Engine)) *Kernel {
+	with := func(edit func(*engineconfig.Engine)) *Kernel {
 		in := fixtureInputs(t, v41)
-		edit(&in.Deployment.Pools[0].Engine)
+		editEngine(t, &in, edit)
 		return build(t, in)
 	}
 	size := 64
-	stated := with(func(e *deployment.Engine) { e.MaxCUDAGraphCaptureSize = &size })
-	none := with(func(e *deployment.Engine) { e.CUDAGraphMode = "NONE" })
+	stated := with(func(e *engineconfig.Engine) { e.MaxCUDAGraphCaptureSize = &size })
+	none := with(func(e *engineconfig.Engine) { e.CUDAGraphMode = "NONE" })
 	if got := stated.CaptureTokens(); got != 64 {
 		t.Fatalf("CaptureTokens() = %d with 64 stated", got)
 	}
@@ -1047,7 +1051,7 @@ func TestStatingTheDefaultCaptureSizeChangesNoPrice(t *testing.T) {
 	unstated := build(t, fixtureInputs(t, v41))
 	def := unstated.CaptureTokens()
 	in := fixtureInputs(t, v41)
-	in.Deployment.Pools[0].Engine.MaxCUDAGraphCaptureSize = &def
+	editEngine(t, &in, func(e *engineconfig.Engine) { e.MaxCUDAGraphCaptureSize = &def })
 	stated := build(t, in)
 	for _, b := range []kernel.Batch{decodeBatch(1, 6, 8192), decodeBatch(85, 6, 8192),
 		decodeBatch(86, 6, 8192), prefillOf(512, 0), prefillOf(8192, 90000)} {
@@ -1067,7 +1071,7 @@ func TestStatingTheDefaultCaptureSizeChangesNoPrice(t *testing.T) {
 func TestStatedCaptureSizesResolveAsTheEngineDoes(t *testing.T) {
 	in := fixtureInputs(t, v41)
 	big := 100000
-	in.Deployment.Pools[0].Engine.MaxCUDAGraphCaptureSize = &big
+	editEngine(t, &in, func(e *engineconfig.Engine) { e.MaxCUDAGraphCaptureSize = &big })
 	k := build(t, in)
 	if got := k.CaptureTokens(); got != 8192 {
 		t.Errorf("a stated 100,000 runs as %d, want the 8,192-token budget", got)
@@ -1081,8 +1085,8 @@ func TestStatedCaptureSizesResolveAsTheEngineDoes(t *testing.T) {
 	}
 	in = fixtureInputs(t, v41)
 	m := 64
-	in.Deployment.Pools[0].Engine.MaxCUDAGraphCaptureSize = &m
-	in.Deployment.Pools[0].Engine.CUDAGraphCaptureSizes = []int{8, 16, 32}
+	editEngine(t, &in, func(e *engineconfig.Engine) { e.MaxCUDAGraphCaptureSize = &m })
+	editEngine(t, &in, func(e *engineconfig.Engine) { e.CUDAGraphCaptureSizes = []int{8, 16, 32} })
 	if _, err := newKernel(in); err == nil {
 		t.Error("a maximum of 64 over sizes up to 32 was priced; vLLM refuses it")
 	}
@@ -1100,11 +1104,11 @@ func TestGraphModesAreTheResolvedOnes(t *testing.T) {
 		{"FULL_AND_PIECEWISE", "NONE", "NONE", func(in *Inputs) {
 			pl := &in.Deployment.Pools[0].Parallel
 			pl.TP, pl.DP, pl.EnableExpertParallel = 4, 2, true
-			in.Deployment.Pools[0].Engine.All2AllBackend = "deepep_high_throughput"
+			editEngine(t, in, func(e *engineconfig.Engine) { e.All2AllBackend = "deepep_high_throughput" })
 		}},
 	} {
 		in := fixtureInputs(t, v41)
-		in.Deployment.Pools[0].Engine.CUDAGraphMode = c.mode
+		editEngine(t, &in, func(e *engineconfig.Engine) { e.CUDAGraphMode = c.mode })
 		if c.edit != nil {
 			c.edit(&in)
 		}
@@ -1171,12 +1175,13 @@ func v41Engine(t *testing.T, entries []coefficient.Entry, seqs, mnbt, capture in
 		names[e.Name] = true
 	}
 	in := withoutEntries(fixtureInputs(t, v41), names)
-	e := &in.Deployment.Pools[0].Engine
+	e := mustDecode(t, in.Deployment.Pools[0])
 	e.MaxNumSeqs, e.MaxNumBatchedTokens, e.MaxCUDAGraphCaptureSize = seqs, mnbt, &capture
 	if len(entries) > 0 {
 		in.Coefficients = append(append([]*coefficient.Set{}, in.Coefficients...),
 			&coefficient.Set{Kind: "CoefficientSet", Name: "test-capture", Coefficients: entries})
 	}
+	setEngine(t, &in.Deployment.Pools[0], e)
 	return build(t, in)
 }
 
@@ -1290,9 +1295,10 @@ func TestTPScalesOnlyTheShardedWeightsAndTheActivationKey(t *testing.T) {
 	at := func(tp int) (kernel.MemoryBreakdown, *Kernel, *model.Graph) {
 		in := fixtureInputs(t, v41)
 		in.Deployment.Pools[0].Parallel.TP = tp
-		e := &in.Deployment.Pools[0].Engine
+		e := mustDecode(t, in.Deployment.Pools[0])
 		capture := 512
 		e.MaxNumSeqs, e.MaxCUDAGraphCaptureSize = 56, &capture
+		setEngine(t, &in.Deployment.Pools[0], e)
 		in.Coefficients = append(append([]*coefficient.Set{}, in.Coefficients...),
 			&coefficient.Set{Kind: "CoefficientSet", Name: "test-capture",
 				Coefficients: captureContract()})
@@ -1328,13 +1334,14 @@ func TestTheDrafterCeilingIsTheLargestRoundedSize(t *testing.T) {
 	for _, c := range []struct{ k, capture, last int }{{5, 512, 100}, {3, 64, 19}} {
 		at := func(mode string) *Kernel {
 			in := fixtureInputs(t, v41)
-			e := &in.Deployment.Pools[0].Engine
+			e := mustDecode(t, in.Deployment.Pools[0])
 			size := c.capture
 			e.MaxCUDAGraphCaptureSize, e.MaxNumSeqs = &size, 256
 			e.Speculative.NumSpecTokens = c.k
 			if mode != "" {
 				e.CUDAGraphMode = mode
 			}
+			setEngine(t, &in.Deployment.Pools[0], e)
 			return build(t, in)
 		}
 		stated, none := at(""), at("NONE")

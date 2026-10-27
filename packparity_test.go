@@ -70,6 +70,24 @@ func TestTheMovedPacksAreTheOnesThisKernelReadBefore(t *testing.T) {
 				"undoes has changed, so re-verify the pack before extending it", pack, n)
 		}
 		now = bytes.Replace(now, []byte(captureInput), []byte("p.CUDAGraphCaptureSizes(e)"), 1)
+		// Undo the engine-block rewrite (blis-vllm 0f892e3, with blis-schemas#102 2c38342): the
+		// packs read a pool's block through engineconfig, decoding it in forEachPool and skipping
+		// one that does not decode, which the field layer refuses (CheckEngineBlock), and the pack
+		// type and its helpers moved from blis-schemas' rules to blis-vllm's pack. Every rewrite
+		// is required present, so a change to one is a change this test does not undo.
+		for _, r := range engineBlockRewrite {
+			if !bytes.Contains(now, []byte(r.now)) {
+				t.Fatalf("%s/pack.go no longer contains the engine-block rewrite %q: re-verify the "+
+					"pack before changing what this test undoes", pack, r.now)
+			}
+			now = bytes.ReplaceAll(now, []byte(r.now), []byte(r.before))
+		}
+		// The one helper type only the v0.31.0 pack names (its cache-dtype resolutions).
+		const resolutions = "pack.CacheDTypeResolutions"
+		if pack == "v0_31" != bytes.Contains(now, []byte(resolutions)) {
+			t.Fatalf("%s/pack.go names %s where the move left it otherwise", pack, resolutions)
+		}
+		now = bytes.ReplaceAll(now, []byte(resolutions), []byte("rules.CacheDTypeResolutions"))
 		// Undo the import rewrite: drop the internal package's import line, and spell its
 		// Problems type as the alias the moved pack uses.
 		var kept [][]byte
@@ -85,4 +103,26 @@ func TestTheMovedPacksAreTheOnesThisKernelReadBefore(t *testing.T) {
 				"its pricing must be re-verified", pack, formerRulesPin)
 		}
 	}
+}
+
+// engineBlockRewrite is the move of the packs onto blis-vllm's engine block (0f892e3), as exact
+// text: each "now" is what the moved pack holds, and "before" what it held. The decode in
+// forEachPool comes first, as it spans the type names the later entries rename.
+var engineBlockRewrite = []struct{ now, before string }{
+	{"\t\t// A block that does not decode is the field layer's finding (Pack.CheckEngineBlock),\n" +
+		"\t\t// and rules read only well-formed documents, so it is not checked here.\n" +
+		"\t\te, err := engineconfig.Decode(pool.Engine)\n" +
+		"\t\tif err != nil {\n" +
+		"\t\t\tcontinue\n" +
+		"\t\t}\n" +
+		"\t\tfn(poolPath(i), engineconfig.Pool{Pool: pool, Engine: e})\n",
+		"\t\tfn(poolPath(i), pool)\n"},
+	{"\n\t\"github.com/inference-sim/blis-vllm/rules/engineconfig\"\n\t\"github.com/inference-sim/blis-vllm/rules/pack\"\n", ""},
+	{"engineconfig.Engine", "deployment.Engine"},
+	{"engineconfig.Pool", "deployment.Pool"},
+	{"*pack.Pack", "*rules.Pack"},
+	{"&pack.Pack{", "&rules.Pack{"},
+	{"pack.SequenceParallelCondition", "rules.SequenceParallelCondition"},
+	{"pack.KVCachePacking", "rules.KVCachePacking"},
+	{"pack.NormalizeMoEBackend", "rules.NormalizeMoEBackend"},
 }

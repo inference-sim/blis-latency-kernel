@@ -1,6 +1,10 @@
 package latencykernel
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/inference-sim/blis-vllm/rules/engineconfig"
+)
 
 // WHAT THE KERNEL DOES NOT PRICE, IT REFUSES. Each case is a deployment that either does not
 // start in vLLM v0.31.0 or that this kernel cannot price truthfully, and each sits beside a
@@ -15,10 +19,10 @@ func TestWhatTheKernelCannotPriceItRefuses(t *testing.T) {
 		return err == nil
 	}
 	cache := func(c string) func(*Inputs) {
-		return func(in *Inputs) { in.Deployment.Pools[0].Engine.CacheDType = c }
+		return func(in *Inputs) { editInputsEngine(in, func(e *engineconfig.Engine) { e.CacheDType = c }) }
 	}
 	mamba := func(c string) func(*Inputs) {
-		return func(in *Inputs) { in.Deployment.Pools[0].Engine.MambaCacheDType = c }
+		return func(in *Inputs) { editInputsEngine(in, func(e *engineconfig.Engine) { e.MambaCacheDType = c }) }
 	}
 	// twoNodes lays the pool out over two 8-GPU nodes at pipeline width pp and tensor width
 	// tp, with the fabric a two-node cluster needs.

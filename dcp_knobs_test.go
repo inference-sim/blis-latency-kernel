@@ -9,11 +9,11 @@ import (
 
 	"github.com/inference-sim/blis-schemas/kernel"
 	"github.com/inference-sim/blis-schemas/spec/coefficient"
-	"github.com/inference-sim/blis-schemas/spec/deployment"
 	"github.com/inference-sim/blis-schemas/vocab"
 	"github.com/inference-sim/blis-vllm/rules/v0_29"
 
 	schemas "github.com/inference-sim/blis-schemas"
+	"github.com/inference-sim/blis-vllm/rules/engineconfig"
 )
 
 // The three decode-context-parallel engine knobs blis-schemas v0.2.2 made expressible --
@@ -48,7 +48,7 @@ func mustDCPVariant(t *testing.T, fixture string, tp, pcp, dcp int, edit func(*I
 }
 
 func withBackend(b string) func(*Inputs) {
-	return func(in *Inputs) { in.Deployment.Pools[0].Engine.DCPCommBackend = b }
+	return func(in *Inputs) { editInputsEngine(in, func(e *engineconfig.Engine) { e.DCPCommBackend = b }) }
 }
 
 // scaleFloors returns a copy of the coefficient sets with every collective floor of one
@@ -309,7 +309,7 @@ func TestA2AIsRefusedAlongsidePCP(t *testing.T) {
 func TestAReplicatedQueryIsRefusedOnlyWhereItWouldTakeEffect(t *testing.T) {
 	yes, no := true, false
 	qrep := func(v *bool) func(*Inputs) {
-		return func(in *Inputs) { in.Deployment.Pools[0].Engine.DCPQReplicate = v }
+		return func(in *Inputs) { editInputsEngine(in, func(e *engineconfig.Engine) { e.DCPQReplicate = v }) }
 	}
 	if _, err := dcpVariant(t, dcpMLAFixture, 8, 1, 8, qrep(&yes)); err == nil {
 		t.Error("dcp_q_replicate on a latent model with dcp=8 was priced; its replicated " +
@@ -349,8 +349,8 @@ func TestAReplicatedQueryIsRefusedOnlyWhereItWouldTakeEffect(t *testing.T) {
 func TestTheInterleaveSetsTheSlowestRanksShareOfTheRead(t *testing.T) {
 	interleave := func(n int) func(*Inputs) {
 		return func(in *Inputs) {
-			in.Deployment.Pools[0].Engine.CPKVCacheInterleaveSize = n
-			in.Deployment.Pools[0].Engine.BlockSize = 64
+			editEngine(t, in, func(e *engineconfig.Engine) { e.CPKVCacheInterleaveSize = n })
+			editEngine(t, in, func(e *engineconfig.Engine) { e.BlockSize = 64 })
 		}
 	}
 	fine := mustDCPVariant(t, dcpMLAFixture, 8, 1, 8, interleave(1))
@@ -394,8 +394,8 @@ func TestUnderNIXLAnUnstatedInterleaveIsTheBlockSize(t *testing.T) {
 		in.Deployment.PDTransfer.Connector = connector
 		pool := &in.Deployment.Pools[1]
 		pool.Parallel.DCP = 4
-		pool.Engine.BlockSize = 64
-		pool.Engine.CPKVCacheInterleaveSize = interleave
+		editPoolEngine(t, pool, func(e *engineconfig.Engine) { e.BlockSize = 64 })
+		editPoolEngine(t, pool, func(e *engineconfig.Engine) { e.CPKVCacheInterleaveSize = interleave })
 		return newKernel(in)
 	}
 	must := func(connector string, interleave int) *Kernel {
@@ -457,8 +457,8 @@ func TestAStatedInterleaveMustFitTheBlock(t *testing.T) {
 		in.Deployment.PDTransfer.Connector = connector
 		pool := &in.Deployment.Pools[1]
 		pool.Parallel.DCP = 4
-		pool.Engine.BlockSize = block
-		pool.Engine.CPKVCacheInterleaveSize = interleave
+		editPoolEngine(t, pool, func(e *engineconfig.Engine) { e.BlockSize = block })
+		editPoolEngine(t, pool, func(e *engineconfig.Engine) { e.CPKVCacheInterleaveSize = interleave })
 		_, err = newKernel(in)
 		return err == nil
 	}
@@ -486,10 +486,11 @@ func TestAStatedInterleaveMustFitTheBlock(t *testing.T) {
 		want       bool
 	}{{64, true}, {128, false}} {
 		_, err := dcpVariant(t, dcpSparseFixture, 8, 1, 2, func(in *Inputs) {
-			e := &in.Deployment.Pools[0].Engine
+			e := mustDecode(t, in.Deployment.Pools[0])
 			off := false
 			e.BlockSize, e.CPKVCacheInterleaveSize = 0, c.interleave
 			e.DCPCommBackend, e.DCPQReplicate = "ag_rs", &off
+			setEngine(t, &in.Deployment.Pools[0], e)
 		})
 		if got := err == nil; got != c.want {
 			t.Errorf("glm5 (DSA, block 64), interleave %d: starts %v, want %v (%v)",
@@ -575,7 +576,7 @@ func TestALatentPrefillGathersItsContextOnceAChunk(t *testing.T) {
 		}
 		setLen := func(in *Inputs) {
 			if maxModelLen > 0 {
-				in.Deployment.Pools[0].Engine.MaxModelLen = deployment.MaxModelLen(maxModelLen)
+				editEngine(t, in, func(e *engineconfig.Engine) { e.MaxModelLen = engineconfig.MaxModelLen(maxModelLen) })
 			}
 		}
 		base := mustDCPVariant(t, dcpMLAFixture, 8, 1, 2, setLen)

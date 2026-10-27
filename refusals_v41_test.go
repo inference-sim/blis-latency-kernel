@@ -7,8 +7,8 @@ import (
 
 	"github.com/inference-sim/blis-schemas/kernel"
 	"github.com/inference-sim/blis-schemas/spec/coefficient"
-	"github.com/inference-sim/blis-schemas/spec/deployment"
 	"github.com/inference-sim/blis-schemas/spec/model"
+	"github.com/inference-sim/blis-vllm/rules/engineconfig"
 )
 
 // A term the kernel cannot price from its inputs is refused or recorded, never charged at
@@ -94,15 +94,15 @@ func TestAScorerWithoutItsOwnRateIsRecorded(t *testing.T) {
 // The DeepSeek-V4.1 layouts vLLM v0.31.0 refuses at startup are refused, not priced.
 func TestV41LayoutsTheEngineRefuses(t *testing.T) {
 	for name, edit := range map[string]func(*Inputs){
-		"a bf16 cache": func(in *Inputs) { in.Deployment.Pools[0].Engine.CacheDType = "bfloat16" },
+		"a bf16 cache": func(in *Inputs) { editInputsEngine(in, func(e *engineconfig.Engine) { e.CacheDType = "bfloat16" }) },
 		"mega-MoE without expert parallelism": func(in *Inputs) {
-			in.Deployment.Pools[0].Engine.MoEBackend = "deep_gemm_mega_moe"
+			editEngine(t, in, func(e *engineconfig.Engine) { e.MoEBackend = "deep_gemm_mega_moe" })
 		},
 		"dual-batch overlap with Engram": func(in *Inputs) {
-			in.Deployment.Pools[0].Engine.DBO = &deployment.DBO{Enabled: true}
+			editEngine(t, in, func(e *engineconfig.Engine) { e.DBO = &engineconfig.DBO{Enabled: true} })
 		},
 		"MTP drafting": func(in *Inputs) {
-			in.Deployment.Pools[0].Engine.Speculative.Method = "mtp"
+			editEngine(t, in, func(e *engineconfig.Engine) { e.Speculative.Method = "mtp" })
 		},
 	} {
 		in := fixtureInputs(t, v41)
@@ -134,13 +134,13 @@ func TestSparseReadsArePerQueryToken(t *testing.T) {
 // nvfp4_ds_mla is the SM100 record: vLLM v0.31.0 refuses it on SM90.
 func TestNVFP4CacheIsRefusedOnSM90(t *testing.T) {
 	in := fixtureInputs(t, v41)
-	in.Deployment.Pools[0].Engine.CacheDType = "nvfp4_ds_mla"
+	editEngine(t, &in, func(e *engineconfig.Engine) { e.CacheDType = "nvfp4_ds_mla" })
 	if _, err := newKernel(in); err == nil {
 		t.Error("nvfp4_ds_mla on H200 was priced; FlashMLA decodes it only on SM100")
 	}
 	in = fixtureInputs(t, v41)
 	in.Chip, in.Scenario.Cluster.Hardware = chipInputs(t, "b200"), "b200"
-	in.Deployment.Pools[0].Engine.CacheDType = "nvfp4_ds_mla"
+	editEngine(t, &in, func(e *engineconfig.Engine) { e.CacheDType = "nvfp4_ds_mla" })
 	if _, err := newKernel(in); err != nil {
 		t.Errorf("nvfp4_ds_mla on B200 was refused: %v", err)
 	}
@@ -154,8 +154,8 @@ func TestUncapturableDispatchRunsEager(t *testing.T) {
 		in := fixtureInputs(t, v41)
 		pl := &in.Deployment.Pools[0].Parallel
 		pl.TP, pl.DP, pl.EnableExpertParallel = 4, 2, true
-		in.Deployment.Pools[0].Engine.All2AllBackend = "deepep_high_throughput"
-		in.Deployment.Pools[0].Engine.CUDAGraphMode = mode
+		editEngine(t, &in, func(e *engineconfig.Engine) { e.All2AllBackend = "deepep_high_throughput" })
+		editEngine(t, &in, func(e *engineconfig.Engine) { e.CUDAGraphMode = mode })
 		return build(t, in)
 	}
 	full, none := layout("FULL_AND_PIECEWISE"), layout("NONE")
@@ -183,11 +183,11 @@ func TestAnAll2AllBackendTakesEffectOnlyWhereTheEngineDispatches(t *testing.T) {
 		in := fixtureInputs(t, v41)
 		pl := &in.Deployment.Pools[0].Parallel
 		pl.TP, pl.DP, pl.EnableExpertParallel = tp, dp, true
-		in.Deployment.Pools[0].Engine.All2AllBackend = backend
+		editEngine(t, &in, func(e *engineconfig.Engine) { e.All2AllBackend = backend })
 		if dp > 1 {
 			// LL's buffer is sized by the token budget; at the fixture's 8,192 it cannot be
 			// allocated (TestALowLatencyBufferThatCannotBeAllocatedIsRefused).
-			in.Deployment.Pools[0].Engine.MaxNumBatchedTokens = 256
+			editEngine(t, &in, func(e *engineconfig.Engine) { e.MaxNumBatchedTokens = 256 })
 		}
 		return build(t, in)
 	}
@@ -234,10 +234,10 @@ func TestV4FamilyLayoutsItsBackendsCannotRun(t *testing.T) {
 		"mega-MoE on SM90": func(in *Inputs) {
 			pl := &in.Deployment.Pools[0].Parallel
 			pl.TP, pl.DP, pl.EnableExpertParallel = 4, 2, true
-			in.Deployment.Pools[0].Engine.MoEBackend = "deep_gemm_mega_moe"
+			editEngine(t, in, func(e *engineconfig.Engine) { e.MoEBackend = "deep_gemm_mega_moe" })
 		},
 		"a drafter the graph does not describe": func(in *Inputs) {
-			in.Deployment.Pools[0].Engine.Speculative.Method = "eagle3"
+			editEngine(t, in, func(e *engineconfig.Engine) { e.Speculative.Method = "eagle3" })
 		},
 	} {
 		in := fixtureInputs(t, v41)
@@ -254,7 +254,7 @@ func TestV4CheckpointIgnoresTheQuantizationFlag(t *testing.T) {
 	base := build(t, fixtureInputs(t, v41))
 	for _, q := range []string{"deepseek_v4_fp8", "fp8", "mxfp4", "modelopt_fp4"} {
 		in := fixtureInputs(t, v41)
-		in.Deployment.Pools[0].Engine.Quantization = q
+		editEngine(t, &in, func(e *engineconfig.Engine) { e.Quantization = q })
 		k := build(t, in)
 		if k.FixedBytes() != base.FixedBytes() {
 			t.Errorf("--quantization %s moved the resident bytes", q)

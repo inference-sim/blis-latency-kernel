@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/inference-sim/blis-schemas/kernel"
+	"github.com/inference-sim/blis-vllm/rules/engineconfig"
 )
 
 // Properties that must hold for EVERY deployment the catalog can price, checked across a
@@ -376,7 +377,7 @@ func TestPadTokensRunTheForwardAndMeetTheCeiling(t *testing.T) {
 			idle.NoOverlap)
 	}
 	in := fixtureInputs(t, memoryFixture)
-	in.Deployment.Pools[0].Engine.CUDAGraphMode = "NONE"
+	editEngine(t, &in, func(e *engineconfig.Engine) { e.CUDAGraphMode = "NONE" })
 	eager := build(t, in)
 	b := decodeBatch(1, 500, 500)
 	b.PadTokens = 13

@@ -114,6 +114,16 @@ func (r panicTagged) KVCacheGroups(in rules.KVCacheGroupsInput) (rules.KVCacheGr
 	return r.EngineRules.KVCacheGroups(in)
 }
 
+func (r panicTagged) CheckEngineBlock(at string, b deployment.EngineBlock) *rules.Problems {
+	defer tag()
+	return r.EngineRules.CheckEngineBlock(at, b)
+}
+
+func (r panicTagged) DraftTokens(b deployment.EngineBlock) int {
+	defer tag()
+	return r.EngineRules.DraftTokens(b)
+}
+
 func (r panicTagged) CUDAGraphCaptureSizes(in rules.CUDAGraphCaptureInput) (rules.CUDAGraphCapture, bool, error) {
 	defer tag()
 	return r.EngineRules.CUDAGraphCaptureSizes(in)

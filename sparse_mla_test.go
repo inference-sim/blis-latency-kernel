@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/inference-sim/blis-latency-kernel/internal/resolve"
+	"github.com/inference-sim/blis-vllm/rules/engineconfig"
 )
 
 // A DSA MODEL RUNS 64-TOKEN BLOCKS. Its indexer's backend takes exactly 64
@@ -16,7 +17,7 @@ func TestADSAModelRunsSixtyFourTokenBlocks(t *testing.T) {
 	build := func(fixtureName string, block int) (*Kernel, error) {
 		t.Helper()
 		in := fixtureInputs(t, fixtureName)
-		in.Deployment.Pools[0].Engine.BlockSize = block
+		editEngine(t, &in, func(e *engineconfig.Engine) { e.BlockSize = block })
 		return newKernel(in)
 	}
 	for _, block := range []int{16, 32} {
@@ -82,12 +83,13 @@ func TestTheBackendDecidesWhichContextParallelLayoutsADSAModelStarts(t *testing.
 	variant := func(tp, pcp, dcp int, cache string, blackwell bool) (*Kernel, error) {
 		t.Helper()
 		return dcpVariant(t, dcpSparseFixture, tp, pcp, dcp, func(in *Inputs) {
-			e := &in.Deployment.Pools[0].Engine
+			e := mustDecode(t, in.Deployment.Pools[0])
 			if dcp > 1 {
 				off := false
 				e.DCPCommBackend, e.DCPQReplicate = "ag_rs", &off
 			}
-			in.Deployment.Pools[0].Engine.CacheDType = cache
+			setEngine(t, &in.Deployment.Pools[0], e)
+			editEngine(t, in, func(e *engineconfig.Engine) { e.CacheDType = cache })
 			if blackwell {
 				chip := *in.Chip
 				chip.NVFP4Peak = 1
@@ -193,7 +195,7 @@ func TestTheFlashInferSM90ChoiceIsDisclosed(t *testing.T) {
 	disclosed := func(cache string) bool {
 		t.Helper()
 		in := fixtureInputs(t, dcpSparseFixture)
-		in.Deployment.Pools[0].Engine.CacheDType = cache
+		editEngine(t, &in, func(e *engineconfig.Engine) { e.CacheDType = cache })
 		k, err := newKernel(in)
 		if err != nil {
 			t.Fatal(err)
@@ -221,7 +223,7 @@ func TestARepackedCacheIsReportedAsResolved(t *testing.T) {
 	repack := func(blackwell bool) string {
 		t.Helper()
 		in := fixtureInputs(t, dcpSparseFixture)
-		in.Deployment.Pools[0].Engine.CacheDType = "fp8"
+		editEngine(t, &in, func(e *engineconfig.Engine) { e.CacheDType = "fp8" })
 		if blackwell {
 			chip := *in.Chip
 			chip.NVFP4Peak = 1

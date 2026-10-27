@@ -8,10 +8,6 @@
 package vllmsettings
 
 import (
-	"fmt"
-
-	"gopkg.in/yaml.v3"
-
 	"github.com/inference-sim/blis-schemas/spec/deployment"
 	"github.com/inference-sim/blis-vllm/rules/engineconfig"
 
@@ -73,14 +69,6 @@ func OfPool(dep *deployment.Deployment, pool int) (enginesettings.Settings, erro
 }
 
 // Decode is a pool's engine block as blis-vllm decodes it (engineconfig.Decode).
-//
-// TEMPORARY: blis-schemas#102 at ddfd45b still types Pool.Engine as its own struct, so the block
-// is re-encoded to a node and held as a deployment.EngineBlock first; when #102's switch makes
-// Pool.Engine the EngineBlock, this decodes it directly.
 func Decode(pool deployment.Pool) (engineconfig.Engine, error) {
-	var n yaml.Node
-	if err := n.Encode(pool.Engine); err != nil {
-		return engineconfig.Engine{}, fmt.Errorf("vllmsettings: encoding the engine block: %w", err)
-	}
-	return engineconfig.Decode(deployment.NewEngineBlock(&n))
+	return engineconfig.Decode(pool.Engine)
 }

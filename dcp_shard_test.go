@@ -12,6 +12,7 @@ import (
 	"github.com/inference-sim/blis-schemas/spec/model"
 
 	"github.com/inference-sim/blis-latency-kernel/internal/price"
+	"github.com/inference-sim/blis-vllm/rules/engineconfig"
 )
 
 // Decode-context parallelism shards the KV cache by token, and these pin that
@@ -594,7 +595,7 @@ func TestDCPShardsCapacityByTokensBeforePaging(t *testing.T) {
 func TestDCPCapacityAgreesWithTheEnginesLogicalBlock(t *testing.T) {
 	in := fixtureInputs(t, dcpMLAFixture)
 	in.Deployment.Pools[0].Parallel.DCP = 8
-	in.Deployment.Pools[0].Engine.BlockSize = 64
+	editEngine(t, &in, func(e *engineconfig.Engine) { e.BlockSize = 64 })
 	k, err := newKernel(in)
 	if err != nil {
 		t.Fatalf("dcp=8 at block size 64: %v", err)
@@ -1008,8 +1009,8 @@ func TestTheContextParallelArmsOfTheCanaryDeploymentPriceIndependently(t *testin
 		pool.Parallel.DP = 1
 		pool.Parallel.PCP = pcp
 		pool.Parallel.DCP = dcp
-		pool.Engine.BlockSize = 64
-		pool.Engine.DCPCommBackend = "ag_rs"
+		editPoolEngine(t, pool, func(e *engineconfig.Engine) { e.BlockSize = 64 })
+		editPoolEngine(t, pool, func(e *engineconfig.Engine) { e.DCPCommBackend = "ag_rs" })
 		k, err := newKernel(in)
 		if err != nil {
 			t.Fatalf("tp=1 pcp=%d dcp=%d: %v", pcp, dcp, err)

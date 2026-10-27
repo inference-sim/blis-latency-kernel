@@ -11,6 +11,7 @@ import (
 
 	"github.com/inference-sim/blis-latency-kernel/internal/price"
 	"github.com/inference-sim/blis-latency-kernel/internal/resolve"
+	"github.com/inference-sim/blis-vllm/rules/engineconfig"
 )
 
 // THE CAPTURE CEILING FOLLOWS THE ENGINE'S DEFAULT, on every input that sets it. vLLM v0.31.0
@@ -31,13 +32,14 @@ func TestTheCaptureCeilingFollowsTheEngineDefault(t *testing.T) {
 	host := func(mode string, seqs int, blackwell bool, b kernel.Batch) time.Duration {
 		t.Helper()
 		in := fixtureInputs(t, memoryFixture)
-		e := &in.Deployment.Pools[0].Engine
+		e := mustDecode(t, in.Deployment.Pools[0])
 		e.CUDAGraphMode, e.MaxNumSeqs = mode, seqs
 		if blackwell {
 			chip := *in.Chip
 			chip.NVFP4Peak = 1
 			in.Chip = &chip
 		}
+		setEngine(t, &in.Deployment.Pools[0], e)
 		k, err := newKernel(in)
 		if err != nil {
 			t.Fatal(err)
@@ -123,10 +125,9 @@ func TestUnderPCPWithDCPAShortPrefillIsReplicated(t *testing.T) {
 // agRS states the ag_rs DCP combine without a replicated query, which a GLM-5 deployment
 // under DCP must state to start (see TestADCPGroupSitsWhereTheRankLayoutPutsIt).
 func agRS(in *Inputs) {
-	e := &in.Deployment.Pools[0].Engine
 	if in.Deployment.Pools[0].Parallel.DCP > 1 {
 		off := false
-		e.DCPCommBackend, e.DCPQReplicate = "ag_rs", &off
+		editInputsEngine(in, func(e *engineconfig.Engine) { e.DCPCommBackend, e.DCPQReplicate = "ag_rs", &off })
 	}
 }
 
@@ -144,7 +145,7 @@ func TestADecodeStepDoesNotLaunchPrefillOnlyNodes(t *testing.T) {
 		prefill  bool
 	}{{v41, true}, {"minimax-m25-h200-tp8.yaml", false}} {
 		in := fixtureInputs(t, c.scenario)
-		in.Deployment.Pools[0].Engine.CUDAGraphMode = "NONE"
+		editEngine(t, &in, func(e *engineconfig.Engine) { e.CUDAGraphMode = "NONE" })
 		want := 0
 		for _, id := range in.Model.Stack.Expand() {
 			for _, lk := range in.Model.LayerKinds {
@@ -200,7 +201,7 @@ func TestAModelScopedEagerCostWinsWhateverItsOrder(t *testing.T) {
 		// V4.1, which would outrank every entry below; the cases supply their own.
 		in := withoutEntries(fixtureInputs(t, v41),
 			map[string]bool{"host_launch_eager_per_kernel": true})
-		in.Deployment.Pools[0].Engine.CUDAGraphMode = "NONE"
+		editEngine(t, &in, func(e *engineconfig.Engine) { e.CUDAGraphMode = "NONE" })
 		set := &coefficient.Set{Kind: "CoefficientSet", Name: "test-eager",
 			Coefficients: extra}
 		switch {
@@ -259,8 +260,9 @@ func TestTheDrafterRunsUnderItsOwnGraphs(t *testing.T) {
 	draftShare := func(mode string, b kernel.Batch) (got time.Duration, k *Kernel) {
 		t.Helper()
 		in := fixtureInputs(t, v41)
-		e := &in.Deployment.Pools[0].Engine
+		e := mustDecode(t, in.Deployment.Pools[0])
 		e.CUDAGraphMode, e.MaxCUDAGraphCaptureSize = mode, &size
+		setEngine(t, &in.Deployment.Pools[0], e)
 		k = build(t, in)
 		_, kernels := k.priceDraft(b, &stepShape{}, &[numResources]float64{})
 		host := k.StepTime(b).PerResource[kernel.ResourceHost]
@@ -395,7 +397,7 @@ func TestTheVendoredHostSetResolvesTheSameUnderBothRules(t *testing.T) {
 func eagerAt(t *testing.T, us float64, mode string, spec bool, capture int) *Kernel {
 	t.Helper()
 	in := fixtureInputs(t, v41)
-	e := &in.Deployment.Pools[0].Engine
+	e := mustDecode(t, in.Deployment.Pools[0])
 	e.CUDAGraphMode = mode
 	if capture > 0 {
 		e.MaxCUDAGraphCaptureSize = &capture
@@ -403,6 +405,7 @@ func eagerAt(t *testing.T, us float64, mode string, spec bool, capture int) *Ker
 	if !spec {
 		e.Speculative = nil
 	}
+	setEngine(t, &in.Deployment.Pools[0], e)
 	in.Coefficients = append(append([]*coefficient.Set{}, in.Coefficients...),
 		&coefficient.Set{Kind: "CoefficientSet", Name: "test-eager", Coefficients: []coefficient.Entry{{
 			Name: "host_launch_eager_per_kernel", Value: us, Units: "us_per_transfer",

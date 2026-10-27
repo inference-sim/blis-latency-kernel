@@ -78,10 +78,12 @@ func TestLoadBundleRejectsIncompleteFiles(t *testing.T) {
 			validScenario + "---\nkind: Deployment\nname: x\npools: []\n", "no pools"},
 		{"second document is truncated", validScenario + "---\nkind: \"Deploy", "deployment"},
 		// Strict decoding is the point: a misspelled key must not leave a document that
-		// validates while silently omitting the setting its author intended.
+		// validates while silently omitting the setting its author intended. (A misspelled key
+		// inside a pool's engine block is the engine model's to refuse: blis-schemas holds the
+		// block unopened, so TestOpenRefusesAMisspelledEngineKey covers it.)
 		{"misspelled deployment key",
-			validScenario + "---\nkind: Deployment\nname: x\npools:\n  - role: colocated\n    nodes: 1\n    parallel: {tp: 8, pp: 1, dp: 1}\n    engine:\n      cache_dytpe: fp8\n",
-			"cache_dytpe"},
+			validScenario + "---\nkind: Deployment\nname: x\npools:\n  - role: colocated\n    nodes: 1\n    paralel: {tp: 8, pp: 1, dp: 1}\n",
+			"paralel"},
 		{"misspelled scenario key",
 			"kind: Scenario\nname: x\nmodle: m\n---\n" + validDeployment, "modle"},
 		// The pre-v0.2.0 shape: pools under the Scenario. It must not be silently accepted
@@ -226,5 +228,31 @@ pools:
 		if got != c.want {
 			t.Errorf("%s: %d schedulers, want %d", c.name, got, c.want)
 		}
+	}
+}
+
+// A misspelled key inside a pool's engine block is refused when the kernel is opened, at its line
+// and naming the file: blis-schemas holds the block unopened, and the engine settings are decoded
+// strictly by the engine model (Repos.EngineSettings, vllmsettings.OfPool for vLLM).
+func TestOpenRefusesAMisspelledEngineKey(t *testing.T) {
+	src, err := os.ReadFile(filepath.Join(repoRoot(), "testdata", "minimax-m25-h200-tp8.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	const key = "      cache_dtype: fp8\n"
+	if strings.Count(string(src), key) != 1 {
+		t.Fatalf("the fixture states cache_dtype %d times, want once", strings.Count(string(src), key))
+	}
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "typo.yaml"),
+		[]byte(strings.Replace(string(src), key, "      cache_dytpe: fp8\n", 1)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := LoadBundle(filepath.Join(dir, "typo.yaml")); err != nil {
+		t.Fatalf("LoadBundle refused the engine block it holds unopened: %v", err)
+	}
+	_, err = Open("typo.yaml", Repos{Scenarios: dir, Catalog: DefaultCatalog(), Registry: DefaultRegistry()})
+	if err == nil || !strings.Contains(err.Error(), "cache_dytpe") || !strings.Contains(err.Error(), "typo.yaml") {
+		t.Errorf("Open: %v; want a refusal naming the misspelled key and the file", err)
 	}
 }

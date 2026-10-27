@@ -7,6 +7,7 @@ import (
 
 	"github.com/inference-sim/blis-schemas/kernel"
 	"github.com/inference-sim/blis-schemas/spec/model"
+	"github.com/inference-sim/blis-vllm/rules/engineconfig"
 )
 
 // Step-time behaviour, as relations between steps, deployments and graphs.
@@ -38,7 +39,7 @@ func TestEagerLaunchesCostAtLeastAReplay(t *testing.T) {
 		host := map[string]float64{}
 		for _, mode := range []string{"NONE", "PIECEWISE", "FULL"} {
 			in := fixtureInputs(t, scenario)
-			in.Deployment.Pools[0].Engine.CUDAGraphMode = mode
+			editEngine(t, &in, func(e *engineconfig.Engine) { e.CUDAGraphMode = mode })
 			host[mode] = build(t, in).StepTime(decodeBatch(1, 1, 8000)).
 				PerResource[kernel.ResourceHost].Seconds()
 		}
@@ -87,7 +88,7 @@ func TestTheIndexerScanIsPricedInPrefill(t *testing.T) {
 func TestTheDrafterIsPriced(t *testing.T) {
 	spec := build(t, fixtureInputs(t, v41))
 	in := fixtureInputs(t, v41)
-	in.Deployment.Pools[0].Engine.Speculative = nil
+	editEngine(t, &in, func(e *engineconfig.Engine) { e.Speculative = nil })
 	none := build(t, in)
 	b := decodeBatch(32, 6, 8192)
 	if spec.StepTime(b).NoOverlap <= none.StepTime(b).NoOverlap {
@@ -185,7 +186,7 @@ func TestDraftExpertsAreSizedByTheirOwnCount(t *testing.T) {
 		with := func(spec bool) int64 {
 			in := fixtureInputs(t, v41)
 			if !spec {
-				in.Deployment.Pools[0].Engine.Speculative = nil
+				editEngine(t, &in, func(e *engineconfig.Engine) { e.Speculative = nil })
 			}
 			for i := range in.Model.LayerKinds {
 				if strings.HasPrefix(in.Model.LayerKinds[i].ID, "dspark") {
@@ -213,12 +214,12 @@ func TestTheLMHeadRunsOverLogitsRows(t *testing.T) {
 	widen := func(in *Inputs) { scaleVocab(in, 2) }
 	wide := func() *Kernel {
 		in := fixtureInputs(t, v41)
-		in.Deployment.Pools[0].Engine.Speculative = nil
+		editEngine(t, &in, func(e *engineconfig.Engine) { e.Speculative = nil })
 		widen(&in)
 		return build(t, in)
 	}()
 	in := fixtureInputs(t, v41)
-	in.Deployment.Pools[0].Engine.Speculative = nil
+	editEngine(t, &in, func(e *engineconfig.Engine) { e.Speculative = nil })
 	narrow := build(t, in)
 	sm := func(k *Kernel, b kernel.Batch) time.Duration { return k.StepTime(b).PerResource[kernel.ResourceSM] }
 	prefill, decode := prefillOf(8192, 0), decodeBatch(1, 1, 8192)
@@ -236,7 +237,7 @@ func TestLogitsAreGatheredAcrossTP(t *testing.T) {
 	link := func(scale int) time.Duration {
 		in := fixtureInputs(t, v41)
 		scaleVocab(&in, scale)
-		in.Deployment.Pools[0].Engine.Speculative = nil
+		editEngine(t, &in, func(e *engineconfig.Engine) { e.Speculative = nil })
 		return build(t, in).StepTime(decodeBatch(64, 1, 8192)).PerResource[kernel.ResourceNVLink]
 	}
 	if one, two := link(1), link(2); two <= one {

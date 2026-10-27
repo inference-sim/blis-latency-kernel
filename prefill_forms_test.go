@@ -9,9 +9,9 @@ import (
 
 	"github.com/inference-sim/blis-schemas/kernel"
 	"github.com/inference-sim/blis-schemas/spec/coefficient"
-	"github.com/inference-sim/blis-schemas/spec/deployment"
 
 	"github.com/inference-sim/blis-latency-kernel/internal/price"
+	"github.com/inference-sim/blis-vllm/rules/engineconfig"
 )
 
 // contractEntries are blis-registry PR #47's DeepSeek-V4.1-Flash h200 entries as
@@ -372,10 +372,10 @@ func TestTheFrontendChoosesTheAdmissionRate(t *testing.T) {
 	rust := coefficient.Entry{Name: "host_admission_per_token_rust_frontend", Value: 0.267,
 		Units: "us_per_token", Method: "assumed", Rationale: "test",
 		Scope: coefficient.Scope{Hardware: []string{"h200"}}}
-	admit := func(frontend deployment.Frontend, extra ...coefficient.Entry) (*Kernel, time.Duration) {
+	admit := func(frontend engineconfig.Frontend, extra ...coefficient.Entry) (*Kernel, time.Duration) {
 		t.Helper()
 		in := withoutContractEntries(fixtureInputs(t, v41))
-		in.Deployment.Pools[0].Engine.Frontend = frontend
+		editEngine(t, &in, func(e *engineconfig.Engine) { e.Frontend = frontend })
 		entries := append(contractEntries("host"), extra...)
 		in.Coefficients = append(append([]*coefficient.Set{}, in.Coefficients...),
 			&coefficient.Set{Kind: "CoefficientSet", Name: "test-v41", Coefficients: entries})
@@ -386,10 +386,10 @@ func TestTheFrontendChoosesTheAdmissionRate(t *testing.T) {
 	if _, got := admit("", rust); got != us(2.67) {
 		t.Errorf("python frontend: admission %v, want the Python rate's %v", got, us(2.67))
 	}
-	if _, got := admit(deployment.FrontendRust, rust); got != us(0.267) {
+	if _, got := admit(engineconfig.FrontendRust, rust); got != us(0.267) {
 		t.Errorf("rust frontend: admission %v, want the Rust rate's %v", got, us(0.267))
 	}
-	k, got := admit(deployment.FrontendRust)
+	k, got := admit(engineconfig.FrontendRust)
 	if got != us(2.67) {
 		t.Errorf("rust frontend, no Rust rate: admission %v, want the Python rate's %v", got,
 			us(2.67))

@@ -5,6 +5,8 @@ import (
 
 	"github.com/inference-sim/blis-schemas/kernel"
 	"github.com/inference-sim/blis-schemas/spec/deployment"
+
+	"github.com/inference-sim/blis-vllm/rules/engineconfig"
 )
 
 // A consumer reaches what this kernel resolved through kernel.Kernel alone: Deployment for
@@ -39,9 +41,8 @@ func TestDeploymentIsThePoolThisKernelPrices(t *testing.T) {
 		if got.Role != c.role {
 			t.Errorf("pool %d reports role %q, want %q", c.pool, got.Role, c.role)
 		}
-		if got.Engine.MaxNumBatchedTokens != c.batched {
-			t.Errorf("pool %d reports max_num_batched_tokens %d, want %d", c.pool,
-				got.Engine.MaxNumBatchedTokens, c.batched)
+		if b := mustDecode(t, got).MaxNumBatchedTokens; b != c.batched {
+			t.Errorf("pool %d reports max_num_batched_tokens %d, want %d", c.pool, b, c.batched)
 		}
 	}
 }
@@ -64,11 +65,11 @@ func TestDeploymentIsTheRequestAndResolvedIsTheResolution(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	stated := k.Deployment()
-	if stated.Engine.DisableCustomAllReduce != nil || stated.Engine.AllReduceBackend != "" {
+	stated := mustDecode(t, k.Deployment())
+	if stated.DisableCustomAllReduce != nil || stated.AllReduceBackend != "" {
 		t.Fatalf("the fixture must leave the custom all-reduce requested by default; it "+
-			"states disable=%v backend=%q", stated.Engine.DisableCustomAllReduce,
-			stated.Engine.AllReduceBackend)
+			"states disable=%v backend=%q", stated.DisableCustomAllReduce,
+			stated.AllReduceBackend)
 	}
 	res := k.Resolved()
 	if res.AllReduceBackend != "nccl" {
@@ -85,9 +86,8 @@ func TestDeploymentIsTheRequestAndResolvedIsTheResolution(t *testing.T) {
 		t.Errorf("Resolved does not record the declined request with a reason: %+v",
 			res.Overrides)
 	}
-	if res.TensorParallelWidth != stated.Parallel.TP {
-		t.Errorf("Resolved reports tp %d against the %d priced", res.TensorParallelWidth,
-			stated.Parallel.TP)
+	if tp := k.Deployment().Parallel.TP; res.TensorParallelWidth != tp {
+		t.Errorf("Resolved reports tp %d against the %d priced", res.TensorParallelWidth, tp)
 	}
 }
 
@@ -241,16 +241,22 @@ func TestEditingTheDocumentsAfterNewChangesNothing(t *testing.T) {
 	step, fixed, perSeq := k.StepTime(batch).NoOverlap, k.SequenceFixedBytes(),
 		k.SequenceVariableBytes(8192)
 
-	spec := in.Deployment.Pools[0].Engine.Speculative
-	if spec == nil {
+	if poolEngine(t, in).Speculative == nil {
 		t.Fatal("the fixture states no speculative block to edit")
 	}
-	spec.NumSpecTokens = 7
-	if d := k.Deployment(); d.Engine.Speculative != nil {
-		d.Engine.Speculative.NumSpecTokens = 9
+	// The caller edits its own documents, the block the kernel's Deployment returned, and the
+	// settings Engine returned; none of the three reaches the kernel.
+	editEngine(t, &in, func(e *engineconfig.Engine) { e.Speculative.NumSpecTokens = 7 })
+	d := k.Deployment()
+	editPoolEngine(t, &d, func(e *engineconfig.Engine) { e.Speculative.NumSpecTokens = 9 })
+	if s := k.Engine(); s.Speculative != nil {
+		s.Speculative.NumSpecTokens = 11
 	}
-	if got := k.Deployment().Engine.Speculative.NumSpecTokens; got == 7 || got == 9 {
+	if got := mustDecode(t, k.Deployment()).Speculative.NumSpecTokens; got == 7 || got == 9 {
 		t.Errorf("Deployment reports %d speculative tokens after the caller's edits", got)
+	}
+	if got := k.Engine().Speculative.NumSpecTokens; got == 7 || got == 9 || got == 11 {
+		t.Errorf("Engine reports %d speculative tokens after the caller's edits", got)
 	}
 	if k.StepTime(batch).NoOverlap != step || k.SequenceFixedBytes() != fixed ||
 		k.SequenceVariableBytes(8192) != perSeq {
