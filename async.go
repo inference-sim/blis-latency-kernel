@@ -24,7 +24,7 @@ import (
 // (vllm/v1/executor/multiproc_executor.py:560-561).
 func (k *Kernel) resolveAsyncScheduling(r resolve.EngineRules) error {
 	method := ""
-	if s := k.pool.Engine.Speculative; s != nil && s.NumSpecTokens > 0 {
+	if s := k.engine.Speculative; s != nil && s.NumSpecTokens > 0 {
 		method = s.Method
 	}
 	var compatible, known bool
@@ -37,7 +37,7 @@ func (k *Kernel) resolveAsyncScheduling(r resolve.EngineRules) error {
 			"the rules value carries no async-compatible draft list, so the draft method is "+
 				"taken as compatible with async scheduling")
 	}
-	if a := k.pool.Engine.AsyncScheduling; a != nil {
+	if a := k.engine.AsyncScheduling; a != nil {
 		if *a && knownIncompatible {
 			return fmt.Errorf("async_scheduling is requested with draft method %q, which "+
 				"vLLM v0.31.0 refuses: async scheduling is only supported with "+

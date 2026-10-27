@@ -229,7 +229,7 @@ func TestLayerKindDeclarationOrderDoesNotPrice(t *testing.T) {
 
 	ds := fixtureInputs(t, v41)
 	ds.Deployment.Pools[0].Engine.CacheDType = "fp8_ds_mla"
-	if _, err := New(ds); err != nil {
+	if _, err := newKernel(ds); err != nil {
 		t.Errorf("fp8_ds_mla refused for a sparse-MLA target stack: %v", err)
 	}
 }
@@ -249,7 +249,7 @@ func TestCachesFollowTheChipsArchitecture(t *testing.T) {
 
 	anon := fixtureInputs(t, v41)
 	anon.Chip.ComputeCapability = ""
-	if _, err := New(anon); err == nil {
+	if _, err := newKernel(anon); err == nil {
 		t.Error("a chip with no compute capability ran a graph that distinguishes generations")
 	}
 }

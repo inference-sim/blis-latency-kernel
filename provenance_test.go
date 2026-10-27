@@ -45,7 +45,7 @@ func TestAMissingOptionalCoefficientIsDisclosedWhereItMatters(t *testing.T) {
 		full := fixture(t, c.fixture)
 		in := fixtureInputs(t, c.fixture)
 		in.Coefficients = dropCoefficient(in.Coefficients, c.name)
-		k, err := New(in)
+		k, err := newKernel(in)
 		if err != nil {
 			t.Fatalf("%s without %s: %v", c.fixture, c.name, err)
 		}
@@ -89,7 +89,7 @@ func TestADecodeReadsTheCacheItHolds(t *testing.T) {
 		// chip's, derated by the registry's hbm_derate -- and must still be the cache's
 		// growth, not a ninth of it.
 		in.Coefficients = dropCoefficient(in.Coefficients, "attention_decode_rate")
-		fb, err := New(in)
+		fb, err := newKernel(in)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -116,7 +116,7 @@ func TestTheEngineReleasePricedIsDisclosed(t *testing.T) {
 		sc.EngineVersion = v
 		in2 := in
 		in2.Scenario = &sc
-		k, err := New(in2)
+		k, err := newKernel(in2)
 		if err != nil {
 			t.Fatal(err)
 		}

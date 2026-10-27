@@ -21,6 +21,7 @@ import (
 	vllmrules "github.com/inference-sim/blis-vllm/rules"
 
 	latencykernel "github.com/inference-sim/blis-latency-kernel"
+	"github.com/inference-sim/blis-latency-kernel/vllmsettings"
 )
 
 // Repos is the root package's Repos. An alias rather than a second type, so that a
@@ -49,6 +50,9 @@ func WithVLLMRules(r Repos) Repos {
 	if r.Rules == nil {
 		r.Rules = VLLMRules
 		r.RulesVersions = vllmrules.Versions
+	}
+	if r.EngineSettings == nil {
+		r.EngineSettings = vllmsettings.OfPool
 	}
 	return r
 }

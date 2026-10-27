@@ -161,7 +161,7 @@ func TestAGroupInsideOneNVLinkRackDoesNotCrossTheFabric(t *testing.T) {
 			chip.GPUsPerRack, chip.IntraRackBwGBps = 0, 0
 			in.Chip = &chip
 		}
-		k, err := New(in)
+		k, err := newKernel(in)
 		if err != nil {
 			t.Fatalf("rack domain %v: %v", rackDomain, err)
 		}

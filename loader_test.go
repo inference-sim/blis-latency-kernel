@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/inference-sim/blis-latency-kernel/internal/artifacttest"
+	"github.com/inference-sim/blis-latency-kernel/vllmsettings"
 
 	schemas "github.com/inference-sim/blis-schemas"
 	"github.com/inference-sim/blis-schemas/rules"
@@ -79,10 +80,11 @@ func fixtureInputs(t testing.TB, scenario string) Inputs {
 	devicesPath := filepath.Join(catalogRoot, "devices", "storage.yaml")
 	devices, err := schemas.LoadStorageDevices(devicesPath)
 	artifacttest.RequireArtifact(t, catalogRoot, devicesPath, "catalog", err)
+	eng := vllmsettings.Of(dep.Pools[0].Engine)
 	return Inputs{
 		Scenario: sc, Deployment: dep, PoolIndex: 0,
 		Model: graph, Chip: chip, Fabric: fabric,
-		Devices: devices, Coefficients: sets, Rules: rulesFor(sc.EngineVersion),
+		Devices: devices, Coefficients: sets, Rules: rulesFor(sc.EngineVersion), Engine: &eng,
 	}
 }
 
@@ -96,10 +98,12 @@ func rulesFor(version string) *rules.Pack {
 	return v0_29.Pack()
 }
 
-// withRules gives a Repos the vLLM rules packs, as a caller of Open does.
+// withRules gives a Repos the vLLM rules packs and engine-block decoding, as a caller of Open
+// does.
 func withRules(r Repos) Repos {
 	r.Rules = RulesFrom(vllmrules.Lookup)
 	r.RulesVersions = vllmrules.Versions
+	r.EngineSettings = vllmsettings.OfPool
 	return r
 }
 
@@ -114,10 +118,21 @@ func withModel(t testing.TB, in *Inputs, name string) {
 	in.Model = graph
 }
 
+// newKernel is New on inputs a test has edited, with the engine settings decoded from the edited
+// pool, as a caller decodes the block it hands the kernel (vllmsettings): a test that rewrites
+// in.Deployment.Pools[i].Engine prices what it wrote.
+func newKernel(in Inputs) (*Kernel, error) {
+	if in.Deployment != nil && in.PoolIndex >= 0 && in.PoolIndex < len(in.Deployment.Pools) {
+		eng := vllmsettings.Of(in.Deployment.Pools[in.PoolIndex].Engine)
+		in.Engine = &eng
+	}
+	return New(in)
+}
+
 // build is New on inputs a test has edited, failing the test on a refusal.
 func build(t testing.TB, in Inputs) *Kernel {
 	t.Helper()
-	k, err := New(in)
+	k, err := newKernel(in)
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -131,7 +146,7 @@ func build(t testing.TB, in Inputs) *Kernel {
 // documents and assemble them itself, rather than reimplementing the loading.
 func fixture(t testing.TB, scenario string) *Kernel {
 	t.Helper()
-	k, err := New(fixtureInputs(t, scenario))
+	k, err := newKernel(fixtureInputs(t, scenario))
 	if err != nil {
 		t.Fatalf("New from committed artifacts: %v", err)
 	}

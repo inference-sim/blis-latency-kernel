@@ -59,7 +59,7 @@ func TestDeploymentIsTheRequestAndResolvedIsTheResolution(t *testing.T) {
 	in := fixtureInputs(t, "minimax-m25-h200-ep16.yaml")
 	pool := &in.Deployment.Pools[0]
 	pool.Parallel.TP, pool.Parallel.DP = 16, 1
-	k, err := New(in)
+	k, err := newKernel(in)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -152,7 +152,7 @@ func TestResolvedFollowsTheLayoutWhenItChanges(t *testing.T) {
 			pool.Parallel.EnableExpertParallel = ep
 			pool.Parallel.DP = dp
 			pool.Nodes, in.Scenario.Cluster.Nodes = dp, dp
-			k, err := New(in)
+			k, err := newKernel(in)
 			if err != nil {
 				t.Fatalf("ep=%v dp=%d: %v", ep, dp, err)
 			}
@@ -196,7 +196,7 @@ func TestOpenInputsAreTheDocumentsOpenPoolPrices(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		mine, err := New(in)
+		mine, err := newKernel(in)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -233,7 +233,7 @@ func TestOpenInputsAreTheDocumentsOpenPoolPrices(t *testing.T) {
 // Deployment returned. Neither may move any answer.
 func TestEditingTheDocumentsAfterNewChangesNothing(t *testing.T) {
 	in := fixtureInputs(t, "nemotron3-ultra-h100-agg.yaml") // states speculative decoding
-	k, err := New(in)
+	k, err := newKernel(in)
 	if err != nil {
 		t.Fatal(err)
 	}

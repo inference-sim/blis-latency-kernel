@@ -35,7 +35,7 @@ func dcpVariant(t *testing.T, fixture string, tp, pcp, dcp int,
 	if edit != nil {
 		edit(&in)
 	}
-	return New(in)
+	return newKernel(in)
 }
 
 func mustDCPVariant(t *testing.T, fixture string, tp, pcp, dcp int, edit func(*Inputs)) *Kernel {
@@ -396,7 +396,7 @@ func TestUnderNIXLAnUnstatedInterleaveIsTheBlockSize(t *testing.T) {
 		pool.Parallel.DCP = 4
 		pool.Engine.BlockSize = 64
 		pool.Engine.CPKVCacheInterleaveSize = interleave
-		return New(in)
+		return newKernel(in)
 	}
 	must := func(connector string, interleave int) *Kernel {
 		t.Helper()
@@ -459,7 +459,7 @@ func TestAStatedInterleaveMustFitTheBlock(t *testing.T) {
 		pool.Parallel.DCP = 4
 		pool.Engine.BlockSize = block
 		pool.Engine.CPKVCacheInterleaveSize = interleave
-		_, err = New(in)
+		_, err = newKernel(in)
 		return err == nil
 	}
 	for _, c := range []struct {

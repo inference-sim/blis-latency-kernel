@@ -76,7 +76,7 @@ func TestAScorerWithNoMeasuredFormIsStillCharged(t *testing.T) {
 func TestAHostTableWithNoLinkRateIsRefused(t *testing.T) {
 	in := fixtureInputs(t, v41)
 	in.Coefficients = dropEntries(in.Coefficients, "host_gather_rate_uva", "host_link_bandwidth")
-	if _, err := New(in); err == nil {
+	if _, err := newKernel(in); err == nil {
 		t.Error("an Engram table in host memory was priced with no host link rate")
 	}
 }
@@ -107,7 +107,7 @@ func TestV41LayoutsTheEngineRefuses(t *testing.T) {
 	} {
 		in := fixtureInputs(t, v41)
 		edit(&in)
-		if _, err := New(in); err == nil {
+		if _, err := newKernel(in); err == nil {
 			t.Errorf("%s: priced a layout vLLM v0.31.0 refuses at startup", name)
 		}
 	}
@@ -135,13 +135,13 @@ func TestSparseReadsArePerQueryToken(t *testing.T) {
 func TestNVFP4CacheIsRefusedOnSM90(t *testing.T) {
 	in := fixtureInputs(t, v41)
 	in.Deployment.Pools[0].Engine.CacheDType = "nvfp4_ds_mla"
-	if _, err := New(in); err == nil {
+	if _, err := newKernel(in); err == nil {
 		t.Error("nvfp4_ds_mla on H200 was priced; FlashMLA decodes it only on SM100")
 	}
 	in = fixtureInputs(t, v41)
 	in.Chip, in.Scenario.Cluster.Hardware = chipInputs(t, "b200"), "b200"
 	in.Deployment.Pools[0].Engine.CacheDType = "nvfp4_ds_mla"
-	if _, err := New(in); err != nil {
+	if _, err := newKernel(in); err != nil {
 		t.Errorf("nvfp4_ds_mla on B200 was refused: %v", err)
 	}
 }
@@ -242,7 +242,7 @@ func TestV4FamilyLayoutsItsBackendsCannotRun(t *testing.T) {
 	} {
 		in := fixtureInputs(t, v41)
 		edit(&in)
-		if _, err := New(in); err == nil {
+		if _, err := newKernel(in); err == nil {
 			t.Errorf("%s: priced a DeepSeek-V4.1 layout vLLM v0.31.0 cannot run", name)
 		}
 	}

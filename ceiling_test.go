@@ -38,7 +38,7 @@ func TestTheCaptureCeilingFollowsTheEngineDefault(t *testing.T) {
 			chip.NVFP4Peak = 1
 			in.Chip = &chip
 		}
-		k, err := New(in)
+		k, err := newKernel(in)
 		if err != nil {
 			t.Fatal(err)
 		}

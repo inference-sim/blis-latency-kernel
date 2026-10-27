@@ -37,9 +37,9 @@ func TestRulesPriceAlikeWhateverTheirConcreteType(t *testing.T) {
 		name := strings.TrimPrefix(path, "testdata/")
 		t.Run(name, func(t *testing.T) {
 			in := fixtureInputs(t, name)
-			viaPack, packErr := New(in)
+			viaPack, packErr := newKernel(in)
 			in.Rules = opaqueRules{in.Rules}
-			viaOpaque, opaqueErr := New(in)
+			viaOpaque, opaqueErr := newKernel(in)
 			if (packErr == nil) != (opaqueErr == nil) {
 				t.Fatalf("the pack built a kernel (err %v) and the same rules wrapped did not "+
 					"(err %v), or the reverse", packErr, opaqueErr)
@@ -102,7 +102,7 @@ func TestEachRulesFactIsReadThroughTheInterface(t *testing.T) {
 			if wrap {
 				in.Rules = opaqueRules{in.Rules}
 			}
-			_, err := New(in)
+			_, err := newKernel(in)
 			return fmt.Sprint(err != nil && strings.Contains(err.Error(), "async_scheduling is requested"))
 		}, "true"},
 		{"decode-context backend names", func(t *testing.T, wrap bool) string {
@@ -125,7 +125,7 @@ func TestEachRulesFactIsReadThroughTheInterface(t *testing.T) {
 			if wrap {
 				in.Rules = opaqueRules{in.Rules}
 			}
-			_, err := New(in)
+			_, err := newKernel(in)
 			return fmt.Sprint(err != nil && strings.Contains(err.Error(), "needs expert parallelism"))
 		}, "true"},
 	}
@@ -166,11 +166,11 @@ func TestTheCallersOwnAnswersAreObeyed(t *testing.T) {
 	p := &in.Deployment.Pools[in.PoolIndex]
 	p.Engine.MoEBackend = "triton"
 	p.Parallel.EnableExpertParallel = false
-	if _, err := New(in); err != nil && strings.Contains(err.Error(), "needs expert parallelism") {
+	if _, err := newKernel(in); err != nil && strings.Contains(err.Error(), "needs expert parallelism") {
 		t.Fatalf("the release's own rules gate triton as mega-MoE (%v); the case shows nothing", err)
 	}
 	in.Rules = ownAnswerRules{in.Rules}
-	if _, err := New(in); err == nil || !strings.Contains(err.Error(), "needs expert parallelism") {
+	if _, err := newKernel(in); err == nil || !strings.Contains(err.Error(), "needs expert parallelism") {
 		t.Errorf("rules calling triton mega-MoE did not gate it on expert parallelism: %v", err)
 	}
 }
@@ -294,7 +294,7 @@ func TestNewRefusesRulesThatCannotAnswer(t *testing.T) {
 				err = fmt.Errorf("panicked: %v", r)
 			}
 		}()
-		_, err = New(in)
+		_, err = newKernel(in)
 	}()
 	if err == nil || !strings.Contains(err.Error(), "cannot answer") {
 		t.Fatalf("New with an empty rules wrapper: %v, want a refusal naming rules that cannot answer", err)
@@ -322,7 +322,7 @@ func TestNewRefusesRulesThatPanicLater(t *testing.T) {
 				err = fmt.Errorf("panicked: %v", r)
 			}
 		}()
-		_, err = New(in)
+		_, err = newKernel(in)
 	}()
 	if err == nil || !strings.Contains(err.Error(), "cannot answer") ||
 		!strings.Contains(err.Error(), "SequenceParallelMoE is not implemented") {
@@ -386,7 +386,7 @@ func TestNewValidatesWithTheCallersRules(t *testing.T) {
 	in := fixtureInputs(t, "minimax-m25-h200-ep8.yaml")
 	n := 0
 	in.Rules = countingRules{in.Rules, &n}
-	if _, err := New(in); err != nil {
+	if _, err := newKernel(in); err != nil {
 		t.Fatal(err)
 	}
 	if n != 1 {

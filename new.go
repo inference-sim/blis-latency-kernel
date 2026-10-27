@@ -20,6 +20,7 @@ import (
 	"github.com/inference-sim/blis-schemas/spec/scenario"
 	"github.com/inference-sim/blis-schemas/vocab"
 
+	"github.com/inference-sim/blis-latency-kernel/enginesettings"
 	"github.com/inference-sim/blis-latency-kernel/internal/price"
 	"github.com/inference-sim/blis-latency-kernel/internal/resolve"
 )
@@ -48,6 +49,10 @@ type Inputs struct {
 	Coefficients []*coefficient.Set
 	// Rules carry the engine-version behaviour the resolver needs.
 	Rules resolve.EngineRules
+	// Engine is the priced pool's engine settings, decoded by the caller: the engine block is
+	// the engine model's to open, not this cost model's, so it comes in already read, as Rules
+	// does (for vLLM, blis-latency-kernel/vllmsettings). Required.
+	Engine *enginesettings.Settings
 	// Routing is the run's resolved expert-parallel routing imbalance (blis-schemas
 	// routing.Resolve), which depends on the model and the traffic and so is resolved by
 	// the caller, as speculative acceptance is. Nil prices an expert-parallel group as
@@ -78,6 +83,10 @@ func New(in Inputs) (*Kernel, error) {
 	if isNil(in.Rules) {
 		return nil, fmt.Errorf("a kernel needs engine rules for version %q",
 			in.Scenario.EngineVersion)
+	}
+	if in.Engine == nil {
+		return nil, fmt.Errorf("a kernel needs the pool's engine settings, decoded by the " +
+			"engine model (Inputs.Engine)")
 	}
 	if err := rulesAnswer(in.Rules); err != nil {
 		return nil, fmt.Errorf("the engine rules for version %q cannot answer: %w",
@@ -120,6 +129,7 @@ func construct(in Inputs) (*Kernel, error) {
 	// edited a deployment it had already priced -- the config-search shape Inputs exists
 	// for. The kernel's purity is a promise about its own state, so it owns that state.
 	pool := clonePool(in.Deployment.Pools[in.PoolIndex])
+	eng := in.Engine.Clone()
 
 	fab := resolve.Fabric{IntraNodeBwGBps: in.Chip.IntraNodeBwGBps}
 	if in.Fabric != nil {
@@ -142,7 +152,7 @@ func construct(in Inputs) (*Kernel, error) {
 	}
 	in.Model = g
 
-	layout, err := resolve.ResolveLayoutFor(in.Scenario, pool, fab, in.Rules,
+	layout, err := resolve.ResolveLayoutFor(in.Scenario, pool, eng, fab, in.Rules,
 		g.Global.Architecture)
 	if err != nil {
 		return nil, fmt.Errorf("resolving the layout: %w", err)
@@ -156,7 +166,7 @@ func construct(in Inputs) (*Kernel, error) {
 		return nil, fmt.Errorf("resolving coefficients: %w", err)
 	}
 
-	k := &Kernel{layout: layout, fabric: fab, pool: pool, chip: *in.Chip, rules: in.Rules,
+	k := &Kernel{layout: layout, fabric: fab, pool: pool, engine: eng, chip: *in.Chip, rules: in.Rules,
 		family: family, architecture: g.Global.Architecture}
 	k.tp = float64(max(layout.TP, 1))
 	k.kvConnector = (in.Deployment.Offload != nil && in.Deployment.Offload.Connector != "") ||
@@ -166,7 +176,7 @@ func construct(in Inputs) (*Kernel, error) {
 	// served fp8 reads half the weight bytes, runs against a different compute peak and
 	// sits on a different efficiency envelope, so this has to be resolved before
 	// anything is priced.
-	quantization := pool.Engine.Quantization
+	quantization := eng.Quantization
 	// A DeepSeek-V4-family FP8 checkpoint is served by its own quantization method whatever
 	// --quantization names: DeepseekV4Fp8Config's override claims it
 	// (vllm/models/deepseek_v41/quant_config.py:139-167) and ModelConfig replaces the
@@ -189,25 +199,25 @@ func construct(in Inputs) (*Kernel, error) {
 	}
 	k.servedDType = served
 
-	if err := checkCacheDTypes(pool.Engine.CacheDType, pool.Engine.MambaCacheDType,
+	if err := checkCacheDTypes(eng.CacheDType, eng.MambaCacheDType,
 		attentionKinds(in.Model)); err != nil {
 		return nil, err
 	}
-	cacheBytes := cacheDTypeBytes(pool.Engine.CacheDType, served)
+	cacheBytes := cacheDTypeBytes(eng.CacheDType, served)
 	// The cache dtype a stated cache record is looked up by: the requested one, as the
 	// architecture's attention backend resolves it. DeepSeek-V4.1 rewrites auto and fp8 to
 	// its packed record (fp8_ds_mla under FlashMLA, nvfp4_ds_mla under SM100's mega
 	// attention), which is what Cache.EntryBytes is keyed by.
 	k.cacheDType = in.Rules.ResolveCacheDType(k.architecture, family, layout.TP,
-		pool.Engine.CacheDType)
-	if stated := pool.Engine.CacheDType; stated != "" && k.cacheDType != stated {
+		eng.CacheDType)
+	if stated := eng.CacheDType; stated != "" && k.cacheDType != stated {
 		k.layout.Overrides = append(k.layout.Overrides, resolve.Override{
 			Field: "cache_dtype", Requested: stated, Resolved: k.cacheDType,
 			Reason: "the attention backend of " + k.architecture + " serves this cache as " +
 				k.cacheDType + " (rules pack CacheDTypeResolutions)",
 		})
 	}
-	stateBytes := cacheDTypeBytes(pool.Engine.MambaCacheDType, model.DTypeFP32)
+	stateBytes := cacheDTypeBytes(eng.MambaCacheDType, model.DTypeFP32)
 
 	// PIPELINE PARALLELISM IS NOT PRICED. No collective here spans the pipeline axis, a
 	// stage's layers are not split out of the stack, and the rank-layout strides assume
@@ -252,10 +262,10 @@ func construct(in Inputs) (*Kernel, error) {
 		hybrid = hybrid || l.RecurrentKind != ""
 	}
 	prefixCaching := true
-	if pc := pool.Engine.EnablePrefixCaching; pc != nil && !*pc {
+	if pc := eng.EnablePrefixCaching; pc != nil && !*pc {
 		prefixCaching = false
 	}
-	stated := price.RecurrentCacheMode(pool.Engine.MambaCacheMode)
+	stated := price.RecurrentCacheMode(eng.MambaCacheMode)
 	k.recurrentCacheMode = stated
 	if stated == "" {
 		k.recurrentCacheMode = price.RecurrentCacheNone
@@ -281,7 +291,7 @@ func construct(in Inputs) (*Kernel, error) {
 	}
 
 	k.resolveMaxModelLen(in.Model)
-	k.blockSize = pool.Engine.BlockSize
+	k.blockSize = eng.BlockSize
 	dsa := isDSA(in.Model)
 	v4 := deepseekV4Family(in.Model)
 	k.blockSizeFinal = !hybrid && (k.blockSize > 0 || dsa || v4)
@@ -431,7 +441,7 @@ func (k *Kernel) resolveContextParallel(in Inputs) error {
 	// GEMMs by shape, not purpose. It takes effect only with dcp > 1, pcp <= 1
 	// (vllm/model_executor/models/deepseek_v2.py:1072-1076) and on a latent layer, so
 	// everywhere else the request is inert and is accepted.
-	if q := k.pool.Engine.DCPQReplicate; q != nil && *q && pl.DCP > 1 && pl.PCP <= 1 {
+	if q := k.engine.DCPQReplicate; q != nil && *q && pl.DCP > 1 && pl.PCP <= 1 {
 		for _, l := range k.plan.Layers {
 			if l.AttnQHeads > 0 && latentAttention(l.AttnKind) {
 				return fmt.Errorf(
@@ -448,19 +458,19 @@ func (k *Kernel) resolveContextParallel(in Inputs) error {
 	// checked against what this kernel prices, but not against what the engine release
 	// accepts.
 	accepted := in.Rules.DCPCommBackendNames()
-	if b := k.pool.Engine.DCPCommBackend; b != "" && accepted == nil {
+	if b := k.engine.DCPCommBackend; b != "" && accepted == nil {
 		k.assume("dcp_comm_backend", b,
 			"stated, and checked against the backends this kernel prices, but not against "+
 				"the names the engine release accepts: the rules value carries no list")
 	}
 	dc, overrides, err := resolve.ResolveDecodeContext(
-		k.pool, in.Deployment, k.blockSize, k.blockSizeFinal, accepted)
+		k.pool, k.engine, in.Deployment, k.blockSize, k.blockSizeFinal, accepted)
 	if err != nil {
 		return fmt.Errorf("resolving decode-context parallelism: %w", err)
 	}
 	k.decodeContext = dc
 	k.layout.Overrides = append(k.layout.Overrides, overrides...)
-	if pl.DCP > 1 && k.pool.Engine.DCPCommBackend == "" {
+	if pl.DCP > 1 && k.engine.DCPCommBackend == "" {
 		k.assume("dcp_comm_backend", dc.CommBackend,
 			"the engine's stock default (ParallelConfig.set_dcp_defaults, "+
 				"vllm/config/parallel.py:581-594 at v0.31.0), with the query projection not "+
@@ -490,7 +500,7 @@ func (k *Kernel) resolveContextParallel(in Inputs) error {
 // Zero means neither the deployment nor the graph states one, and every consumer of the
 // bound then says what it does without it.
 func (k *Kernel) resolveMaxModelLen(g *model.Graph) {
-	mml := k.pool.Engine.MaxModelLen
+	mml := k.engine.MaxModelLen
 	if n, ok := mml.Stated(); ok {
 		k.maxModelLen = n
 		return
@@ -535,15 +545,15 @@ func refuseV4Layouts(in Inputs, cacheDType string) error {
 	}
 	pool := in.Deployment.Pools[in.PoolIndex]
 	family, _ := in.Chip.CapabilityMajor()
-	if in.Rules.MegaMoEBackend(pool.Engine.MoEBackend) {
+	if in.Rules.MegaMoEBackend(in.Engine.MoEBackend) {
 		if !pool.Parallel.EnableExpertParallel {
 			return fmt.Errorf("moe_backend %q on %s needs expert parallelism: vLLM v0.31.0 "+
-				"refuses mega-MoE without it", pool.Engine.MoEBackend, arch)
+				"refuses mega-MoE without it", in.Engine.MoEBackend, arch)
 		}
 		if family != 10 {
 			return fmt.Errorf("moe_backend %q on %s needs an SM100 part: \"DeepGEMM MegaMoE "+
 				"requires SM100 GPUs\" (vllm/models/deepseek_v4/nvidia/model.py:366-369)",
-				pool.Engine.MoEBackend, in.Chip.Name)
+				in.Engine.MoEBackend, in.Chip.Name)
 		}
 	}
 	// The family's sparse attention backends declare no implementation class -- their
@@ -576,14 +586,14 @@ func refuseV4Layouts(in Inputs, cacheDType string) error {
 	if (family == 9 || family == 10) && !strings.HasSuffix(cacheDType, "_ds_mla") {
 		return fmt.Errorf("cache_dtype %q on %s: its packed attention serves only fp8 "+
 			"caches, as fp8_ds_mla or nvfp4_ds_mla, and vLLM v0.31.0 refuses any other",
-			pool.Engine.CacheDType, arch)
+			in.Engine.CacheDType, arch)
 	}
-	if s := pool.Engine.Speculative; s != nil && s.NumSpecTokens > 0 &&
+	if s := in.Engine.Speculative; s != nil && s.NumSpecTokens > 0 &&
 		strings.Contains(strings.ToLower(s.Method), "mtp") {
 		return fmt.Errorf("speculative method %q on %s: its drafter is DSpark, and vLLM "+
 			"v0.31.0 refuses MTP for it", s.Method, arch)
 	}
-	if d := pool.Engine.DBO; d != nil && d.Enabled && graphHasEngram(in.Model) {
+	if d := in.Engine.DBO; d != nil && d.Enabled && graphHasEngram(in.Model) {
 		return fmt.Errorf("dual-batch overlap on %s with Engram layers: vLLM v0.31.0 "+
 			"refuses it at startup", arch)
 	}
@@ -1003,7 +1013,7 @@ func (k *Kernel) lift(c *resolve.Coefficients, g *model.Graph, cacheBytes float6
 	// vllm/entrypoints/cli/serve.py:64 at v0.31.0) does it through fastokens at its own
 	// rate. A deployment on it takes that rate where the registry states one, and keeps
 	// the Python path's, recorded as an assumption, where it does not.
-	if k.pool.Engine.Frontend.Effective() == deployment.FrontendRust {
+	if k.engine.RustFrontend() {
 		const rust = "host_admission_per_token_rust_frontend"
 		if c.Has(rust) {
 			k.admissionPerToken = time.Duration(c.ValueOr(rust, 0) * float64(time.Microsecond))
@@ -1067,7 +1077,7 @@ func (k *Kernel) lift(c *resolve.Coefficients, g *model.Graph, cacheBytes float6
 	// that is what an unstated mode resolves to, and the kernel says so in Provenance:
 	// the engine downgrades it where an attention backend cannot capture a full graph,
 	// which the kernel cannot see.
-	mode := strings.ToUpper(k.pool.Engine.CUDAGraphMode)
+	mode := strings.ToUpper(k.engine.CUDAGraphMode)
 	if mode == "" {
 		mode = "FULL_AND_PIECEWISE"
 		k.assume("cudagraph_mode", mode,
@@ -1080,7 +1090,7 @@ func (k *Kernel) lift(c *resolve.Coefficients, g *model.Graph, cacheBytes float6
 	// (vllm/config/compilation.py:1237-1253), and MoonEP wherever the all-to-all runs --
 	// dp above one, sequence-parallel MoE, or expert parallelism with pcp above one
 	// (vllm/config/vllm.py:2098-2106; use_all2all, vllm/config/parallel.py:738-743).
-	backend := k.rules.EffectiveAll2AllBackend(k.pool.Engine.All2AllBackend)
+	backend := k.rules.EffectiveAll2AllBackend(k.engine.All2AllBackend)
 	pl := k.pool.Parallel
 	useAll2All := k.layout.DP > 1 || k.layout.SequenceParallelMoE ||
 		(pl.EnableExpertParallel && k.layout.PCP > 1)
@@ -1108,14 +1118,14 @@ func (k *Kernel) lift(c *resolve.Coefficients, g *model.Graph, cacheBytes float6
 		return fmt.Errorf(
 			"cudagraph_mode %q is not one this kernel prices; add it with its launch "+
 				"count rather than letting it fall through",
-			k.pool.Engine.CUDAGraphMode)
+			k.engine.CUDAGraphMode)
 	}
 	// The capture's memory is keyed by vLLM's own mode name, lowercased: the modes hold
 	// different graph sets, so FULL_AND_PIECEWISE and FULL do not share a figure even
 	// where they share a decode launch count.
 	k.graphModeName = strings.ToLower(mode)
 	k.uniformDecodeWidth = 1
-	if s := k.pool.Engine.Speculative; s != nil && s.NumSpecTokens > 0 {
+	if s := k.engine.Speculative; s != nil && s.NumSpecTokens > 0 {
 		// A uniform decode batch verifies 1 + num_spec_tokens tokens per request
 		// (uniform_decode_query_len, vllm/v1/worker/gpu_model_runner.py:883).
 		k.uniformDecodeWidth = 1 + s.NumSpecTokens
@@ -1139,7 +1149,7 @@ func (k *Kernel) lift(c *resolve.Coefficients, g *model.Graph, cacheBytes float6
 	// The catalog records no compute capability, so a data-center Blackwell part is
 	// recognised by native NVFP4 support, which among the catalog's parts is exactly the
 	// SM100 family (b200, b300, gb200-nvl72, gb300).
-	seqs := k.pool.Engine.MaxNumSeqs
+	seqs := k.engine.MaxNumSeqs
 	if seqs <= 0 {
 		seqs = defaultMaxNumSeqs(k.chip)
 		k.assume("max_num_seqs", strconv.Itoa(seqs),
@@ -1149,19 +1159,19 @@ func (k *Kernel) lift(c *resolve.Coefficients, g *model.Graph, cacheBytes float6
 	}
 	k.maxNumSeqs = seqs
 	if k.graphDecode != graphModeEager || k.graphOther != graphModeEager {
-		e := k.pool.Engine
-		e.CUDAGraphMode = mode
+		e := graphCaptureRequest{Mode: mode, MaxCaptureSize: k.engine.MaxCUDAGraphCaptureSize,
+			CaptureSizes: k.engine.CUDAGraphCaptureSizes, MaxNumBatchedTokens: k.engine.MaxNumBatchedTokens}
 		if e.MaxNumBatchedTokens <= 0 {
 			e.MaxNumBatchedTokens = k.defaultBatchedTokens()
 		}
-		capture, stated, err := k.rules.CUDAGraphCaptureSizes(e)
+		capture, stated, err := k.rules.CUDAGraphCaptureSizes(e.engine())
 		if err != nil {
 			return fmt.Errorf("resolving the CUDA graph capture sizes: %w", err)
 		}
 		if stated {
 			k.captureTokens = capture.Max
 			k.captureSizes = capture.Sizes
-			if m := k.pool.Engine.MaxCUDAGraphCaptureSize; m != nil && *m != capture.Max {
+			if m := k.engine.MaxCUDAGraphCaptureSize; m != nil && *m != capture.Max {
 				k.layout.Overrides = append(k.layout.Overrides, resolve.Override{
 					Field: "max_cudagraph_capture_size", Requested: strconv.Itoa(*m),
 					Resolved: strconv.Itoa(capture.Max),
@@ -1173,7 +1183,7 @@ func (k *Kernel) lift(c *resolve.Coefficients, g *model.Graph, cacheBytes float6
 			if len(capture.Dropped) > 0 {
 				k.layout.Overrides = append(k.layout.Overrides, resolve.Override{
 					Field: "cudagraph_capture_sizes", Requested: fmt.Sprint(
-						k.pool.Engine.CUDAGraphCaptureSizes), Resolved: fmt.Sprint(capture.Sizes),
+						k.engine.CUDAGraphCaptureSizes), Resolved: fmt.Sprint(capture.Sizes),
 					Reason: "vLLM v0.31.0 drops the sizes above max_num_batched_tokens",
 				})
 			}
@@ -1184,8 +1194,8 @@ func (k *Kernel) lift(c *resolve.Coefficients, g *model.Graph, cacheBytes float6
 			}
 			k.captureTokens = min(seqs*k.uniformDecodeWidth*2, platform)
 			defaulted := e
-			defaulted.MaxCUDAGraphCaptureSize = &k.captureTokens
-			if d, _, err := k.rules.CUDAGraphCaptureSizes(defaulted); err == nil {
+			defaulted.MaxCaptureSize = &k.captureTokens
+			if d, _, err := k.rules.CUDAGraphCaptureSizes(defaulted.engine()); err == nil {
 				k.captureSizes = d.Sizes
 			}
 			k.assume("max_cudagraph_capture_size", strconv.Itoa(k.captureTokens),
@@ -1240,7 +1250,7 @@ func (k *Kernel) lift(c *resolve.Coefficients, g *model.Graph, cacheBytes float6
 	// none of dp > 1, pcp > 1 or a sequence-parallel MoE input, use_all2all_kernels is false
 	// and no backend's kernels are built (vllm/model_executor/layers/fused_moe/
 	// config.py:1024-1027, all2all_utils.py:188-214), so every backend prices the same.
-	if b := k.pool.Engine.All2AllBackend; b != "" && experts > 0 &&
+	if b := k.engine.All2AllBackend; b != "" && experts > 0 &&
 		k.pool.Parallel.EnableExpertParallel && !k.layout.MoEDispatches() {
 		k.layout.Overrides = append(k.layout.Overrides, resolve.Override{
 			Field: "all2all_backend", Requested: b, Resolved: "none",
@@ -1277,8 +1287,8 @@ func (k *Kernel) lift(c *resolve.Coefficients, g *model.Graph, cacheBytes float6
 	}
 	if experts > 0 {
 		redundant := 0
-		if k.pool.Engine.EPLB != nil && k.pool.Engine.EPLB.Enabled {
-			redundant = k.pool.Engine.EPLB.NumRedundantExperts
+		if k.engine.EPLB != nil && k.engine.EPLB.Enabled {
+			redundant = k.engine.EPLB.NumRedundantExperts
 		}
 		// With expert parallelism off the width is 1, so every rank holds every expert
 		// — which is right: the division is by tensor shard, applied at pricing time.
@@ -1323,7 +1333,7 @@ func (k *Kernel) lift(c *resolve.Coefficients, g *model.Graph, cacheBytes float6
 	// model the layout is the one its backend allocates, which can differ from the stated
 	// dtype, and a layout no backend serves is refused (sparseMLABackend). Elsewhere it is
 	// taken where the deployment states one.
-	layout := k.pool.Engine.CacheDType
+	layout := k.engine.CacheDType
 	if isDSA(g) {
 		heads := 0
 		for _, l := range k.plan.Layers {
@@ -1332,7 +1342,7 @@ func (k *Kernel) lift(c *resolve.Coefficients, g *model.Graph, cacheBytes float6
 			}
 		}
 		backend, dsaLayout, err := sparseMLABackend(sparseMLABackendRequest{
-			cache:        k.pool.Engine.CacheDType,
+			cache:        k.engine.CacheDType,
 			headsPerRank: heads / max(k.layout.TP, 1),
 			sm100:        k.chip.NVFP4Peak > 0,
 			preHopper:    preHopperParts[k.chip.Name],
@@ -1349,7 +1359,7 @@ func (k *Kernel) lift(c *resolve.Coefficients, g *model.Graph, cacheBytes float6
 				"chosen as vLLM v0.31.0 would choose it, which needs FlashInfer 0.6.18 or "+
 					"later installed (flashinfer_mla_sparse_sm90.py:194-199)")
 		}
-		if stated := k.pool.Engine.CacheDType; dsaLayout != stated && stated != "" {
+		if stated := k.engine.CacheDType; dsaLayout != stated && stated != "" {
 			k.layout.Overrides = append(k.layout.Overrides, resolve.Override{
 				Field: "cache_dtype", Requested: stated, Resolved: dsaLayout,
 				Reason: backend + " serves this cache as " + dsaLayout +
@@ -1487,7 +1497,7 @@ func (k *Kernel) liftMemory(c *resolve.Coefficients, g *model.Graph) error {
 	}
 	k.activationWidth = activationWidth(k.plan, g)
 
-	k.batchedTokens = k.pool.Engine.MaxNumBatchedTokens
+	k.batchedTokens = k.engine.MaxNumBatchedTokens
 	if k.batchedTokens <= 0 {
 		k.batchedTokens = k.defaultBatchedTokens()
 		why := "vLLM v0.31.0's OpenAI-API-server default for this part's memory " +
@@ -1656,7 +1666,7 @@ func defaultMaxNumSeqs(chip hardware.Chip) int {
 // batchedDPMoE is ParallelConfig.use_batched_dp_moe (vllm/config/parallel.py:746-755 at
 // v0.31.0): a DeepEP low-latency or NIXL-EP dispatch with expert parallelism over dp > 1.
 func (k *Kernel) batchedDPMoE() bool {
-	switch k.rules.EffectiveAll2AllBackend(k.pool.Engine.All2AllBackend) {
+	switch k.rules.EffectiveAll2AllBackend(k.engine.All2AllBackend) {
 	case "deepep_low_latency", "nixl_ep":
 		return k.pool.Parallel.EnableExpertParallel && k.layout.DP > 1
 	}
@@ -2396,14 +2406,14 @@ func (k *Kernel) computeFixedBytes(g *model.Graph) kernel.MemoryBreakdown {
 	// replicas' share is moved out of Weights into EPLBRedundant, leaving Total what a rank
 	// actually holds. An earlier form added them here as well, counting every replica twice.
 	var eplb float64
-	if k.pool.Engine.EPLB != nil && k.pool.Engine.EPLB.Enabled &&
+	if k.engine.EPLB != nil && k.engine.EPLB.Enabled &&
 		k.layout.ExpertWidth > 0 {
 		for _, l := range k.plan.Layers {
 			if l.ExpertWeightBytesPerExpert == 0 {
 				continue
 			}
 			eplb += float64(l.Count) * l.ExpertWeightBytesPerExpert *
-				float64(k.pool.Engine.EPLB.NumRedundantExperts) /
+				float64(k.engine.EPLB.NumRedundantExperts) /
 				float64(k.layout.ExpertWidth) / k.expertTensorShards
 		}
 		weights -= eplb
@@ -2534,7 +2544,7 @@ func (k *Kernel) engineBufferBytes(g *model.Graph) float64 {
 		return ws
 	}
 	total := workspace(k.plan.Layers)
-	if k.pool.Engine.Speculative != nil && k.pool.Engine.Speculative.Method == "dspark" {
+	if k.engine.Speculative != nil && k.engine.Speculative.Method == "dspark" {
 		total += workspace(draft)
 	} else {
 		total = math.Max(total, workspace(draft))
@@ -2705,8 +2715,8 @@ func (k *Kernel) buildProvenance(c *resolve.Coefficients) {
 		backend = "custom"
 	}
 	cascade := false
-	if k.pool.Engine.DisableCascadeAttn != nil {
-		cascade = !*k.pool.Engine.DisableCascadeAttn
+	if k.engine.DisableCascadeAttn != nil {
+		cascade = !*k.engine.DisableCascadeAttn
 	}
 	async := k.asyncScheduling
 	k.resolution = kernel.Resolution{

@@ -40,7 +40,7 @@ const pcpFixture = dcpMLAFixture
 func pcpKernel(t testing.TB, fixture string, pcp int) *Kernel {
 	t.Helper()
 	in := pcpInputs(t, fixture, pcp)
-	k, err := New(in)
+	k, err := newKernel(in)
 	if err != nil {
 		t.Fatalf("%s at pcp=%d: %v", fixture, pcp, err)
 	}
@@ -599,7 +599,7 @@ func TestThePCPGatherCrossesTheFabricExactlyWhenItsGroupDoes(t *testing.T) {
 		pool := &in.Deployment.Pools[0]
 		pool.Parallel.TP, pool.Parallel.PCP = c.tp, c.pcp
 		pool.Nodes, in.Scenario.Cluster.Nodes = c.nodes, c.nodes
-		k, err := New(in)
+		k, err := newKernel(in)
 		if err != nil {
 			t.Fatalf("tp=%d pcp=%d: %v", c.tp, c.pcp, err)
 		}
@@ -670,7 +670,7 @@ func TestPCPRunsOnlyOnLatentStacks(t *testing.T) {
 	} {
 		in := pcpInputs(t, c.fixture, 2)
 		in.Deployment.Pools[0].Parallel.DP = 1
-		_, err := New(in)
+		_, err := newKernel(in)
 		if c.runs && err != nil {
 			t.Errorf("%s: refused, but the engine runs it: %v", c.why, err)
 		}
@@ -702,7 +702,7 @@ func TestTheExpertGroupSpansTensorPrefillContextAndDataParallelRanks(t *testing.
 		pool.Parallel.DP = c.dp
 		pool.Nodes *= c.dp
 		in.Scenario.Cluster.Nodes *= c.dp
-		k, err := New(in)
+		k, err := newKernel(in)
 		if err != nil {
 			t.Fatalf("pcp=%d dp=%d: %v", c.pcp, c.dp, err)
 		}
@@ -876,7 +876,7 @@ func TestALatentLayersPCPGatherIsTwoLaunches(t *testing.T) {
 	base := pcpKernel(t, pcpFixture, 2)
 	inflatedIn := pcpInputs(t, pcpFixture, 2)
 	inflatedIn.Coefficients = scaleFloors(inflatedIn.Coefficients, "all_gather_fp16_2rank", 10)
-	inflated, err := New(inflatedIn)
+	inflated, err := newKernel(inflatedIn)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -898,7 +898,7 @@ func TestThePCPGatherIgnoresTheCacheDType(t *testing.T) {
 	coll := func(cache string) float64 {
 		in := pcpInputs(t, pcpFixture, 2)
 		in.Deployment.Pools[0].Engine.CacheDType = cache
-		k, err := New(in)
+		k, err := newKernel(in)
 		if err != nil {
 			t.Fatal(err)
 		}

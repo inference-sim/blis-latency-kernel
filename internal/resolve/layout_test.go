@@ -8,6 +8,8 @@ import (
 	"github.com/inference-sim/blis-schemas/spec/deployment"
 	"github.com/inference-sim/blis-schemas/spec/model"
 	"github.com/inference-sim/blis-schemas/spec/scenario"
+
+	"github.com/inference-sim/blis-latency-kernel/enginesettings"
 )
 
 // A stub rules pack. The tests below are about the resolver's behaviour, so the engine
@@ -80,14 +82,14 @@ func (r stubRules) ResolveDPLoadBalancing(deployment.Parallelism) deployment.DPL
 func scenarioWith(nodes, gpusPerNode int,
 	pools ...deployment.Pool) (*scenario.Scenario, *deployment.Deployment) {
 	return &scenario.Scenario{
-			Kind: "Scenario", Name: "t", Model: "m",
-			Coefficients: []string{"c"}, EngineVersion: "0.29.0",
-			Cluster: scenario.Cluster{
-				Hardware: "h", Nodes: nodes, GPUsPerNode: gpusPerNode,
-			},
-		}, &deployment.Deployment{
-			Kind: "Deployment", Name: "t", Pools: pools,
-		}
+		Kind: "Scenario", Name: "t", Model: "m",
+		Coefficients: []string{"c"}, EngineVersion: "0.29.0",
+		Cluster: scenario.Cluster{
+			Hardware: "h", Nodes: nodes, GPUsPerNode: gpusPerNode,
+		},
+	}, &deployment.Deployment{
+		Kind: "Deployment", Name: "t", Pools: pools,
+	}
 }
 
 func pool(pl deployment.Parallelism, e deployment.Engine) deployment.Pool {
@@ -248,7 +250,7 @@ func TestNodesSpannedFollowsTheWidestGroup(t *testing.T) {
 		t.Run(c.what, func(t *testing.T) {
 			s, d := scenarioWith(1, c.gpusPerNode, pool(c.pl, deployment.Engine{}))
 			s.Cluster.GPUsPerRack = c.rack
-			l, err := ResolveLayout(s, d.Pools[0],
+			l, err := ResolveLayout(s, d.Pools[0], enginesettings.Settings{},
 				Fabric{RackIsOneDomain: c.rackDomain}, newStubRules())
 			if err != nil {
 				t.Fatalf("ResolveLayout: %v", err)
@@ -284,7 +286,7 @@ func TestCustomAllReduceRequestIsResolvedNotObeyed(t *testing.T) {
 			s, d := scenarioWith(1, c.gpusPerNode, pool(
 				deployment.Parallelism{TP: c.tp, PP: 1, DP: 1},
 				deployment.Engine{DisableCustomAllReduce: &no}))
-			l, err := ResolveLayout(s, d.Pools[0],
+			l, err := ResolveLayout(s, d.Pools[0], enginesettings.Settings{DisableCustomAllReduce: &no},
 				Fabric{RackIsOneDomain: c.rackDomain}, newStubRules())
 			if err != nil {
 				t.Fatalf("ResolveLayout: %v", err)

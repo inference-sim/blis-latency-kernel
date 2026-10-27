@@ -68,7 +68,7 @@ func TestDraftKindDoesNotGateTheTargetCacheDType(t *testing.T) {
 	}
 	in.Deployment.Pools[0].Engine.Speculative = nil
 	in.Deployment.Pools[0].Engine.CacheDType = "fp8_ds_mla"
-	if _, err := New(in); err != nil {
+	if _, err := newKernel(in); err != nil {
 		t.Errorf("an MLA drafter declared last refused fp8_ds_mla for a sparse target: %v", err)
 	}
 }

@@ -54,7 +54,7 @@ func dcpKernel(t testing.TB, fixture string, dcp int) *Kernel {
 	t.Helper()
 	in := fixtureInputs(t, fixture)
 	in.Deployment.Pools[0].Parallel.DCP = dcp
-	k, err := New(in)
+	k, err := newKernel(in)
 	if err != nil {
 		t.Fatalf("%s at dcp=%d: %v", fixture, dcp, err)
 	}
@@ -204,7 +204,7 @@ func TestNewRefusesTheContextParallelLayoutsTheEngineRefuses(t *testing.T) {
 			}
 			in.Fabric = f
 		}
-		_, err := New(in)
+		_, err := newKernel(in)
 		return err
 	}
 	for _, c := range []struct {
@@ -595,7 +595,7 @@ func TestDCPCapacityAgreesWithTheEnginesLogicalBlock(t *testing.T) {
 	in := fixtureInputs(t, dcpMLAFixture)
 	in.Deployment.Pools[0].Parallel.DCP = 8
 	in.Deployment.Pools[0].Engine.BlockSize = 64
-	k, err := New(in)
+	k, err := newKernel(in)
 	if err != nil {
 		t.Fatalf("dcp=8 at block size 64: %v", err)
 	}
@@ -1010,7 +1010,7 @@ func TestTheContextParallelArmsOfTheCanaryDeploymentPriceIndependently(t *testin
 		pool.Parallel.DCP = dcp
 		pool.Engine.BlockSize = 64
 		pool.Engine.DCPCommBackend = "ag_rs"
-		k, err := New(in)
+		k, err := newKernel(in)
 		if err != nil {
 			t.Fatalf("tp=1 pcp=%d dcp=%d: %v", pcp, dcp, err)
 		}

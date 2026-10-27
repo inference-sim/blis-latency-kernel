@@ -195,7 +195,7 @@ func TestALowLatencyBufferThatCannotBeAllocatedIsRefused(t *testing.T) {
 	pl.TP, pl.DP, pl.EnableExpertParallel = 1, 8, true
 	e := &in.Deployment.Pools[0].Engine
 	e.All2AllBackend, e.MaxNumBatchedTokens = "deepep_low_latency", 8192
-	_, err := New(in)
+	_, err := newKernel(in)
 	if err == nil || !strings.Contains(err.Error(), "DeepEP buffers") {
 		t.Fatalf("LL at max_num_batched_tokens 8192 built (err %v); vLLM fails allocating "+
 			"its buffer", err)

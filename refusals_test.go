@@ -11,7 +11,7 @@ func TestWhatTheKernelCannotPriceItRefuses(t *testing.T) {
 		t.Helper()
 		in := fixtureInputs(t, fixtureName)
 		edit(&in)
-		_, err := New(in)
+		_, err := newKernel(in)
 		return err == nil
 	}
 	cache := func(c string) func(*Inputs) {

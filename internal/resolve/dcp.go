@@ -6,6 +6,8 @@ import (
 	"strings"
 
 	"github.com/inference-sim/blis-schemas/spec/deployment"
+
+	"github.com/inference-sim/blis-latency-kernel/enginesettings"
 )
 
 // The decode-context-parallel combine backends this kernel prices. They are the engine's
@@ -49,9 +51,8 @@ type DecodeContext struct {
 // projection (vllm/model_executor/models/config.py:43-50). The kernel holds no model
 // identity to dispatch on, so a deployment of such a model must state the backend it runs;
 // the caller records the default as an assumption so the gap is visible.
-func ResolveDecodeContext(pool deployment.Pool, dep *deployment.Deployment, blockSize int,
+func ResolveDecodeContext(pool deployment.Pool, e enginesettings.Settings, dep *deployment.Deployment, blockSize int,
 	blockFinal bool, accepted map[string]bool) (DecodeContext, []Override, error) {
-	e := pool.Engine
 	dcp, pcp := pool.Parallel.DCP, pool.Parallel.PCP
 	out := DecodeContext{CommBackend: DCPAllGatherReduceScatter, Interleave: 1}
 

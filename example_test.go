@@ -15,17 +15,19 @@ import (
 	vllmrules "github.com/inference-sim/blis-vllm/rules"
 
 	latencykernel "github.com/inference-sim/blis-latency-kernel"
+	"github.com/inference-sim/blis-latency-kernel/vllmsettings"
 )
 
 // --8<-- [start:repos]
 // The roots a scenario's names resolve against (its model, chip, fabric and coefficient
 // sets), and the engine rules its engine_version selects: vLLM's, from the engine model.
 var repos = latencykernel.Repos{
-	Scenarios:     "testdata",
-	Catalog:       "testdata/catalog",
-	Registry:      "testdata/registry",
-	Rules:         latencykernel.RulesFrom(vllmrules.Lookup),
-	RulesVersions: vllmrules.Versions,
+	Scenarios:      "testdata",
+	Catalog:        "testdata/catalog",
+	Registry:       "testdata/registry",
+	Rules:          latencykernel.RulesFrom(vllmrules.Lookup),
+	RulesVersions:  vllmrules.Versions,
+	EngineSettings: vllmsettings.OfPool,
 }
 
 // --8<-- [end:repos]
@@ -154,9 +156,10 @@ func ExampleNew() {
 		panic(err)
 	}
 
-	// The same deployment with a 16-bit KV cache instead of fp8. New copied what it needed,
-	// so changing the documents now leaves base as it was.
-	in.Deployment.Pools[0].Engine.CacheDType = "bfloat16"
+	// The same deployment with a 16-bit KV cache instead of fp8. The engine settings are the
+	// caller's decoding of the pool's engine block (Inputs.Engine), and New copied what it
+	// needed, so changing them now leaves base as it was.
+	in.Engine.CacheDType = "bfloat16"
 	wide, err := latencykernel.New(in)
 	if err != nil {
 		panic(err)

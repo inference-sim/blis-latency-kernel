@@ -17,7 +17,7 @@ func TestADSAModelRunsSixtyFourTokenBlocks(t *testing.T) {
 		t.Helper()
 		in := fixtureInputs(t, fixtureName)
 		in.Deployment.Pools[0].Engine.BlockSize = block
-		return New(in)
+		return newKernel(in)
 	}
 	for _, block := range []int{16, 32} {
 		if _, err := build(dcpSparseFixture, block); err == nil {
@@ -194,7 +194,7 @@ func TestTheFlashInferSM90ChoiceIsDisclosed(t *testing.T) {
 		t.Helper()
 		in := fixtureInputs(t, dcpSparseFixture)
 		in.Deployment.Pools[0].Engine.CacheDType = cache
-		k, err := New(in)
+		k, err := newKernel(in)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -227,7 +227,7 @@ func TestARepackedCacheIsReportedAsResolved(t *testing.T) {
 			chip.NVFP4Peak = 1
 			in.Chip = &chip
 		}
-		k, err := New(in)
+		k, err := newKernel(in)
 		if err != nil {
 			t.Fatal(err)
 		}

@@ -16,6 +16,8 @@ import (
 	"github.com/inference-sim/blis-schemas/spec/deployment"
 	"github.com/inference-sim/blis-schemas/spec/hardware"
 	"github.com/inference-sim/blis-schemas/spec/scenario"
+
+	"github.com/inference-sim/blis-latency-kernel/enginesettings"
 )
 
 // Repos locates the roots a scenario's names resolve against, and the engine rules its
@@ -37,6 +39,10 @@ type Repos struct {
 	// RulesVersions lists the releases Rules answers for, for the error a scenario naming
 	// another one gets. Optional.
 	RulesVersions func() []string
+	// EngineSettings decodes a pool's engine block into the settings the kernel prices, the
+	// engine model's reading of a block the kernel does not open itself (for vLLM,
+	// blis-latency-kernel/vllmsettings.OfPool). Required, as Rules is.
+	EngineSettings func(dep *deployment.Deployment, pool int) (enginesettings.Settings, error)
 }
 
 // RulesFrom adapts a lookup returning a concrete rules type, such as blis-vllm/rules'
@@ -202,10 +208,19 @@ func OpenInputs(scenario string, r Repos, poolIndex int) (Inputs, error) {
 				"and a nearby version would misprice whatever changed between the two",
 			sc.EngineVersion, known)
 	}
+	if r.EngineSettings == nil {
+		return Inputs{}, fmt.Errorf("%s: no engine settings source: Repos.EngineSettings is unset, "+
+			"and the kernel opens no engine block itself. Pass the engine model's decoding (for "+
+			"vLLM, blis-latency-kernel/vllmsettings.OfPool)", scenario)
+	}
+	eng, err := r.EngineSettings(dep, poolIndex)
+	if err != nil {
+		return Inputs{}, fmt.Errorf("%s: pool %d's engine block: %w", scenario, poolIndex, err)
+	}
 	return Inputs{
 		Scenario: sc, Deployment: dep, PoolIndex: poolIndex,
 		Model: graph, Chip: chip, Fabric: fabric,
-		Devices: devices, Coefficients: sets, Rules: er,
+		Devices: devices, Coefficients: sets, Rules: er, Engine: &eng,
 	}, nil
 }
 

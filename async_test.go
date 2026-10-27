@@ -70,7 +70,7 @@ func TestAsyncSchedulingResolvesAsVLLMDoes(t *testing.T) {
 	in := fixtureInputs(t, "minimax-m25-h200-tp8.yaml")
 	e := &in.Deployment.Pools[0].Engine
 	e.AsyncScheduling, e.Speculative = ptr(true), ngram
-	if _, err := New(in); err == nil || !strings.Contains(err.Error(), "async_scheduling") {
+	if _, err := newKernel(in); err == nil || !strings.Contains(err.Error(), "async_scheduling") {
 		t.Errorf("async scheduling requested with an n-gram drafter: got %v, want a refusal", err)
 	}
 }

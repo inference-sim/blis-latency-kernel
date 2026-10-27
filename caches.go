@@ -355,7 +355,7 @@ func (k *Kernel) maxInFlightTokens() int {
 // zero for every other drafter, which reads one token ahead or none
 // (vllm/config/vllm.py:657-677; use_multi_module_mtp, vllm/config/speculative.py:1973-1979).
 func (k *Kernel) extraRetainedTokens() int {
-	s := k.pool.Engine.Speculative
+	s := k.engine.Speculative
 	if s == nil || s.Method != "mtp" || !k.speculating || k.plan.Draft == nil {
 		return 0
 	}
@@ -440,7 +440,7 @@ func (k *Kernel) statedReadBytes(caches []price.PlannedCache, topk, window, ctx 
 // numSpecTokens is the draft tokens per request per step the deployment runs, zero when it
 // does not speculate.
 func (k *Kernel) numSpecTokens() int {
-	if s := k.pool.Engine.Speculative; s != nil && s.NumSpecTokens > 0 {
+	if s := k.engine.Speculative; s != nil && s.NumSpecTokens > 0 {
 		return s.NumSpecTokens
 	}
 	return 0

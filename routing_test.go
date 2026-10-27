@@ -17,7 +17,7 @@ func withRouting(t *testing.T, scenario string, r *routing.Resolution) *Kernel {
 	t.Helper()
 	in := fixtureInputs(t, scenario)
 	in.Routing = r
-	k, err := New(in)
+	k, err := newKernel(in)
 	if err != nil {
 		t.Fatal(err)
 	}

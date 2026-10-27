@@ -154,7 +154,7 @@ func TestNewRejectsADeploymentThatDoesNotFitItsCluster(t *testing.T) {
 			in := fixtureInputs(t, "minimax-m25-h200-ep16.yaml") // 2 nodes
 			in.Deployment.Pools[0].Nodes = tc.poolNodes
 
-			_, err := New(in)
+			_, err := newKernel(in)
 			if err == nil {
 				t.Fatalf("a deployment whose pools sum to %d nodes built a kernel against "+
 					"a %d-node cluster", tc.poolNodes, in.Scenario.Cluster.Nodes)
@@ -175,7 +175,7 @@ func TestNewRejectsALocalDataParallelWidthThatDoesNotDivideANode(t *testing.T) {
 	in := fixtureInputs(t, "minimax-m25-h200-ep16.yaml") // 8 GPUs per node
 	in.Deployment.Pools[0].Parallel.DPLocal = 3
 
-	_, err := New(in)
+	_, err := newKernel(in)
 	if err == nil {
 		t.Fatal("dp_local 3 built a kernel on 8-GPU nodes; 3 does not divide 8")
 	}
@@ -196,7 +196,7 @@ func TestNewStillRejectsTheCheapThingsFirst(t *testing.T) {
 	t.Run("nil documents", func(t *testing.T) {
 		in := base
 		in.Deployment = nil
-		_, err := New(in)
+		_, err := newKernel(in)
 		if err == nil {
 			t.Fatal("a nil deployment built a kernel")
 		}
@@ -208,7 +208,7 @@ func TestNewStillRejectsTheCheapThingsFirst(t *testing.T) {
 	t.Run("pool index out of range", func(t *testing.T) {
 		in := base
 		in.PoolIndex = 7
-		_, err := New(in)
+		_, err := newKernel(in)
 		if err == nil {
 			t.Fatal("an out-of-range pool index built a kernel")
 		}
@@ -220,7 +220,7 @@ func TestNewStillRejectsTheCheapThingsFirst(t *testing.T) {
 	t.Run("missing engine rules", func(t *testing.T) {
 		in := base
 		in.Rules = nil
-		_, err := New(in)
+		_, err := newKernel(in)
 		if err == nil {
 			t.Fatal("a nil rules pack built a kernel")
 		}
