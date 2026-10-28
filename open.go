@@ -17,7 +17,7 @@ import (
 	"github.com/inference-sim/blis-schemas/spec/hardware"
 	"github.com/inference-sim/blis-schemas/spec/scenario"
 
-	"github.com/inference-sim/blis-latency-kernel/enginesettings"
+	"github.com/inference-sim/blis-schemas/kernel/enginesettings"
 )
 
 // Repos locates the roots a scenario's names resolve against, and the engine rules its

@@ -9,7 +9,7 @@ import (
 	"github.com/inference-sim/blis-schemas/spec/model"
 	"github.com/inference-sim/blis-schemas/spec/scenario"
 
-	"github.com/inference-sim/blis-latency-kernel/enginesettings"
+	"github.com/inference-sim/blis-schemas/kernel/enginesettings"
 )
 
 // A stub rules pack. The tests below are about the resolver's behaviour, so the engine

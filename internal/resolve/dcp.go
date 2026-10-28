@@ -7,7 +7,7 @@ import (
 
 	"github.com/inference-sim/blis-schemas/spec/deployment"
 
-	"github.com/inference-sim/blis-latency-kernel/enginesettings"
+	"github.com/inference-sim/blis-schemas/kernel/enginesettings"
 )
 
 // The decode-context-parallel combine backends this kernel prices. They are the engine's

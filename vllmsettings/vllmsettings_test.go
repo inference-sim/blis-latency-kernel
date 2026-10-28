@@ -8,7 +8,7 @@ import (
 	"github.com/inference-sim/blis-schemas/spec/deployment"
 	"github.com/inference-sim/blis-vllm/rules/engineconfig"
 
-	"github.com/inference-sim/blis-latency-kernel/enginesettings"
+	"github.com/inference-sim/blis-schemas/kernel/enginesettings"
 )
 
 // populate sets every settable field of v, recursively, to a non-zero value, so a conversion that

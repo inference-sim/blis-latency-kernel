@@ -32,7 +32,7 @@ import (
 	"github.com/inference-sim/blis-schemas/spec/model"
 	"github.com/inference-sim/blis-schemas/spec/routing"
 
-	"github.com/inference-sim/blis-latency-kernel/enginesettings"
+	"github.com/inference-sim/blis-schemas/kernel/enginesettings"
 	"github.com/inference-sim/blis-latency-kernel/internal/price"
 	"github.com/inference-sim/blis-latency-kernel/internal/resolve"
 )

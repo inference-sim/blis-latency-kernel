@@ -20,7 +20,7 @@ import (
 	"github.com/inference-sim/blis-schemas/spec/scenario"
 	"github.com/inference-sim/blis-schemas/vocab"
 
-	"github.com/inference-sim/blis-latency-kernel/enginesettings"
+	"github.com/inference-sim/blis-schemas/kernel/enginesettings"
 	"github.com/inference-sim/blis-latency-kernel/internal/price"
 	"github.com/inference-sim/blis-latency-kernel/internal/resolve"
 )
