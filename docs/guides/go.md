@@ -14,8 +14,11 @@ A scenario names its model, its chip, its fabric and its coefficient sets, but n
 live. `Repos` says where: a directory of scenario files, a blis-catalog checkout, and a
 blis-registry checkout.
 
+<!-- example_test.go:repos: blis-vllm kerneltests/example_test.go -->
 ```go
---8<-- "example_test.go:repos"
+// The repos example lives in blis-vllm's kerneltests/example_test.go
+// (https://github.com/inference-sim/blis-vllm/blob/main/kerneltests/example_test.go),
+// which decodes the vLLM engine block it opens the kernel from.
 ```
 
 These are the paths in this repository after `scripts/fetch-testdata.sh` has fetched the
@@ -34,8 +37,11 @@ A batch lists, for each request, the tokens it schedules this step (`Scheduled`)
 it has already computed (`Computed`) and its prompt length (`PromptLen`). A steady-state
 decode schedules one token against its whole context:
 
+<!-- example_test.go:open: blis-vllm kerneltests/example_test.go -->
 ```go
---8<-- "example_test.go:open"
+// The open example lives in blis-vllm's kerneltests/example_test.go
+// (https://github.com/inference-sim/blis-vllm/blob/main/kerneltests/example_test.go),
+// which decodes the vLLM engine block it opens the kernel from.
 ```
 
 ```text
@@ -63,8 +69,11 @@ resources.
 `OpenInputs` loads the documents without building a kernel. Change them, and call `New`. A
 configuration search does this to try many deployments without writing any of them to disk.
 
+<!-- example_test.go:new: blis-vllm kerneltests/example_test.go -->
 ```go
---8<-- "example_test.go:new"
+// The new example lives in blis-vllm's kerneltests/example_test.go
+// (https://github.com/inference-sim/blis-vllm/blob/main/kerneltests/example_test.go),
+// which decodes the vLLM engine block it opens the kernel from.
 ```
 
 ```text
@@ -77,8 +86,11 @@ kernel it returned.
 
 ## Read the memory
 
+<!-- example_test.go:memory: blis-vllm kerneltests/example_test.go -->
 ```go
---8<-- "example_test.go:memory"
+// The memory example lives in blis-vllm's kerneltests/example_test.go
+// (https://github.com/inference-sim/blis-vllm/blob/main/kerneltests/example_test.go),
+// which decodes the vLLM engine block it opens the kernel from.
 ```
 
 ```text
@@ -96,8 +108,11 @@ a 4,096-token request: 137 MiB of KV cache per rank
 
 ## Read the evidence
 
+<!-- example_test.go:evidence: blis-vllm kerneltests/example_test.go -->
 ```go
---8<-- "example_test.go:evidence"
+// The evidence example lives in blis-vllm's kerneltests/example_test.go
+// (https://github.com/inference-sim/blis-vllm/blob/main/kerneltests/example_test.go),
+// which decodes the vLLM engine block it opens the kernel from.
 ```
 
 ```text

@@ -5,9 +5,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/inference-sim/blis-schemas/spec/deployment"
-
 	"github.com/inference-sim/blis-schemas/kernel/enginesettings"
+	"github.com/inference-sim/blis-schemas/spec/deployment"
 )
 
 // The decode-context-parallel combine backends this kernel prices. They are the engine's

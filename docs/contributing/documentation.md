@@ -27,7 +27,7 @@ included file.
 | `docs/generated/` | Files written by `internal/docgen`. Never edit these by hand. |
 | `docs/stylesheets/extra.css` | Typography, figure and chart styles. |
 | `docs/requirements.txt` | The pinned Python packages the site is built with. |
-| `example_test.go` | The Go shown on the pages, run and checked by `go test`. |
+| blis-vllm `kerneltests/example_test.go` | The Go the pages describe, run and checked by `go test` in blis-vllm, which decodes the vLLM engine block it opens the kernel from. |
 | `docs_test.go` | The tests that tie the pages to the code. |
 
 A page includes a file with the snippets syntax, `--8<-- "path"`, or a marked section of one
@@ -41,18 +41,19 @@ the source for detail rather than reproducing it.
 
 All of these run in `go test ./...`, after `scripts/fetch-testdata.sh`.
 
-**Generated files.** `go run ./internal/docgen` writes `docs/generated/`: the step figure,
+**Generated files.** blis-vllm's `go run ./kerneltests/internal/docgen` writes this repository's `docs/generated/`: the step figure,
 priced by this kernel; the known divergences, read from the source comments; and the pins,
 read from `go.mod`, `testdata/upstream.lock` and the constants in `new.go`.
 `TestGeneratedDocsAreCurrent` fails while a committed file differs from what the generator
 would write. A change to pricing therefore moves the figure, and the test says to regenerate
 it.
 
-**Go examples.** The Go on the pages is sections of `example_test.go`, each between a start
-and an end marker comment that name it. Go runs each example and compares what it
-prints with its `// Output:` comment, so a snippet cannot show a call that no longer compiles.
-`TestDocOutputsMatchTheirExamples` checks that the output shown beside a snippet on a page is
-that example's output.
+**Go examples.** The Go the pages describe is sections of blis-vllm's
+`kerneltests/example_test.go`, each between a start and an end marker comment that name it.
+It opens the kernel from a vLLM engine block, which blis-vllm decodes, so it lives there, and
+this module imports nothing from blis-vllm. Go runs each example in blis-vllm and compares what
+it prints with its `// Output:` comment. `TestDocOutputsMatchTheirExamples`, also in
+blis-vllm, checks that the output a page shows is that example's output.
 
 **Tables tied to the code.** `TestDocAssumptionsMatchTheCode` checks the table of assumptions
 on [Provenance, Evidence, Resolved](../reference/provenance.md) against the names the code

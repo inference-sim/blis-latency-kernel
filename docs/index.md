@@ -24,8 +24,11 @@ The batch is 32 requests, each decoding one token against a 4,096-token context.
     AISimulate measurements, which ran that engine. The kernel prices vLLM v0.31.0's behavior
     for whatever deployment it is given.
 
+<!-- example_test.go:open: blis-vllm kerneltests/example_test.go -->
 ```go
---8<-- "example_test.go:open"
+// The open example lives in blis-vllm's kerneltests/example_test.go
+// (https://github.com/inference-sim/blis-vllm/blob/main/kerneltests/example_test.go),
+// which decodes the vLLM engine block it opens the kernel from.
 ```
 
 ```text

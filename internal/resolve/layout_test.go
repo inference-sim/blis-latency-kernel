@@ -4,12 +4,11 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/inference-sim/blis-schemas/kernel/enginesettings"
 	"github.com/inference-sim/blis-schemas/rules"
 	"github.com/inference-sim/blis-schemas/spec/deployment"
 	"github.com/inference-sim/blis-schemas/spec/model"
 	"github.com/inference-sim/blis-schemas/spec/scenario"
-
-	"github.com/inference-sim/blis-schemas/kernel/enginesettings"
 )
 
 // A stub rules pack. The tests below are about the resolver's behaviour, so the engine
@@ -87,14 +86,14 @@ func (r stubRules) ResolveDPLoadBalancing(deployment.Parallelism) deployment.DPL
 func scenarioWith(nodes, gpusPerNode int,
 	pools ...deployment.Pool) (*scenario.Scenario, *deployment.Deployment) {
 	return &scenario.Scenario{
-			Kind: "Scenario", Name: "t", Model: "m",
-			Coefficients: []string{"c"}, EngineVersion: "0.29.0",
-			Cluster: scenario.Cluster{
-				Hardware: "h", Nodes: nodes, GPUsPerNode: gpusPerNode,
-			},
-		}, &deployment.Deployment{
-			Kind: "Deployment", Name: "t", Pools: pools,
-		}
+		Kind: "Scenario", Name: "t", Model: "m",
+		Coefficients: []string{"c"}, EngineVersion: "0.29.0",
+		Cluster: scenario.Cluster{
+			Hardware: "h", Nodes: nodes, GPUsPerNode: gpusPerNode,
+		},
+	}, &deployment.Deployment{
+		Kind: "Deployment", Name: "t", Pools: pools,
+	}
 }
 
 // pool is a colocated pool with the parallel block pl. Its engine block is unstated: resolve

@@ -42,64 +42,6 @@ func docPages(t *testing.T) map[string]string {
 	return pages
 }
 
-// exampleOutputs maps each snippet section of example_test.go to the // Output: of the example
-// that contains it.
-func exampleOutputs(t *testing.T) map[string]string {
-	t.Helper()
-	src, err := os.ReadFile("example_test.go")
-	if err != nil {
-		t.Fatal(err)
-	}
-	out := map[string]string{}
-	section := regexp.MustCompile(`--8<-- \[start:([a-z]+)\]`)
-	funcs := strings.Split(string(src), "\nfunc ")
-	for _, f := range funcs {
-		i := strings.Index(f, "\t// Output:\n")
-		if i < 0 {
-			continue
-		}
-		var lines []string
-		for _, line := range strings.Split(f[i+len("\t// Output:\n"):], "\n") {
-			if !strings.HasPrefix(line, "\t//") {
-				break
-			}
-			lines = append(lines, strings.TrimPrefix(strings.TrimPrefix(line, "\t//"), " "))
-		}
-		for _, m := range section.FindAllStringSubmatch(f, -1) {
-			out[m[1]] = strings.Join(lines, "\n")
-		}
-	}
-	return out
-}
-
-// TestDocOutputsMatchTheirExamples checks that the output a page shows beside a Go snippet is
-// the output of the example the snippet comes from. Go checks the example against its own
-// // Output: comment; this checks the copy on the page against that, so the page cannot show a
-// number the code no longer computes.
-func TestDocOutputsMatchTheirExamples(t *testing.T) {
-	outputs := exampleOutputs(t)
-	snippet := regexp.MustCompile("(?s)--8<-- \"example_test.go:([a-z]+)\"\\n```\\n\\n```text\\n(.*?)\\n```")
-	seen := 0
-	for path, page := range docPages(t) {
-		for _, m := range snippet.FindAllStringSubmatch(page, -1) {
-			seen++
-			want, ok := outputs[m[1]]
-			if !ok {
-				t.Errorf("%s shows output for snippet %q, which is in no example with an "+
-					"// Output: comment", path, m[1])
-				continue
-			}
-			if m[2] != want {
-				t.Errorf("%s shows this output for snippet %q:\n%s\nbut the example prints:\n%s",
-					path, m[1], m[2], want)
-			}
-		}
-	}
-	if seen == 0 {
-		t.Error("no page shows an example's output; the pattern this test matches is stale")
-	}
-}
-
 // tableCodes returns the code spans in the first column of the table that follows marker on a
 // page.
 func tableCodes(t *testing.T, path, marker string) []string {

@@ -72,8 +72,11 @@ deployment's step uses it, followed by the kernel's own assumptions. `Evidence` 
 and counts as evidence a value whose method is `measured`, `literature` or `vendor_spec`. For
 the deployment on [Pricing a step](step.md):
 
+<!-- example_test.go:evidence: blis-vllm kerneltests/example_test.go -->
 ```go
---8<-- "example_test.go:evidence"
+// The evidence example lives in blis-vllm's kerneltests/example_test.go
+// (https://github.com/inference-sim/blis-vllm/blob/main/kerneltests/example_test.go),
+// which decodes the vLLM engine block it opens the kernel from.
 ```
 
 ```text
