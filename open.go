@@ -6,10 +6,12 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"reflect"
 
 	"gopkg.in/yaml.v3"
 
 	schemas "github.com/inference-sim/blis-schemas"
+	"github.com/inference-sim/blis-schemas/kernel/enginesettings"
 	"github.com/inference-sim/blis-schemas/rules"
 	"github.com/inference-sim/blis-schemas/spec/coefficient"
 	"github.com/inference-sim/blis-schemas/spec/deployment"
@@ -17,14 +19,73 @@ import (
 	"github.com/inference-sim/blis-schemas/spec/scenario"
 )
 
-// Repos locates the roots a scenario's names resolve against.
+// Repos locates the roots a scenario's names resolve against, and the engine rules its
+// engine_version selects.
 //
 // A scenario names its model, hardware, fabric and coefficient sets without saying where
 // they live — it describes a deployment, not a filesystem — so a caller supplies the roots.
+// It names its engine release the same way, without the rules: those belong to the engine
+// model (blis-vllm), not to this cost model, so a caller supplies them too.
 type Repos struct {
 	Scenarios string // directory holding scenario files
 	Catalog   string // a blis-catalog checkout, or a pinned copy of one
 	Registry  string // a blis-registry checkout, or a pinned copy of one
+
+	// Rules returns the engine rules for a release, or nil for a release it has none for:
+	// for vLLM, the packs of github.com/inference-sim/blis-vllm/rules (its Lookup, wrapped
+	// as RulesFrom does). Required: the kernel no longer looks rules up itself.
+	Rules func(version string) rules.EngineRules
+	// RulesVersions lists the releases Rules answers for, for the error a scenario naming
+	// another one gets. Optional.
+	RulesVersions func() []string
+	// EngineSettings decodes a pool's engine block into the settings the kernel prices, the
+	// engine model's reading of a block the kernel does not open itself (for vLLM,
+	// blis-latency-kernel/vllmsettings.OfPool). Required, as Rules is.
+	EngineSettings func(dep *deployment.Deployment, pool int) (enginesettings.Settings, error)
+}
+
+// RulesFrom adapts a lookup returning a concrete rules type, such as blis-vllm/rules'
+// Lookup returning *rules.Pack, to Repos.Rules. It keeps a nil result nil: a nil *Pack in a
+// non-nil interface would read as rules that exist. That holds also when R is itself an
+// interface type whose value holds a nil pointer.
+func RulesFrom[R interface {
+	comparable
+	rules.EngineRules
+}](lookup func(version string) R) func(string) rules.EngineRules {
+	return func(version string) rules.EngineRules {
+		r := lookup(version)
+		if isNil(r) {
+			return nil
+		}
+		return r
+	}
+}
+
+// rulesAnswer asks a rules value the one question every value answers, its release, and
+// reports a value that cannot: a forwarding struct around a nil rules value is not nil, so
+// isNil passes it, but its first call dereferences nil. Asking once here turns that panic,
+// which would come from deep inside pricing, into a refusal at construction.
+func rulesAnswer(r rules.EngineRules) (err error) {
+	defer func() {
+		if p := recover(); p != nil {
+			err = fmt.Errorf("EngineVersion panicked: %v", p)
+		}
+	}()
+	r.EngineVersion()
+	return nil
+}
+
+// isNil reports whether v is nil or an interface holding a nil pointer, map, slice, func or
+// channel: a value that cannot answer for a release.
+func isNil(v any) bool {
+	if v == nil {
+		return true
+	}
+	switch rv := reflect.ValueOf(v); rv.Kind() {
+	case reflect.Pointer, reflect.Map, reflect.Slice, reflect.Func, reflect.Chan, reflect.Interface:
+		return rv.IsNil()
+	}
+	return false
 }
 
 // Open resolves one scenario file into a kernel.
@@ -41,9 +102,10 @@ type Repos struct {
 // duplication was tolerable only because it was confined to loading — but "which files a
 // scenario implies" is this package's answer to give, not each caller's to guess.
 //
-// Every artifact is loaded through blis-schemas' own loaders, and the engine rules come from
-// that package's version registry rather than from a caller, so a scenario pinned to an
-// older release cannot silently get current behaviour.
+// Every artifact is loaded through blis-schemas' own loaders. The engine rules are the ones
+// the caller's Repos.Rules returns for the scenario's own engine_version, so a scenario
+// pinned to an older release cannot silently get current behaviour, and a release the
+// caller has no rules for is refused.
 //
 // It prices the deployment's FIRST pool, which is what a colocated deployment has. Use
 // OpenPool to price one pool of a disaggregated one.
@@ -129,17 +191,35 @@ func OpenInputs(scenario string, r Repos, poolIndex int) (Inputs, error) {
 	if err != nil {
 		return Inputs{}, err
 	}
-	pack := rules.Lookup(sc.EngineVersion)
-	if pack == nil {
+	if r.Rules == nil {
+		return Inputs{}, fmt.Errorf("%s: no engine rules source: Repos.Rules is unset, and the "+
+			"kernel looks no rules up itself. Pass the engine model's rules for the scenario's "+
+			"engine_version (for vLLM, github.com/inference-sim/blis-vllm/rules)", scenario)
+	}
+	er := r.Rules(sc.EngineVersion)
+	if isNil(er) {
+		known := ""
+		if r.RulesVersions != nil {
+			known = fmt.Sprintf("; known versions are %v", r.RulesVersions())
+		}
 		return Inputs{}, fmt.Errorf(
-			"no engine rules for version %q; known versions are %v. A layout cannot be "+
-				"resolved without them, and a nearby version would misprice whatever "+
-				"changed between the two", sc.EngineVersion, rules.Versions())
+			"no engine rules for version %q%s. A layout cannot be resolved without them, "+
+				"and a nearby version would misprice whatever changed between the two",
+			sc.EngineVersion, known)
+	}
+	if r.EngineSettings == nil {
+		return Inputs{}, fmt.Errorf("%s: no engine settings source: Repos.EngineSettings is unset, "+
+			"and the kernel opens no engine block itself. Pass the engine model's decoding (for "+
+			"vLLM, blis-latency-kernel/vllmsettings.OfPool)", scenario)
+	}
+	eng, err := r.EngineSettings(dep, poolIndex)
+	if err != nil {
+		return Inputs{}, fmt.Errorf("%s: pool %d's engine block: %w", scenario, poolIndex, err)
 	}
 	return Inputs{
 		Scenario: sc, Deployment: dep, PoolIndex: poolIndex,
 		Model: graph, Chip: chip, Fabric: fabric,
-		Devices: devices, Coefficients: sets, Rules: pack,
+		Devices: devices, Coefficients: sets, Rules: er, Engine: &eng,
 	}, nil
 }
 

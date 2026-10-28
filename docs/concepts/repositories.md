@@ -6,7 +6,8 @@ requests into the time the GPUs take to serve one step of it.</p>
 
 | Repository | Owns | What the kernel takes from it, or gives it |
 |---|---|---|
-| [blis-schemas](https://github.com/inference-sim/blis-schemas) | the formats | Imports its document types, loaders and validators, and implements its `kernel.Kernel` interface |
+| [blis-schemas](https://github.com/inference-sim/blis-schemas) | the formats | Imports its document types, loaders and validators, and implements its `kernel.Kernel` interface; takes engine rules through its `rules.EngineRules` interface |
+| [blis-vllm](https://github.com/inference-sim/blis-vllm) | vLLM's engine behaviour, and its rules packs | Its rules packs are what a caller passes as `Repos.Rules`; this repository's own commands and tests use them, the library does not import them |
 | [blis-catalog](https://github.com/inference-sim/blis-catalog) | declared facts: models, chips, fabrics, storage tiers, workloads | Reads a model's graph, a chip, a fabric and the storage tiers |
 | [blis-registry](https://github.com/inference-sim/blis-registry) | learned numbers: coefficients, each with its method and scope | Reads the coefficient sets a scenario names |
 | **blis-latency-kernel** | pricing | — |

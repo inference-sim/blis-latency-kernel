@@ -39,10 +39,11 @@ graph mode and the engine's token budget per step are examples.
 A deployment that states every setting carries almost no such entries. The exceptions are
 listed on [Provenance, Evidence, Resolved](../reference/provenance.md). The one that
 matters most is the version of vLLM: the kernel prices v0.31.0's behavior whatever version a
-scenario declares, and records `engine_version` as an assumption when the two differ. Every
-scenario in this repository declares v0.29.0, the only release blis-schemas publishes rules
-for, so every one of them records it. Three facts do follow the declared version, because
-they are read from those rules; [Sources of truth](../reference/sources.md#two-sources-of-engine-behavior)
+scenario declares, and records `engine_version` as an assumption when the two differ. The
+scenarios in this repository declare v0.29.0 or v0.31.0, releases the vLLM rules packs
+cover. The v0.29.0 ones, nearly all of them, record the assumption; a v0.31.0 one, which
+declares the release the kernel prices, does not. The facts read from those rules do follow
+the declared version; [Sources of truth](../reference/sources.md#two-sources-of-engine-behavior)
 names them.
 
 A coefficient whose scope excludes the deployment's chip, model or widths is not used. Where
@@ -71,8 +72,11 @@ deployment's step uses it, followed by the kernel's own assumptions. `Evidence` 
 and counts as evidence a value whose method is `measured`, `literature` or `vendor_spec`. For
 the deployment on [Pricing a step](step.md):
 
+<!-- example_test.go:evidence: blis-vllm kerneltests/example_test.go -->
 ```go
---8<-- "example_test.go:evidence"
+// The evidence example lives in blis-vllm's kerneltests/example_test.go
+// (https://github.com/inference-sim/blis-vllm/blob/main/kerneltests/example_test.go),
+// which decodes the vLLM engine block it opens the kernel from.
 ```
 
 ```text

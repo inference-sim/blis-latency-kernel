@@ -1,9 +1,11 @@
 # Commands
 
-<p class="lede">Five commands live in <code>cmd/</code>. Two score the kernel against
-published measurements; three print what the kernel computes, for checking it or for use by a
-tool outside this repository. Each runs with <code>go run ./cmd/&lt;name&gt;</code> from the
-repository root, after <code>scripts/fetch-testdata.sh</code>.</p>
+<p class="lede">Five commands live in blis-vllm's <code>kerneltests/cmd/</code>: they open a
+kernel from a scenario's vLLM engine block, which blis-vllm decodes, so they live with the engine
+model. Two score the kernel against published measurements; three print what the kernel
+computes, for checking it or for use by another tool. Each runs with
+<code>go run ./kerneltests/cmd/&lt;name&gt;</code> from blis-vllm's root, after
+<code>kerneltests/scripts/fetch-testdata.sh</code>.</p>
 
 Every command takes `-catalog` and `-registry` to read a catalog or registry other than the
 fetched one; `BLIS_CATALOG` and `BLIS_REGISTRY` set the same defaults for all of them.

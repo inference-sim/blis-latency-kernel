@@ -14,7 +14,10 @@ change. The engine's reasons cite the vLLM v0.31.0 source in the code beside the
 - The deployment has no pool at the requested index, or a tensor- or data-parallel width
   below one.
 - No engine rules are given. Opening a scenario file (`Open`, `OpenPool`, `OpenInputs`) fails
-  earlier, when blis-schemas publishes no rules for the engine version it names.
+  earlier, when `Repos.Rules` is unset or has no rules for the engine version it names.
+- The engine rules cannot answer: a rules method panics while the kernel is built, as a
+  forwarding wrapper around nothing does. The refusal names the panic. A rules method that
+  panics later, inside a pricing call, is a defect in the caller's rules and panics there.
 
 ## The engine would not start it
 

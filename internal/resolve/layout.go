@@ -4,6 +4,8 @@ import (
 	"fmt"
 
 	"github.com/inference-sim/blis-schemas/spec/deployment"
+
+	"github.com/inference-sim/blis-schemas/kernel/enginesettings"
 	"github.com/inference-sim/blis-schemas/spec/model"
 	"github.com/inference-sim/blis-schemas/spec/scenario"
 )
@@ -125,14 +127,14 @@ func (f Fabric) Ratio() float64 {
 
 // ResolveLayout derives a pool's layout from the scenario, the fabric it runs on, and the
 // engine rules for its declared version.
-func ResolveLayout(s *scenario.Scenario, pool deployment.Pool, fab Fabric,
+func ResolveLayout(s *scenario.Scenario, pool deployment.Pool, eng enginesettings.Settings, fab Fabric,
 	rules EngineRules) (Layout, error) {
-	return ResolveLayoutFor(s, pool, fab, rules, "")
+	return ResolveLayoutFor(s, pool, eng, fab, rules, "")
 }
 
 // ResolveLayoutFor is ResolveLayout for a model whose graph names its architecture, which
 // decides whether the model's own sequence parallelism is on.
-func ResolveLayoutFor(s *scenario.Scenario, pool deployment.Pool, fab Fabric,
+func ResolveLayoutFor(s *scenario.Scenario, pool deployment.Pool, eng enginesettings.Settings, fab Fabric,
 	rules EngineRules, architecture string) (Layout, error) {
 	pl := pool.Parallel
 	if pl.TP < 1 || pl.DP < 1 {
@@ -171,20 +173,19 @@ func ResolveLayoutFor(s *scenario.Scenario, pool deployment.Pool, fab Fabric,
 	}
 
 	l.SequenceParallelMoE = rules.SequenceParallelMoE(
-		pool.Engine.All2AllBackend, pl.EnableExpertParallel, pl.TP, pl.DP)
+		eng.All2AllBackend, pl.EnableExpertParallel, pl.TP, pl.DP)
 	if architecture != "" {
 		l.ModelSequenceParallel = rules.ModelSequenceParallel(architecture, pl,
-			pool.Engine.MoEBackend)
+			eng.MoEBackend)
 	}
-	l.CustomAllReduce, l.Overrides = resolveCustomAllReduce(pool, l, fab, rules)
+	l.CustomAllReduce, l.Overrides = resolveCustomAllReduce(eng, l, fab, rules)
 	return l, nil
 }
 
 // resolveCustomAllReduce decides whether the SM-consuming reduction kernel runs, and
 // records why when a request for it is declined.
-func resolveCustomAllReduce(pool deployment.Pool, l Layout, fab Fabric,
+func resolveCustomAllReduce(e enginesettings.Settings, l Layout, fab Fabric,
 	rules EngineRules) (bool, []Override) {
-	e := pool.Engine
 	requested := true
 	if e.DisableCustomAllReduce != nil {
 		requested = !*e.DisableCustomAllReduce

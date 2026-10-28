@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/inference-sim/blis-schemas/kernel/enginesettings"
 	"github.com/inference-sim/blis-schemas/rules"
 	"github.com/inference-sim/blis-schemas/spec/deployment"
 	"github.com/inference-sim/blis-schemas/spec/model"
@@ -35,8 +36,13 @@ func (r stubRules) EffectiveAll2AllBackend(b string) string { return b }
 func (r stubRules) ResolveCacheDType(_ string, _, _ int, requested string) string {
 	return requested
 }
-func (r stubRules) WindowPagesPerRequest(model.Cache, int, int, int, int) int { return 0 }
-func (r stubRules) CUDAGraphCaptureSizes(deployment.Engine) (rules.CUDAGraphCapture, bool, error) {
+func (r stubRules) WindowPagesPerRequest(model.Cache, int, int, int, int) int       { return 0 }
+func (r stubRules) CheckEngineBlock(string, deployment.EngineBlock) *rules.Problems { return nil }
+func (r stubRules) DraftTokens(deployment.EngineBlock) int                          { return 0 }
+func (r stubRules) CheckConnectorOptions(string, deployment.EngineBlock) *rules.Problems {
+	return nil
+}
+func (r stubRules) CUDAGraphCaptureSizes(rules.CUDAGraphCaptureInput) (rules.CUDAGraphCapture, bool, error) {
 	return rules.CUDAGraphCapture{}, false, nil
 }
 func (r stubRules) KVCacheGroups(rules.KVCacheGroupsInput) (rules.KVCacheGrouping, error) {
@@ -59,6 +65,21 @@ func (r stubRules) DBOEngages(enabled bool, tokens int, uniform bool) bool {
 	return tokens >= 512
 }
 
+// The rest of rules.EngineRules: facts the resolver does not read, answered inertly so a
+// test here cannot pass by reading one.
+func (r stubRules) EngineVersion() string                          { return "stub" }
+func (r stubRules) Check(rules.Input) *rules.Problems              { return &rules.Problems{} }
+func (r stubRules) RuleNames() []string                            { return nil }
+func (r stubRules) SpeculativeMethodAccepted(string) bool          { return false }
+func (r stubRules) SpeculativeMethodNames() []string               { return nil }
+func (r stubRules) AsyncCompatibleSpeculative(string) (bool, bool) { return false, false }
+func (r stubRules) EngramOnHostByDefault() bool                    { return true }
+func (r stubRules) DCPCommBackendNames() map[string]bool           { return nil }
+func (r stubRules) MegaMoEBackend(string) bool                     { return false }
+func (r stubRules) ResolveDPLoadBalancing(deployment.Parallelism) deployment.DPLoadBalancing {
+	return deployment.DPLBInternal
+}
+
 // scenarioWith builds the pair a resolver needs: the immutable problem and the
 // deployment applied to it. They are two documents in the schema, so a helper that
 // returned only a scenario would leave every caller to construct the other half.
@@ -75,10 +96,10 @@ func scenarioWith(nodes, gpusPerNode int,
 		}
 }
 
-func pool(pl deployment.Parallelism, e deployment.Engine) deployment.Pool {
-	return deployment.Pool{
-		Role: deployment.RoleColocated, Nodes: 1, Parallel: pl, Engine: e,
-	}
+// pool is a colocated pool with the parallel block pl. Its engine block is unstated: resolve
+// takes the engine settings it reads separately (enginesettings.Settings).
+func pool(pl deployment.Parallelism) deployment.Pool {
+	return deployment.Pool{Role: deployment.RoleColocated, Nodes: 1, Parallel: pl}
 }
 
 // TestEmitsAnswersEveryConditionTheSchemaAllows is the property that makes the enum safe.
@@ -231,9 +252,9 @@ func TestNodesSpannedFollowsTheWidestGroup(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.what, func(t *testing.T) {
-			s, d := scenarioWith(1, c.gpusPerNode, pool(c.pl, deployment.Engine{}))
+			s, d := scenarioWith(1, c.gpusPerNode, pool(c.pl))
 			s.Cluster.GPUsPerRack = c.rack
-			l, err := ResolveLayout(s, d.Pools[0],
+			l, err := ResolveLayout(s, d.Pools[0], enginesettings.Settings{},
 				Fabric{RackIsOneDomain: c.rackDomain}, newStubRules())
 			if err != nil {
 				t.Fatalf("ResolveLayout: %v", err)
@@ -267,9 +288,8 @@ func TestCustomAllReduceRequestIsResolvedNotObeyed(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.what, func(t *testing.T) {
 			s, d := scenarioWith(1, c.gpusPerNode, pool(
-				deployment.Parallelism{TP: c.tp, PP: 1, DP: 1},
-				deployment.Engine{DisableCustomAllReduce: &no}))
-			l, err := ResolveLayout(s, d.Pools[0],
+				deployment.Parallelism{TP: c.tp, PP: 1, DP: 1}))
+			l, err := ResolveLayout(s, d.Pools[0], enginesettings.Settings{DisableCustomAllReduce: &no},
 				Fabric{RackIsOneDomain: c.rackDomain}, newStubRules())
 			if err != nil {
 				t.Fatalf("ResolveLayout: %v", err)

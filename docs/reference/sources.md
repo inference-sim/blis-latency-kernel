@@ -10,7 +10,8 @@ pins themselves.</p>
 
 Most of what the kernel knows about vLLM is encoded here, at v0.31.0: which kernels run, how
 work is split, what an unstated setting defaults to, which layouts start. Some version-scoped
-facts are read instead from the blis-schemas rules pack for the release the scenario declares,
+facts are read instead from the engine rules the caller supplies for the release the scenario
+declares (for vLLM, the packs of `github.com/inference-sim/blis-vllm/rules`),
 among them which tensor-parallel widths the custom all-reduce supports, when the MoE input is
 made sequence-parallel, which decode-context combine backends the release accepts, how many
 pages a window cache holds, how stated caches group into the shared KV block pool, and the

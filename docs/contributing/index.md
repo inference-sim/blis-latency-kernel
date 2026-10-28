@@ -27,9 +27,7 @@ committed. CI runs the same tests on every pull request, with `gofmt` and `go ve
 | `open.go` | `Open`, `OpenPool`, `OpenInputs`: from a scenario file to the documents |
 | `internal/price` | The cost laws, as pure functions |
 | `internal/resolve` | From a deployment to a layout: widths, groups, which collectives run |
-| `internal/harness` | What the commands share |
-| `internal/docgen` | The generator for `docs/generated/` |
-| `cmd/` | The five commands on [Commands](../reference/commands.md) |
+| blis-vllm `kerneltests/` | The commands on [Commands](../reference/commands.md), their harness, the generator for `docs/generated/`, and the tests that price vLLM engine blocks. They decode vLLM's configuration, so they live with the engine model and this module imports nothing from it |
 
 ## Conventions
 

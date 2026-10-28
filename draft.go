@@ -42,7 +42,7 @@ import (
 // to inference.
 func (k *Kernel) liftDraft(c *resolve.Coefficients, inferred func(price.PlannedLayer) float64) error {
 	d := k.plan.Draft
-	spec := k.pool.Engine.Speculative
+	spec := k.engine.Speculative
 	switch {
 	case k.numSpecTokens() == 0:
 		return nil
@@ -391,7 +391,7 @@ func (k *Kernel) liftStepTerms(c *resolve.Coefficients, g *model.Graph) error {
 	// start and finish (nvidia/engram.py:464-492).
 	// Not under dual-batch overlap: vLLM leaves the breakable wrapper off when it micro-batches
 	// (vllm/v1/worker/gpu_model_runner.py:5396-5407).
-	dbo := k.pool.Engine.DBO != nil && k.pool.Engine.DBO.Enabled
+	dbo := k.engine.DBO != nil && k.engine.DBO.Enabled
 	if a := g.Global.Architecture; !dbo && (a == rules.ArchDeepseekV41 || a == rules.ArchDeepseekV4) {
 		for _, l := range k.plan.Layers {
 			if l.AttnQHeads > 0 {
@@ -411,7 +411,7 @@ func (k *Kernel) liftStepTerms(c *resolve.Coefficients, g *model.Graph) error {
 // assumeEngram records how an engram table's placement was settled where the deployment did
 // not settle it.
 func (k *Kernel) assumeEngram() {
-	ec := k.pool.Engine.EngramConfig
+	ec := k.engine.EngramConfig
 	if ec == nil || ec.CPUOffload == nil {
 		where := "HBM"
 		if k.engramOnHost {
@@ -436,11 +436,8 @@ func (k *Kernel) assumeEngram() {
 // dp_shared_memory resolves on (the engine's default when cpu_offload is on, use_thp is off
 // and dp exceeds one), and otherwise split across them too, tp x local-dp ways.
 func (k *Kernel) resolveEngram(r resolve.EngineRules) {
-	k.engramOnHost = true
-	if pack, ok := r.(*rules.Pack); ok && pack != nil {
-		k.engramOnHost = pack.EngramCPUOffloadDefault
-	}
-	ec := k.pool.Engine.EngramConfig
+	k.engramOnHost = r.EngramOnHostByDefault()
+	ec := k.engine.EngramConfig
 	if ec != nil && ec.CPUOffload != nil {
 		k.engramOnHost = *ec.CPUOffload
 	}

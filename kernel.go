@@ -27,6 +27,7 @@ import (
 	"time"
 
 	"github.com/inference-sim/blis-schemas/kernel"
+	"github.com/inference-sim/blis-schemas/kernel/enginesettings"
 	"github.com/inference-sim/blis-schemas/spec/deployment"
 	"github.com/inference-sim/blis-schemas/spec/hardware"
 	"github.com/inference-sim/blis-schemas/spec/model"
@@ -44,6 +45,9 @@ type Kernel struct {
 	plan   *price.Plan
 	pool   deployment.Pool
 	chip   hardware.Chip
+	// engine is the pool's engine settings, the caller's decoding of its engine block
+	// (Inputs.Engine), a deep copy the kernel owns.
+	engine enginesettings.Settings
 
 	// servedDType is the weight format the linear layers actually run in, after the
 	// scenario's --quantization is applied over the checkpoint's own format.
@@ -411,8 +415,8 @@ func (k *Kernel) sequenceBoundedBytes(caches float64) int64 {
 			continue
 		}
 		spec := 0
-		if k.pool.Engine.Speculative != nil {
-			spec = k.pool.Engine.Speculative.NumSpecTokens
+		if k.engine.Speculative != nil {
+			spec = k.engine.Speculative.NumSpecTokens
 		}
 		per := price.RecurrentStateBytes(k.recurrentRankBytes(l), mode,
 			k.maxModelLen, k.blockSize, spec, 0)
@@ -508,8 +512,8 @@ func (k *Kernel) SequenceVariableBytes(tokens int) int64 {
 	mode := k.recurrentCacheMode
 	if mode.ProportionalToContext() {
 		spec := 0
-		if k.pool.Engine.Speculative != nil {
-			spec = k.pool.Engine.Speculative.NumSpecTokens
+		if k.engine.Speculative != nil {
+			spec = k.engine.Speculative.NumSpecTokens
 		}
 		for _, l := range k.plan.Layers {
 			if l.RecurrentStateBytes == 0 {
@@ -749,7 +753,7 @@ func (k *Kernel) routedAll2All() bool {
 	// The backend that runs: the release's default for an unstated one, and the
 	// replacement for a renamed one -- pplx and naive both run as allgather_reducescatter
 	// in v0.31.0 (vllm/config/parallel.py; rules.Pack.EffectiveAll2AllBackend).
-	switch k.rules.EffectiveAll2AllBackend(k.pool.Engine.All2AllBackend) {
+	switch k.rules.EffectiveAll2AllBackend(k.engine.All2AllBackend) {
 	case "", "naive", "allgather_reducescatter":
 		return false
 	}
@@ -1823,6 +1827,10 @@ func (k *Kernel) Resolved() kernel.Resolution { return k.resolution }
 // asking callers not to write; this is not a hot path, and a promise the type enforces is
 // worth more than one a reader has to keep.
 func (k *Kernel) Deployment() deployment.Pool { return clonePool(k.pool) }
+
+// Engine returns the engine settings the kernel prices with: the caller's decoding of the
+// pool's engine block (Inputs.Engine), as a deep copy for the same reason Deployment is one.
+func (k *Kernel) Engine() enginesettings.Settings { return k.engine.Clone() }
 
 // DecodeContextParallelWidth returns how many ranks shard the decode KV cache.
 //
