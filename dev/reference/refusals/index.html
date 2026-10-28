@@ -1566,7 +1566,10 @@ change. The engine's reasons cite the vLLM v0.31.0 source in the code beside the
 <li>The deployment has no pool at the requested index, or a tensor- or data-parallel width
   below one.</li>
 <li>No engine rules are given. Opening a scenario file (<code>Open</code>, <code>OpenPool</code>, <code>OpenInputs</code>) fails
-  earlier, when blis-schemas publishes no rules for the engine version it names.</li>
+  earlier, when <code>Repos.Rules</code> is unset or has no rules for the engine version it names.</li>
+<li>The engine rules cannot answer: a rules method panics while the kernel is built, as a
+  forwarding wrapper around nothing does. The refusal names the panic. A rules method that
+  panics later, inside a pricing call, is a defect in the caller's rules and panics there.</li>
 </ul>
 <h2 id="the-engine-would-not-start-it">The engine would not start it<a class="headerlink" href="#the-engine-would-not-start-it" title="Permanent link">&para;</a></h2>
 <p>These are layouts vLLM v0.31.0 refuses at startup.</p>

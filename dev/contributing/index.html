@@ -1497,16 +1497,8 @@ committed. CI runs the same tests on every pull request, with <code>gofmt</code>
 <td>From a deployment to a layout: widths, groups, which collectives run</td>
 </tr>
 <tr>
-<td><code>internal/harness</code></td>
-<td>What the commands share</td>
-</tr>
-<tr>
-<td><code>internal/docgen</code></td>
-<td>The generator for <code>docs/generated/</code></td>
-</tr>
-<tr>
-<td><code>cmd/</code></td>
-<td>The five commands on <a href="../reference/commands/">Commands</a></td>
+<td>blis-vllm <code>kerneltests/</code></td>
+<td>The commands on <a href="../reference/commands/">Commands</a>, their harness, the generator for <code>docs/generated/</code>, and the tests that price vLLM engine blocks. They decode vLLM's configuration, so they live with the engine model and this module imports nothing from it</td>
 </tr>
 </tbody>
 </table>

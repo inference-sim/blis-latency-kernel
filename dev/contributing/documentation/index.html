@@ -1633,8 +1633,8 @@ included file.</p>
 <td>The pinned Python packages the site is built with.</td>
 </tr>
 <tr>
-<td><code>example_test.go</code></td>
-<td>The Go shown on the pages, run and checked by <code>go test</code>.</td>
+<td>blis-vllm <code>kerneltests/example_test.go</code></td>
+<td>The Go the pages describe, run and checked by <code>go test</code> in blis-vllm, which decodes the vLLM engine block it opens the kernel from.</td>
 </tr>
 <tr>
 <td><code>docs_test.go</code></td>
@@ -1649,17 +1649,18 @@ each opens with a paragraph that stands alone, defines a term before it uses it,
 the source for detail rather than reproducing it.</p>
 <h2 id="what-keeps-the-pages-correct">What keeps the pages correct<a class="headerlink" href="#what-keeps-the-pages-correct" title="Permanent link">&para;</a></h2>
 <p>All of these run in <code>go test ./...</code>, after <code>scripts/fetch-testdata.sh</code>.</p>
-<p><strong>Generated files.</strong> <code>go run ./internal/docgen</code> writes <code>docs/generated/</code>: the step figure,
+<p><strong>Generated files.</strong> blis-vllm's <code>go run ./kerneltests/internal/docgen</code> writes this repository's <code>docs/generated/</code>: the step figure,
 priced by this kernel; the known divergences, read from the source comments; and the pins,
 read from <code>go.mod</code>, <code>testdata/upstream.lock</code> and the constants in <code>new.go</code>.
 <code>TestGeneratedDocsAreCurrent</code> fails while a committed file differs from what the generator
 would write. A change to pricing therefore moves the figure, and the test says to regenerate
 it.</p>
-<p><strong>Go examples.</strong> The Go on the pages is sections of <code>example_test.go</code>, each between a start
-and an end marker comment that name it. Go runs each example and compares what it
-prints with its <code>// Output:</code> comment, so a snippet cannot show a call that no longer compiles.
-<code>TestDocOutputsMatchTheirExamples</code> checks that the output shown beside a snippet on a page is
-that example's output.</p>
+<p><strong>Go examples.</strong> The Go the pages describe is sections of blis-vllm's
+<code>kerneltests/example_test.go</code>, each between a start and an end marker comment that name it.
+It opens the kernel from a vLLM engine block, which blis-vllm decodes, so it lives there, and
+this module imports nothing from blis-vllm. Go runs each example in blis-vllm and compares what
+it prints with its <code>// Output:</code> comment. <code>TestDocOutputsMatchTheirExamples</code>, also in
+blis-vllm, checks that the output a page shows is that example's output.</p>
 <p><strong>Tables tied to the code.</strong> <code>TestDocAssumptionsMatchTheCode</code> checks the table of assumptions
 on <a href="../../reference/provenance/">Provenance, Evidence, Resolved</a> against the names the code
 can record, in both directions, and <code>TestDocOptionalCoefficientsMatchTheCode</code> does the same for

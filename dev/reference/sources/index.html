@@ -1531,8 +1531,14 @@ pins themselves.</p>
 <td><code>EngineBehaviourVersion</code>, <code>EngineBehaviourCommit</code> in <code>new.go</code></td>
 </tr>
 <tr>
-<td>Interfaces and document types: <a href="https://github.com/inference-sim/blis-schemas/tree/v0.4.0">blis-schemas</a></td>
-<td><code>v0.4.0</code></td>
+<td>Interfaces and document types: <a href="https://github.com/inference-sim/blis-schemas/tree/v0.7.1-0.20261028162459-bd0c5d015b01">blis-schemas</a></td>
+<td><code>v0.7.1-0.20261028162459-bd0c5d015b01</code></td>
+<td>—</td>
+<td><code>go.mod</code></td>
+</tr>
+<tr>
+<td>Engine rules for the commands, docs and tests: <a href="https://github.com/inference-sim/blis-vllm/tree/9b5ec9da1999/rules">blis-vllm/rules</a></td>
+<td><code>v0.0.0-20261027143841-9b5ec9da1999</code></td>
 <td>—</td>
 <td><code>go.mod</code></td>
 </tr>
@@ -1553,7 +1559,8 @@ pins themselves.</p>
 <h2 id="two-sources-of-engine-behavior">Two sources of engine behavior<a class="headerlink" href="#two-sources-of-engine-behavior" title="Permanent link">&para;</a></h2>
 <p>Most of what the kernel knows about vLLM is encoded here, at v0.31.0: which kernels run, how
 work is split, what an unstated setting defaults to, which layouts start. Some version-scoped
-facts are read instead from the blis-schemas rules pack for the release the scenario declares,
+facts are read instead from the engine rules the caller supplies for the release the scenario
+declares (for vLLM, the packs of <code>github.com/inference-sim/blis-vllm/rules</code>),
 among them which tensor-parallel widths the custom all-reduce supports, when the <abbr title="Mixture of experts">MoE</abbr> input is
 made sequence-parallel, which decode-context combine backends the release accepts, how many
 pages a window cache holds, how stated caches group into the shared <abbr title="The attention keys and values a request keeps for every token it has processed">KV</abbr> block pool, and the

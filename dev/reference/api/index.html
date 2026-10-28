@@ -1547,7 +1547,11 @@ the interface itself is defined and documented in
 </tr>
 <tr>
 <td><code>Repos</code></td>
-<td>The three roots a scenario's names resolve against: scenarios, catalog, registry.</td>
+<td>The three roots a scenario's names resolve against (scenarios, catalog, registry) and <code>Rules</code>, the engine rules for a release, which the caller supplies.</td>
+</tr>
+<tr>
+<td><code>RulesFrom(lookup)</code></td>
+<td>Adapts a lookup returning a concrete rules type, such as blis-vllm/rules' <code>Lookup</code>, to <code>Repos.Rules</code>.</td>
 </tr>
 <tr>
 <td><code>LoadBundle(path)</code></td>

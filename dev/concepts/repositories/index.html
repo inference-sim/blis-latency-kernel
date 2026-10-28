@@ -1568,7 +1568,12 @@ requests into the time the GPUs take to serve one step of it.</p>
 <tr>
 <td><a href="https://github.com/inference-sim/blis-schemas">blis-schemas</a></td>
 <td>the formats</td>
-<td>Imports its document types, loaders and validators, and implements its <code>kernel.Kernel</code> interface</td>
+<td>Imports its document types, loaders and validators, and implements its <code>kernel.Kernel</code> interface; takes engine rules through its <code>rules.EngineRules</code> interface</td>
+</tr>
+<tr>
+<td><a href="https://github.com/inference-sim/blis-vllm">blis-vllm</a></td>
+<td>vLLM's engine behaviour, and its rules packs</td>
+<td>Its rules packs are what a caller passes as <code>Repos.Rules</code>; this repository's own commands and tests use them, the library does not import them</td>
 </tr>
 <tr>
 <td><a href="https://github.com/inference-sim/blis-catalog">blis-catalog</a></td>

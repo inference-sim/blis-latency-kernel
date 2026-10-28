@@ -1517,7 +1517,7 @@ blis-schemas and before inference-sim.</p>
 <li>Move the <code>go.mod</code> requirement to the pushed schemas head's pseudo-version
    (<code>GOPROXY=direct go list -m github.com/inference-sim/blis-schemas@&lt;sha&gt;</code>), or to its release
    tag before merge. Never commit a <code>replace</code>.</li>
-<li>Run <code>go mod tidy</code>, then <code>go run ./internal/docgen</code>: <code>docs/generated/sources.md</code> names the
+<li>Run <code>go mod tidy</code>, then blis-vllm's <code>go run ./kerneltests/internal/docgen</code> against this checkout: <code>docs/generated/sources.md</code> names the
    pin, and <code>TestGeneratedDocsAreCurrent</code> fails until it is regenerated.</li>
 <li>Run <code>go test ./...</code>.</li>
 </ol>

@@ -1586,10 +1586,11 @@ graph mode and the engine's token budget per step are examples.</p>
 <p>A deployment that states every setting carries almost no such entries. The exceptions are
 listed on <a href="../../reference/provenance/">Provenance, Evidence, Resolved</a>. The one that
 matters most is the version of vLLM: the kernel prices v0.31.0's behavior whatever version a
-scenario declares, and records <code>engine_version</code> as an assumption when the two differ. Every
-scenario in this repository declares v0.29.0, the only release blis-schemas publishes rules
-for, so every one of them records it. Three facts do follow the declared version, because
-they are read from those rules; <a href="../../reference/sources/#two-sources-of-engine-behavior">Sources of truth</a>
+scenario declares, and records <code>engine_version</code> as an assumption when the two differ. The
+scenarios in this repository declare v0.29.0 or v0.31.0, releases the vLLM rules packs
+cover. The v0.29.0 ones, nearly all of them, record the assumption; a v0.31.0 one, which
+declares the release the kernel prices, does not. The facts read from those rules do follow
+the declared version; <a href="../../reference/sources/#two-sources-of-engine-behavior">Sources of truth</a>
 names them.</p>
 <p>A coefficient whose scope excludes the deployment's chip, model or widths is not used. Where
 two entries of one name both apply, the later set wins, except that an entry scoped to the
@@ -1611,26 +1612,10 @@ the field, what was requested, what was resolved, and why.</p>
 deployment's step uses it, followed by the kernel's own assumptions. <code>Evidence</code> counts them,
 and counts as evidence a value whose method is <code>measured</code>, <code>literature</code> or <code>vendor_spec</code>. For
 the deployment on <a href="../step/">Pricing a step</a>:</p>
-<div class="language-go highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nx">measured</span><span class="p">,</span><span class="w"> </span><span class="nx">total</span><span class="p">,</span><span class="w"> </span><span class="nx">assumed</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">k</span><span class="p">.</span><span class="nx">Evidence</span><span class="p">()</span>
-<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="nx">fmt</span><span class="p">.</span><span class="nx">Printf</span><span class="p">(</span><span class="s">"%d of %d values rest on evidence; %d were assumed\n"</span><span class="p">,</span>
-<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="w">    </span><span class="nx">measured</span><span class="p">,</span><span class="w"> </span><span class="nx">total</span><span class="p">,</span><span class="w"> </span><span class="nb">len</span><span class="p">(</span><span class="nx">assumed</span><span class="p">))</span>
-<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>
-<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="c1">// The same entries, counted by the method that produced each.</span>
-<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="nx">byMethod</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="kt">map</span><span class="p">[</span><span class="kt">string</span><span class="p">]</span><span class="kt">int</span><span class="p">{}</span>
-<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="k">for</span><span class="w"> </span><span class="nx">_</span><span class="p">,</span><span class="w"> </span><span class="nx">o</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="k">range</span><span class="w"> </span><span class="nx">k</span><span class="p">.</span><span class="nx">Provenance</span><span class="p">()</span><span class="w"> </span><span class="p">{</span>
-<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="w">    </span><span class="nx">byMethod</span><span class="p">[</span><span class="nx">o</span><span class="p">.</span><span class="nx">Method</span><span class="p">]</span><span class="o">++</span>
-<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a><span class="p">}</span>
-<a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a><span class="k">for</span><span class="w"> </span><span class="nx">_</span><span class="p">,</span><span class="w"> </span><span class="nx">m</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="k">range</span><span class="w"> </span><span class="nx">slices</span><span class="p">.</span><span class="nx">Sorted</span><span class="p">(</span><span class="nx">maps</span><span class="p">.</span><span class="nx">Keys</span><span class="p">(</span><span class="nx">byMethod</span><span class="p">))</span><span class="w"> </span><span class="p">{</span>
-<a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a><span class="w">    </span><span class="nx">fmt</span><span class="p">.</span><span class="nx">Printf</span><span class="p">(</span><span class="s">"  %-12s %3d\n"</span><span class="p">,</span><span class="w"> </span><span class="nx">m</span><span class="p">,</span><span class="w"> </span><span class="nx">byMethod</span><span class="p">[</span><span class="nx">m</span><span class="p">])</span>
-<a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a><span class="p">}</span>
-<a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a>
-<a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a><span class="c1">// The kernel's own assumptions, as distinct from registry values whose method is</span>
-<a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a><span class="c1">// "assumed", carry the set name KernelAssumptionSet.</span>
-<a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a><span class="k">for</span><span class="w"> </span><span class="nx">_</span><span class="p">,</span><span class="w"> </span><span class="nx">o</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="k">range</span><span class="w"> </span><span class="nx">k</span><span class="p">.</span><span class="nx">Provenance</span><span class="p">()</span><span class="w"> </span><span class="p">{</span>
-<a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a><span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="nx">o</span><span class="p">.</span><span class="nx">Set</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="nx">latencykernel</span><span class="p">.</span><span class="nx">KernelAssumptionSet</span><span class="w"> </span><span class="p">{</span>
-<a id="__codelineno-0-18" name="__codelineno-0-18" href="#__codelineno-0-18"></a><span class="w">        </span><span class="nx">fmt</span><span class="p">.</span><span class="nx">Println</span><span class="p">(</span><span class="s">"the kernel assumed"</span><span class="p">,</span><span class="w"> </span><span class="nx">o</span><span class="p">.</span><span class="nx">Name</span><span class="p">)</span>
-<a id="__codelineno-0-19" name="__codelineno-0-19" href="#__codelineno-0-19"></a><span class="w">    </span><span class="p">}</span>
-<a id="__codelineno-0-20" name="__codelineno-0-20" href="#__codelineno-0-20"></a><span class="p">}</span>
+<!-- example_test.go:evidence: blis-vllm kerneltests/example_test.go -->
+<div class="language-go highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="c1">// The evidence example lives in blis-vllm's kerneltests/example_test.go</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="c1">// (https://github.com/inference-sim/blis-vllm/blob/main/kerneltests/example_test.go),</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="c1">// which decodes the vLLM engine block it opens the kernel from.</span>
 </code></pre></div>
 <div class="language-text highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>113 of 155 values rest on evidence; 41 were assumed
 <a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>  assumed       41
