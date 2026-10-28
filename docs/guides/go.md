@@ -14,7 +14,6 @@ A scenario names its model, its chip, its fabric and its coefficient sets, but n
 live. `Repos` says where: a directory of scenario files, a blis-catalog checkout, and a
 blis-registry checkout.
 
-<!-- example_test.go:repos: blis-vllm kerneltests/example_test.go -->
 ```go
 // The repos example lives in blis-vllm's kerneltests/example_test.go
 // (https://github.com/inference-sim/blis-vllm/blob/main/kerneltests/example_test.go),
