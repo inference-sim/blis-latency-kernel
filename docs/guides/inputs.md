@@ -17,7 +17,7 @@ configurations varies the deployment while the scenario stays fixed.
 ```
 
 blis-schemas defines both documents and documents every field. The kernel reads the two from
-one file with its own `LoadBundle`, which rejects an unknown key as strictly as blis-schemas'
+one file with blis-schemas' `LoadBundle`, which rejects an unknown key as strictly as its other
 loaders do, and validates them before building anything.
 
 ## Where the names lead
