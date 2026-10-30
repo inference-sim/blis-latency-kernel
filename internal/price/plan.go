@@ -118,6 +118,10 @@ type PlannedGEMM struct {
 	MHCFn bool
 	// Format is the weight format the GEMM computes from, which selects its compute rate.
 	Format Format
+	// ShardedAtDecode is a replicated GEMM whose output columns the engine splits over the
+	// tensor-parallel ranks for a small step (blis-schemas Node.ShardedAtDecode), nil for
+	// every other. It is never fused with a neighbour.
+	ShardedAtDecode *model.ShardedAtDecode
 }
 
 // Format is the weight format a GEMM computes from: the dtype and, for a block-scaled
@@ -770,7 +774,7 @@ func planNodes(nodes []model.Node, em Emitter, o PlanOptions,
 				N: n.N, K: n.K, FLOPsPerToken: f, ShardN: shardN,
 				Replicated: n.TP == model.TPReplicated, TokenSharded: tokenSharded,
 				WeightBytes: resident, WeightReadBytes: read, Format: o.Format(n),
-				MHCFn: mhcFn.MatchString(n.Role),
+				MHCFn: mhcFn.MatchString(n.Role), ShardedAtDecode: n.ShardedAtDecode,
 			}
 			// Fuse into the previous GEMM when the engine would. vLLM concatenates
 			// column-parallel projections that share an input ALONG THE OUTPUT

@@ -376,3 +376,66 @@ func (k *Kernel) logitsGather(head price.PlannedLayer, rows float64) (onNode, cr
 	}
 	return onNode, crossNode
 }
+
+// shardsAtDecode reports whether the engine splits a replicated GEMM's output columns over the
+// tensor-parallel ranks for a step of tokens (blis-schemas Node.ShardedAtDecode): on a chip of
+// the stated compute capability or later, with tensor parallelism and no data parallelism,
+// mega-MoE or sequence-parallel MoE, and with tokens in the stated range -- from
+// min_tokens_across_nodes where the TP group spans nodes. That is Muse Spark's
+// replicated_tokens and tep_default (vllm/models/muse_spark/nvidia/model.py:505-523@0f6b2619)
+// with shards_pooler and shards_unpooler (:635-644, :535-539); batch invariance, which would
+// turn it off, has no deployment field.
+func (k *Kernel) shardsAtDecode(g *price.PlannedGEMM, tokens int) bool {
+	d := g.ShardedAtDecode
+	if d == nil || k.layout.TP <= 1 || max(k.layout.DP, 1) > 1 || k.family < d.CapabilityFamily ||
+		k.layout.SequenceParallelMoE || k.layout.ModelSequenceParallel ||
+		k.rules.MegaMoEBackend(k.engine.MoEBackend) || tokens <= 0 || tokens > d.MaxTokens {
+		return false
+	}
+	// Spanning nodes is the engine's host test (tp_group_spans_nodes, in_the_same_node_as,
+	// vllm/models/muse_spark/nvidia/ops/mnnvl_fusions.py:21-23@0f6b2619): a TP group over two
+	// trays of one NVLink rack spans nodes though its gather never leaves NVLink.
+	if min := d.MinTokensAcrossNodes; min > 0 && tokens < min && k.tpSpansHosts() {
+		return false
+	}
+	return true
+}
+
+// tpSpansHosts reports whether a tensor-parallel group's ranks sit on more than one node (host),
+// whatever links join them.
+func (k *Kernel) tpSpansHosts() bool {
+	return k.layout.GPUsPerNode > 0 && max(k.layout.TP, 1) > k.layout.GPUsPerNode
+}
+
+// columnGatherSeconds prices an all-gather over the TP group of a tensor whose whole is bytes,
+// returning its on-node and cross-node seconds as a TP collective is booked.
+func (k *Kernel) columnGatherSeconds(bytes float64) (onNode, crossNode float64) {
+	key := collKey{Op: model.OpAllGather, Group: price.GroupTP}
+	if k.crossesNodes(key) {
+		return 0, k.collectiveSeconds(key, bytes*k.spanFor(key))
+	}
+	return k.collectiveSeconds(key, bytes), 0
+}
+
+// noteShardedProjections records that a graph's decode-sharded projections are reassembled by
+// an all-gather priced at the registry's NCCL all-gather over TP, where the deployment shards
+// them at all. The engine fuses those gathers into the next norm (and, for the pooler, its
+// NVFP4 quantize) with its own multi-node NVLink kernels where it can
+// (_configure_column_gather and _configure_pooler_gather, maybe_create_all_gather_dual_norm and
+// maybe_create_all_gather_norm_quant, vllm/models/muse_spark/nvidia/model.py:1585-1637@
+// 0f6b2619), which no registry entry measures.
+func (k *Kernel) noteShardedProjections() {
+	for _, l := range k.plan.Layers {
+		for i := range l.DenseGEMMs {
+			if g := &l.DenseGEMMs[i]; g.Replicated && k.shardsAtDecode(g, 1) {
+				k.assume("sharded_projection_gather", "nccl all_gather",
+					"a replicated projection the engine splits over TP at decode (sharded_at_decode) "+
+						"is reassembled by an all-gather priced at the registry's NCCL all_gather over "+
+						"TP; the engine fuses it into the next norm with its own NVLink kernels "+
+						"(vllm/models/muse_spark/nvidia/model.py:1585-1637@0f6b2619), which no "+
+						"registry entry measures")
+				return
+			}
+		}
+	}
+}

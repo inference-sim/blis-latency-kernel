@@ -395,6 +395,7 @@ func construct(in Inputs) (*Kernel, error) {
 	if err := k.liftPipeline(in.Model); err != nil {
 		return nil, err
 	}
+	k.noteShardedProjections()
 	k.adoptRouting(in.Routing, k.totalExperts > 0)
 	k.tiers = map[string]hardware.StorageDevice{}
 	for _, d := range in.Devices {

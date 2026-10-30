@@ -396,6 +396,9 @@ func (k *Kernel) priceLayers(layers []price.PlannedLayer, fits [][]gemmFit, kv [
 		// recurrentSeconds, like attnSeconds, is priced by a measured floor-and-rate form
 		// rather than from FLOPs.
 		var recurrentSeconds float64
+		// shardGatherOn and shardGatherCross are the all-gathers that reassemble a replicated
+		// GEMM's columns where the engine splits them at decode (shardsAtDecode).
+		var shardGatherOn, shardGatherCross float64
 
 		//
 		// Each GEMM is priced at the rate of the format it computes from (formatFit), and
@@ -424,9 +427,19 @@ func (k *Kernel) priceLayers(layers []price.PlannedLayer, fits [][]gemmFit, kv [
 			// reduction as 768-deep at TP=8, which is the widest GEMM in the layer.
 			n, kk := float64(g.N), float64(g.K)
 			rows, div := tokensF, k.tp
+			sharded := g.Replicated && k.shardsAtDecode(g, s.tokens)
 			switch {
 			case g.TokenSharded && sp:
 				rows, div = s.spRows, 1
+			case sharded:
+				// The engine computes this rank's n/tp output columns from its slice of the
+				// whole weight, so it reads a tp-th of it, and all-gathers the columns
+				// (_project_local_columns and gather_columns,
+				// vllm/models/muse_spark/nvidia/model.py:158-168, 646-660@0f6b2619).
+				n /= k.tp
+				on, cross := k.columnGatherSeconds(tokensF * float64(g.N) * price.ActivationBytes)
+				shardGatherOn += on
+				shardGatherCross += cross
 			case g.Replicated:
 				div = 1
 			case g.ShardN:
@@ -910,7 +923,7 @@ func (k *Kernel) priceLayers(layers []price.PlannedLayer, fits [][]gemmFit, kv [
 		// Collectives in this layer, each priced against its own floor and rate. Every
 		// launch pays its own floor: summing bytes across layers and applying one floor
 		// understates a floor-dominated step by the layer count.
-		var onNode, crossNode float64
+		onNode, crossNode := shardGatherOn, shardGatherCross
 		for _, c := range l.Collectives {
 			bytes := tokensF * c.BytesPerToken
 			// The MoE dispatch carries the tokens a rank holds: under the model's own
