@@ -168,7 +168,7 @@ func (k *Kernel) pipelineSendSeconds(st *pipelineStage, tokens float64) float64 
 		return 0
 	}
 	rate := k.nvlinkBytesPerSecond
-	if st.crossesNode && !(k.fabric.RackIsOneDomain && k.sameRack(st)) {
+	if st.crossesNode && (!k.fabric.RackIsOneDomain || !k.sameRack(st)) {
 		rate = k.nicBytesPerSecond
 	}
 	floor := k.collectiveFloors[collKey{Op: model.OpAll2All, Group: price.GroupExpert}].Seconds()
