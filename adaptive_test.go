@@ -138,7 +138,7 @@ func adaptiveKernel(t *testing.T, on bool, al float64) *Kernel {
 	return k
 }
 
-func decodeBatch(reqs int) kernel.Batch {
+func adaptiveDecodeBatch(reqs int) kernel.Batch {
 	b := kernel.Batch{DecodeThreshold: 8}
 	for range reqs {
 		b.Reqs = append(b.Reqs, kernel.ReqShape{Scheduled: 8, Computed: 4000, PromptLen: 3000})
@@ -155,7 +155,7 @@ func TestAdaptiveVerificationOffChangesNothing(t *testing.T) {
 	if err := k.resolveAdaptive(nil); err != nil || k.adaptive != nil {
 		t.Fatalf("flag off: resolveAdaptive %v, state %v", err, k.adaptive)
 	}
-	if v := k.VerifiedDrafts(decodeBatch(4)); v != nil {
+	if v := k.VerifiedDrafts(adaptiveDecodeBatch(4)); v != nil {
 		t.Errorf("flag off: VerifiedDrafts %v, want nil", v)
 	}
 	if k.decodeGraphed(kernel.Batch{DecodeThreshold: 8, Reqs: []kernel.ReqShape{
@@ -173,7 +173,7 @@ func TestAdaptiveVerificationOffChangesNothing(t *testing.T) {
 // acceptance it runs them all. A prefill row is never trimmed, and a request never verifies
 // more drafts than it scheduled.
 func TestAdaptiveVerificationTrimsAtLowAcceptance(t *testing.T) {
-	b := decodeBatch(16)
+	b := adaptiveDecodeBatch(16)
 	low := adaptiveKernel(t, true, 1.3)
 	trimmed := low.adaptive.trim(low, b)
 	if trimmed.Tokens() >= b.Tokens() {
@@ -205,7 +205,7 @@ func TestAdaptiveBudgetTiesKeepTheFirst(t *testing.T) {
 	for i := range k.adaptive.verifyCost {
 		k.adaptive.verifyCost[i] = 1
 	}
-	if got, _ := k.adaptive.budget(k, decodeBatch(4)); got != 0 {
+	if got, _ := k.adaptive.budget(k, adaptiveDecodeBatch(4)); got != 0 {
 		t.Errorf("all budgets tie: picked %d, want the first, 0", got)
 	}
 }
