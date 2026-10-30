@@ -76,11 +76,14 @@ type Scope struct {
 	TP           int
 	EP           int
 	NodesSpanned int
+	// Fabric is the cluster's inter-node network, its catalog identity, or "" for a
+	// single-node cluster. An entry scoped to a fabric applies only over that fabric.
+	Fabric string
 }
 
 func (s Scope) String() string {
-	return fmt.Sprintf("hardware=%s model=%s tp=%d ep=%d nodes_spanned=%d",
-		s.Hardware, s.Model, s.TP, s.EP, s.NodesSpanned)
+	return fmt.Sprintf("hardware=%s model=%s tp=%d ep=%d nodes_spanned=%d fabric=%s",
+		s.Hardware, s.Model, s.TP, s.EP, s.NodesSpanned, s.Fabric)
 }
 
 // Admits reports whether an entry's scope covers this deployment.
@@ -103,6 +106,11 @@ func (s Scope) Admits(e coefficient.Scope) bool {
 		return false
 	}
 	if len(e.NodesSpanned) > 0 && !containsInt(e.NodesSpanned, s.NodesSpanned) {
+		return false
+	}
+	// A fabric-scoped entry was measured over one interconnect, so a deployment on another
+	// fabric, or on none, is outside it.
+	if len(e.Fabric) > 0 && (s.Fabric == "" || !containsString(e.Fabric, s.Fabric)) {
 		return false
 	}
 	return true

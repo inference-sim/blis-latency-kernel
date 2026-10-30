@@ -37,9 +37,10 @@ reason. They are of two kinds.
 | `deepep_v2_mode` | The MoE dispatch runs DeepEP v2, whose path vLLM picks from `enforce_eager`, which a deployment cannot state: a resolved `cudagraph_mode` of `NONE` is read as it. Value `deepep_v2_eager` or `deepep_v2_graph`. |
 | `dcp_comm_backend` | Decode-context parallelism is on and no combine backend is stated: the stock `ag_rs`. Also when one is stated but the engine rules give no list to check it against. |
 | `engine_version` | The scenario declares a vLLM release other than the one whose behavior the kernel prices (v0.31.0). |
+| `fabric_bandwidth_efficiency` | The cluster names a fabric and the scenario's sets carry no `fabric_bandwidth_efficiency` scoped to it, so every byte that crosses it -- a cross-node collective, a P/D handoff, a pipeline-stage boundary -- is priced at the catalog's nominal line rate. Value `1`. |
 | `engram_cpu_offload` | A graph states an Engram table and the deployment does not say where it lives: the release's `cpu_offload` default. |
 | `engram_dp_shared_memory` | An Engram table under data parallelism, with `dp_shared_memory` unstated: resolved as the engine resolves it. |
-| `gemm_eps_max_<kind>` | A weight-only kernel (Marlin W8A16 MXFP8, W4A16 grouped) has no efficiency ramp in the registry for the part, so it is priced on the BF16 ramp at the BF16 peak it computes at. |
+| `gemm_eps_max_<kind>` | A kernel with a ramp of its own has none in the registry for the part, so it is priced on the one it falls back to, at the peak it computes at: a weight-only kernel (Marlin W8A16 MXFP8, W4A16 grouped) on the BF16 ramp; Marlin W4A16 NVFP4 grouped on the W4A16 MXFP4 grouped ramp, and that on BF16's; a native-FP4 part's grouped NVFP4 MoE (`nvfp4_grouped`) on the dense NVFP4 ramp. |
 | `host_gather_rate_uva` | A table lookup reads a host-resident table (an Engram table under `cpu_offload`) and the registry has no rate for that gather, so its rows are read at the host link's rate. |
 | `hybrid_kv_cache_manager` | A graph states window caches and the deployment runs a KV connector, which can turn the hybrid KV cache manager off and the window rings into full-length caches. |
 | `kv_cache_grouping` | A graph states its caches and the rules pack cannot group them into the engine's shared block pool, so each cache is sized at its own page rather than in whole pool blocks. The reason names what the pack does not model. |
@@ -54,6 +55,7 @@ reason. They are of two kinds.
 | `mhc_<kind>` | An mHC component's rate (`pre` or `post`) is in the scenario's sets without its floor, so the measured mHC form is not used. Value `fallback`. |
 | `mla_context_chunk` | Decode-context parallelism is on for a latent-attention model and no context length is stated, so the chunk in which a prefill gathers its cached context is taken at its largest. |
 | `num_spec_tokens` | The deployment drafts a different number of tokens a step from the graph's speculator, so what the graph sizes at its own count is taken as stated. |
+| `pipeline_stages` | The pool runs pipeline parallelism: each stage is priced as its own step over the layers vLLM gives it, the embedding on the first, the head and drafter on the last, plus its boundary send; a rank's memory is the most loaded stage's. Value the stage count. |
 | `recurrent_prefill_rate_<kind>` | A recurrent mixer has no measured prefill form, so its prefill tokens are priced as the chunked scan's FLOPs on the BF16 ramp rather than at the decode scan's rate. |
 | `sparse_mla_backend` | A DSA sparse-attention model on Hopper selects FlashInfer's sparse MLA backend, which needs a FlashInfer release the kernel cannot see installed. |
 | `sparse_read_per_query` | A speculating deployment of a sparse-attention model: each verify token is charged its own window-and-top-k read, as vLLM gathers them, though the registry's rate was fitted on single-token decode and the sharing between a request's tokens was never measured. |

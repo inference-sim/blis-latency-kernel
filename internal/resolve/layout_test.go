@@ -112,6 +112,10 @@ func TestEmitsAnswersEveryConditionTheSchemaAllows(t *testing.T) {
 		model.EmitTensorParallel,
 		model.EmitExpertParallel,
 		model.EmitTensorParallelUnlessSequenceParallelMoE,
+		model.EmitSequenceParallel,
+		model.EmitTensorParallelUnlessSequenceParallel,
+		model.EmitTensorParallelWithoutExpertParallel,
+		model.EmitExpertParallelWithoutDispatch,
 	}
 	for _, c := range all {
 		if !c.Valid() {
@@ -189,6 +193,33 @@ func TestEmitsUnderEachLayout(t *testing.T) {
 			layout: Layout{TP: 8, DP: 1, ExpertWidth: 8, ModelSequenceParallel: true},
 			want: map[model.EmitCondition]bool{
 				model.EmitExpertParallel: true,
+			},
+		},
+		{
+			// An MoE that reduces a different tensor per mode (Muse Spark): the TP-sharded
+			// experts' own reduction, or the combine of EP partials over replicated tokens.
+			what:   "tensor parallel without expert parallelism: the sharded experts reduce",
+			layout: Layout{TP: 8, DP: 1, ExpertWidth: 1},
+			want: map[model.EmitCondition]bool{
+				model.EmitTensorParallelWithoutExpertParallel: true,
+				model.EmitExpertParallelWithoutDispatch:       false,
+			},
+		},
+		{
+			what:   "expert parallel over replicated tokens: the partial outputs combine",
+			layout: Layout{TP: 8, DP: 1, ExpertWidth: 8},
+			want: map[model.EmitCondition]bool{
+				model.EmitTensorParallelWithoutExpertParallel: false,
+				model.EmitExpertParallelWithoutDispatch:       true,
+			},
+		},
+		{
+			what:   "expert parallel with a dispatch: the all-to-all combines, neither reduction runs",
+			layout: Layout{TP: 8, DP: 2, ExpertWidth: 16},
+			want: map[model.EmitCondition]bool{
+				model.EmitExpertParallel:                      true,
+				model.EmitTensorParallelWithoutExpertParallel: false,
+				model.EmitExpertParallelWithoutDispatch:       false,
 			},
 		},
 		{

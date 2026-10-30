@@ -68,8 +68,10 @@ These are layouts vLLM v0.31.0 refuses at startup.
 
 ## The kernel cannot price it truthfully
 
-- Pipeline parallelism wider than one: the kernel has no stage split or transfer between
-  stages.
+- Pipeline parallelism beside data parallelism or context parallelism (`pcp` or `dcp`
+  above one): the stage split prices one pipeline per pool. Pipeline parallelism on a model
+  whose graph states its caches, whose sizes are per layer kind over the whole stack rather
+  than per stage.
 - `dcp_q_replicate` where it would take effect: decode-context parallelism without
   prefill-context parallelism, on a latent-attention model. It trades a collective for a
   replicated projection the kernel cannot identify in the graph, so pricing only the saving

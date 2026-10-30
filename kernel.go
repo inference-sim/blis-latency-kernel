@@ -211,6 +211,13 @@ type Kernel struct {
 	tp               float64
 	localExpertShare float64
 
+	// stages is the pipeline-stage split of the plan, nil at pp 1 (liftPipeline).
+	stages []pipelineStage
+	// ppKVBytesPerToken is the binding stage's KV per token at pp > 1, drafter included where
+	// it is the last stage's, and ppKVStage which stage that is (liftPipelineMemory).
+	ppKVBytesPerToken float64
+	ppKVStage         int
+
 	// KV geometry, derived once from the graph and the cache dtype.
 	kvBytesPerToken float64
 	blockSize       int
@@ -499,6 +506,10 @@ func (k *Kernel) SequenceVariableBytes(tokens int) int64 {
 	if k.speculating {
 		perToken += k.draftKVBytesPerToken
 	}
+	if len(k.stages) > 0 {
+		// A pipeline-parallel rank holds its own stage's layers' KV (liftPipelineMemory).
+		perToken = k.ppKVBytesPerToken
+	}
 	total := price.PagedBytes(shardedTokens, k.blockSize, perToken) +
 		int64(k.cacheVariableBytes(tokens))
 
@@ -532,6 +543,9 @@ func (k *Kernel) SequenceVariableBytes(tokens int) int64 {
 // calls this per simulated step, millions of times, can use StepTimeInto instead and reuse
 // one map across calls, which removes that allocation.
 func (k *Kernel) StepTime(b kernel.Batch) kernel.StepEstimate {
+	if len(k.stages) > 0 && b.PaddedTokens() > 0 {
+		return k.stagedStepTime(b, nil)
+	}
 	return k.stepTime(b, nil)
 }
 
@@ -548,6 +562,9 @@ func (k *Kernel) StepTimeInto(b kernel.Batch,
 	per map[kernel.Resource]time.Duration) kernel.StepEstimate {
 	for r := range per {
 		delete(per, r)
+	}
+	if len(k.stages) > 0 && b.PaddedTokens() > 0 {
+		return k.stagedStepTime(b, per)
 	}
 	return k.stepTime(b, per)
 }
@@ -1644,12 +1661,20 @@ func (k *Kernel) launchSeconds(b kernel.Batch, draftKernels int) float64 {
 // (price.PlannedLayer.PrefillOnlyKernels). A request prefills on the rule shapeOf uses:
 // more scheduled tokens than the batch's decode threshold.
 func (k *Kernel) stepKernels(b kernel.Batch) int {
-	for _, r := range b.Reqs {
-		if r.Computed+r.Scheduled > 0 && r.Scheduled > b.DecodeThreshold {
-			return k.plan.TotalKernels
-		}
+	if stepPrefills(b) {
+		return k.plan.TotalKernels
 	}
 	return k.plan.TotalKernels - k.plan.PrefillOnlyKernels
+}
+
+// stepPrefills reports whether a request in the batch prefills, on the rule shapeOf uses.
+func stepPrefills(b kernel.Batch) bool {
+	for _, r := range b.Reqs {
+		if r.Computed+r.Scheduled > 0 && r.Scheduled > b.DecodeThreshold {
+			return true
+		}
+	}
+	return false
 }
 
 // graphMode is how much of a step a captured graph covers.
