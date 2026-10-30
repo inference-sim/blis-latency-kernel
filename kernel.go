@@ -211,6 +211,8 @@ type Kernel struct {
 	tp               float64
 	localExpertShare float64
 
+	// graph is the model graph priced, as Graph returns it.
+	graph *model.Graph
 	// stages is the pipeline-stage split of the plan, nil at pp 1 (liftPipeline).
 	stages []pipelineStage
 	// ppKVBytesPerToken is the binding stage's KV per token at pp > 1, drafter included where
@@ -1855,6 +1857,13 @@ func (k *Kernel) Deployment() deployment.Pool { return clonePool(k.pool) }
 
 // Engine returns the engine settings the kernel prices with: the caller's decoding of the
 // pool's engine block (Inputs.Engine), as a deep copy for the same reason Deployment is one.
+// Graph is the model graph this kernel priced: the scenario's graph as served on the chip
+// (its architecture overlay resolved), with a drafter named by speculative.draft_model grafted
+// on as its speculator. An engine model sizing its KV cache groups reads the same layers, so it
+// does not rebuild a second answer to which layers run. A copy the caller may keep; its slices
+// are shared, so treat it as read-only.
+func (k *Kernel) Graph() model.Graph { return *k.graph }
+
 func (k *Kernel) Engine() enginesettings.Settings { return k.engine.Clone() }
 
 // DecodeContextParallelWidth returns how many ranks shard the decode KV cache.

@@ -206,7 +206,7 @@ func construct(in Inputs) (*Kernel, error) {
 	fab.InterNodeEfficiency = fabricEfficiency
 
 	k := &Kernel{layout: layout, fabric: fab, pool: pool, engine: eng, chip: *in.Chip, rules: in.Rules,
-		family: family, architecture: g.Global.Architecture}
+		family: family, architecture: g.Global.Architecture, graph: g}
 	if in.Fabric != nil && !fabricEfficiencyStated {
 		k.assume("fabric_bandwidth_efficiency", "1",
 			"the scenario's coefficient sets carry no "+fabricEfficiencyName+" scoped to fabric "+

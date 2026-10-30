@@ -78,3 +78,17 @@ func TestADrafterThatCannotBeGraftedIsRefused(t *testing.T) {
 		})
 	}
 }
+
+// Graph is the graph the kernel priced: with a named drafter, the target and the drafter's
+// layers together, so an engine model sizing KV groups reads exactly what was priced.
+func TestGraphIsWhatThePlanPriced(t *testing.T) {
+	target, draft := draftGraphs()
+	g, err := withDrafter(target, draft)
+	if err != nil {
+		t.Fatal(err)
+	}
+	k := &Kernel{graph: g}
+	if got := k.Graph(); got.Speculator == nil || len(got.LayerKinds) != 3 {
+		t.Errorf("Graph() %d kinds, speculator %v: want the grafted graph", len(got.LayerKinds), got.Speculator)
+	}
+}
