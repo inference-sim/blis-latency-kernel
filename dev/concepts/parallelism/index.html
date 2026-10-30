@@ -705,6 +705,28 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#pipeline-parallelism" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Pipeline parallelism
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#fabrics" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fabrics
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#which-ranks-a-group-contains" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1527,6 +1549,28 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#pipeline-parallelism" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Pipeline parallelism
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#fabrics" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fabrics
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#which-ranks-a-group-contains" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1574,14 +1618,14 @@
 
 
 <h1 id="parallelism">Parallelism<a class="headerlink" href="#parallelism" title="Permanent link">&para;</a></h1>
-<p class="lede">A deployment spreads a model over several GPUs in up to five ways at once.
+<p class="lede">A deployment spreads a model over several GPUs in up to six ways at once.
 Each way divides some of the work or memory and adds communication to pay for it. The kernel
 prices one rank, so for each way it needs two answers: what this rank no longer has to do,
 and what it now has to exchange with its group.</p>
 
 <p>A <em>rank</em> is one GPU's process in the deployment, numbered from 0. A <em>group</em> is the set of
 ranks that share one kind of parallelism, and its <em>width</em> is how many ranks it holds; the
-widths are written tp, dp, ep, pcp and dcp below.</p>
+widths are written tp, pp, dp, ep, pcp and dcp below.</p>
 <table>
 <thead>
 <tr>
@@ -1595,6 +1639,11 @@ widths are written tp, dp, ep, pcp and dcp below.</p>
 <td>Tensor (tp)</td>
 <td>Each layer's weights and attention heads</td>
 <td>An all-reduce after the layers that split their output</td>
+</tr>
+<tr>
+<td>Pipeline (pp)</td>
+<td>The decoder layers, a contiguous share per stage</td>
+<td>Each stage hands its activations to the next</td>
 </tr>
 <tr>
 <td>Data (dp)</td>
@@ -1661,6 +1710,36 @@ combine is the price of the capacity, and it is paid in every layer, every step.
 collectives it runs depends on a setting, <code>dcp_comm_backend</code>, and the kernel prices exactly
 the ones vLLM launches for it. The slowest rank, the one holding the most tokens, sets the
 time.</p>
+<h2 id="pipeline-parallelism">Pipeline parallelism<a class="headerlink" href="#pipeline-parallelism" title="Permanent link">&para;</a></h2>
+<p>A pool of pp stages runs the model as pp forward passes in sequence, each stage on its own tp
+ranks holding a contiguous share of the decoder layers. The share is vLLM's own:
+<code>num_hidden_layers // pp</code> a stage, with the remainder spread over all but the last stage
+from the second-to-last backwards (<code>get_pp_indices</code>). The embedding runs on the first stage,
+the final norm, LM head and drafter on the last.</p>
+<p>Each stage is priced as a step of its own over its layers, with its own per-step host cost,
+since each stage is a separate worker launching its own kernels. It adds the send of its
+output to the next stage: the graph's <code>pipeline_boundary_bytes_per_token</code> (one hidden-width
+activation when unstated; four bytes a hidden unit for a model with an fp32 residual stream)
+over tp ranks sending in parallel, on NVLink when the next stage shares the node or the rack's
+NVLink domain, and on the fabric's <abbr title="Network interface: the link between nodes">NIC</abbr>, at its effective rate, otherwise. The step is the sum
+of the stages, and <code>StepEstimate.Stages</code> reports each one, so a simulator can overlap the
+batches in flight one per stage.</p>
+<p>A rank holds its own stage's weights and <abbr title="The attention keys and values a request keeps for every token it has processed">KV</abbr>. The engine sizes every worker's <abbr title="The attention keys and values a request keeps for every token it has processed">KV</abbr> pool from its
+own free memory and keeps the smallest, so the binding rank is the stage holding the most
+weights and the most <abbr title="The attention keys and values a request keeps for every token it has processed">KV</abbr> per token.</p>
+<p>Not priced: pipeline parallelism beside data or context parallelism, and a model whose graph
+states its caches. Both are refused.</p>
+<h2 id="fabrics">Fabrics<a class="headerlink" href="#fabrics" title="Permanent link">&para;</a></h2>
+<p>A collective, a P/D handoff or a pipeline boundary that leaves a node crosses the cluster's
+fabric. The catalog states its nominal per-GPU rate, a line rate divided by eight, and
+blis-registry states what fraction of it a transfer achieves (<code>fabric_bandwidth_efficiency</code>,
+scoped by the fabric's catalog name). The kernel prices every byte over the fabric at the
+corrected rate, and scales a cross-node collective's bytes by the ratio of on-node to
+corrected off-node bandwidth. Two clusters of comparable silicon on different fabrics price
+apart by this term. A part whose NVLink domain spans its rack (<code>GPUsPerRack</code> with
+<code>IntraRackBwGBps</code> in the catalog, as an NVL72 rack of 18 four-GPU trays) keeps a group inside
+the rack on NVLink, so the fabric applies only at the rack boundary. A cluster whose fabric
+has no efficiency in the registry is priced at the nominal rate, which is recorded.</p>
 <h2 id="which-ranks-a-group-contains">Which ranks a group contains<a class="headerlink" href="#which-ranks-a-group-contains" title="Permanent link">&para;</a></h2>
 <p>The cost of a collective depends on where its members are: within a node it runs over
 NVLink, across nodes over the network fabric, which is far slower. vLLM numbers ranks in a
@@ -1736,7 +1815,10 @@ and 4, data-parallel widths 1 and 2, and every decode-context width each of thos
 Group placement is in <code>groupStride</code> and <code>crossesNodes</code> in
 <a href="https://github.com/inference-sim/blis-latency-kernel/blob/main/kernel.go"><code>kernel.go</code></a>, and
 the context-parallel arithmetic is in the functions there whose names begin with <code>pcp</code> and
-<code>dcp</code>.</p>
+<code>dcp</code>. The pipeline split is in
+<a href="https://github.com/inference-sim/blis-latency-kernel/blob/main/pipeline.go"><code>pipeline.go</code></a> and
+the fabric correction in
+<a href="https://github.com/inference-sim/blis-latency-kernel/blob/main/fabric.go"><code>fabric.go</code></a>.</p>
 
 
 

@@ -1634,6 +1634,10 @@ reason. They are of two kinds.</p>
 <td>The scenario declares a vLLM release other than the one whose behavior the kernel prices (v0.31.0).</td>
 </tr>
 <tr>
+<td><code>fabric_bandwidth_efficiency</code></td>
+<td>The cluster names a fabric and the scenario's sets carry no <code>fabric_bandwidth_efficiency</code> scoped to it, so every byte that crosses it -- a cross-node collective, a P/D handoff, a pipeline-stage boundary -- is priced at the catalog's nominal line rate. Value <code>1</code>.</td>
+</tr>
+<tr>
 <td><code>engram_cpu_offload</code></td>
 <td>A graph states an Engram table and the deployment does not say where it lives: the release's <code>cpu_offload</code> default.</td>
 </tr>
@@ -1643,7 +1647,7 @@ reason. They are of two kinds.</p>
 </tr>
 <tr>
 <td><code>gemm_eps_max_&lt;kind&gt;</code></td>
-<td>A weight-only kernel (Marlin W8A16 MXFP8, W4A16 grouped) has no efficiency ramp in the registry for the part, so it is priced on the BF16 ramp at the BF16 peak it computes at.</td>
+<td>A kernel with a ramp of its own has none in the registry for the part, so it is priced on the one it falls back to, at the peak it computes at: a weight-only kernel (Marlin W8A16 MXFP8, W4A16 grouped) on the BF16 ramp; Marlin W4A16 NVFP4 grouped on the W4A16 MXFP4 grouped ramp, and that on BF16's; a native-FP4 part's grouped NVFP4 <abbr title="Mixture of experts">MoE</abbr> (<code>nvfp4_grouped</code>) on the dense NVFP4 ramp.</td>
 </tr>
 <tr>
 <td><code>host_gather_rate_uva</code></td>
@@ -1702,6 +1706,26 @@ reason. They are of two kinds.</p>
 <td>The deployment drafts a different number of tokens a step from the graph's speculator, so what the graph sizes at its own count is taken as stated.</td>
 </tr>
 <tr>
+<td><code>pipeline_binding_stage</code></td>
+<td>The pool runs pipeline parallelism: <code>FixedBytes</code> and the sequence sizes are this stage's rank, the one whose pool -- its own budget less its own fixed bytes over its own <abbr title="The attention keys and values a request keeps for every token it has processed">KV</abbr> a token -- holds the fewest tokens, compared at the deployment's <code>gpu_memory_utilization</code>. <code>PipelineStageMemory</code> reports every stage. Value the stage index.</td>
+</tr>
+<tr>
+<td><code>pipeline_binding_utilization</code></td>
+<td>The pool runs pipeline parallelism and its engine block states no <code>gpu_memory_utilization</code>: the stages' pools are compared at vLLM's default. Value <code>0.92</code>.</td>
+</tr>
+<tr>
+<td><code>pipeline_stages</code></td>
+<td>The pool runs pipeline parallelism: each stage is priced as its own step over the layers vLLM gives it, the embedding on the first, the head and drafter on the last, plus its boundary send and the receiving stage's TP all-gather; each stage's memory is its own, and the stage whose pool holds the fewest tokens binds. Value the stage count.</td>
+</tr>
+<tr>
+<td><code>pp_layer_partition</code></td>
+<td>The pool runs pipeline parallelism, and <code>VLLM_PP_LAYER_PARTITION</code>, which a deployment cannot state, is taken as unset: the stages split the layers as <code>get_pp_indices</code> does by default. Value <code>unset</code>.</td>
+</tr>
+<tr>
+<td><code>sharded_projection_gather</code></td>
+<td>The deployment splits a replicated projection over TP at decode, as Muse Spark's <abbr title="Mixture of experts">MoE</abbr> pooler and unpooler on Blackwell (<code>sharded_at_decode</code>): the gather that reassembles its columns is priced as the registry's <abbr title="NVIDIA's collective communications library">NCCL</abbr> all-gather over TP, where the engine fuses it into the next norm with its own NVLink kernels, which no registry entry measures. Value <code>nccl all_gather</code>.</td>
+</tr>
+<tr>
 <td><code>recurrent_prefill_rate_&lt;kind&gt;</code></td>
 <td>A recurrent mixer has no measured prefill form, so its prefill tokens are priced as the chunked scan's FLOPs on the BF16 ramp rather than at the decode scan's rate.</td>
 </tr>
@@ -1712,6 +1736,14 @@ reason. They are of two kinds.</p>
 <tr>
 <td><code>sparse_read_per_query</code></td>
 <td>A speculating deployment of a sparse-attention model: each verify token is charged its own window-and-top-k read, as vLLM gathers them, though the registry's rate was fitted on single-token decode and the sharing between a request's tokens was never measured.</td>
+</tr>
+<tr>
+<td><code>adaptive_verification_survival</code></td>
+<td>A deployment enabling DSpark adaptive verification: every request's draft slots are ranked by one survival curve, the run's stated per-position rates or, from its mean acceptance length, vLLM's minimum-variance schedule (<code>_acceptance_length_to_rates</code>), where the engine ranks each request by its own online estimate. Natural acceptance spreads more, so the trimmed budget is a lower bound on the trim.</td>
+</tr>
+<tr>
+<td><code>adaptive_verification_cost_curves</code></td>
+<td>A deployment enabling DSpark adaptive verification: the draft and verify cost tables the engine profiles from timed dummy steps are built, as the engine builds them, from this kernel's own NoOverlap prices of the same dummy steps, so the budget follows the kernel's prices rather than measured timings.</td>
 </tr>
 <tr>
 <td><code>speculator</code></td>

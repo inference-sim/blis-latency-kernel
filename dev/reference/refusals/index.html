@@ -1616,10 +1616,19 @@ change. The engine's reasons cite the vLLM v0.31.0 source in the code beside the
 <li>An expert-parallel width larger than the model's number of experts, which would leave some
   ranks with none.</li>
 </ul>
+<p><strong>Attention heads</strong></p>
+<ul>
+<li>A tensor-parallel width that does not divide the <abbr title="The attention keys and values a request keeps for every token it has processed">KV</abbr> heads of an attention whose graph says
+  its projection cannot replicate a head across ranks (<code>kv_heads_not_replicated</code>), as Muse
+  Spark's fused QKV and output-gate projection cannot: TP above 16 on its 16 <abbr title="The attention keys and values a request keeps for every token it has processed">KV</abbr> heads.</li>
+</ul>
 <h2 id="the-kernel-cannot-price-it-truthfully">The kernel cannot price it truthfully<a class="headerlink" href="#the-kernel-cannot-price-it-truthfully" title="Permanent link">&para;</a></h2>
 <ul>
-<li>Pipeline parallelism wider than one: the kernel has no stage split or transfer between
-  stages.</li>
+<li>Pipeline parallelism beside data parallelism or context parallelism (<code>pcp</code> or <code>dcp</code>
+  above one): the stage split prices one pipeline per pool. Pipeline parallelism on a model
+  whose graph states its caches, whose sizes are per layer kind over the whole stack rather
+  than per stage. A drafter that reads an auxiliary hidden state of a layer outside the
+  target's stack.</li>
 <li><code>dcp_q_replicate</code> where it would take effect: decode-context parallelism without
   prefill-context parallelism, on a latent-attention model. It trades a collective for a
   replicated projection the kernel cannot identify in the graph, so pricing only the saving
