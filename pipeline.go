@@ -470,7 +470,7 @@ func (k *Kernel) stagedStepTime(b kernel.Batch,
 // last stage, is charged as the single-stage step charges it.
 func (k *Kernel) stageHost(b kernel.Batch, st *pipelineStage, draftKernels int) time.Duration {
 	mode := k.graphOther
-	if len(b.Reqs) == 0 || b.UniformDecode(k.uniformDecodeWidth) {
+	if k.decodeGraphed(b) {
 		mode = k.graphDecode
 	}
 	kernels := st.kernels

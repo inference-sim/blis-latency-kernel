@@ -63,6 +63,8 @@ reason. They are of two kinds.
 | `recurrent_prefill_rate_<kind>` | A recurrent mixer has no measured prefill form, so its prefill tokens are priced as the chunked scan's FLOPs on the BF16 ramp rather than at the decode scan's rate. |
 | `sparse_mla_backend` | A DSA sparse-attention model on Hopper selects FlashInfer's sparse MLA backend, which needs a FlashInfer release the kernel cannot see installed. |
 | `sparse_read_per_query` | A speculating deployment of a sparse-attention model: each verify token is charged its own window-and-top-k read, as vLLM gathers them, though the registry's rate was fitted on single-token decode and the sharing between a request's tokens was never measured. |
+| `adaptive_verification_survival` | A deployment enabling DSpark adaptive verification: every request's draft slots are ranked by one survival curve, the run's stated per-position rates or, from its mean acceptance length, vLLM's minimum-variance schedule (`_acceptance_length_to_rates`), where the engine ranks each request by its own online estimate. Natural acceptance spreads more, so the trimmed budget is a lower bound on the trim. |
+| `adaptive_verification_cost_curves` | A deployment enabling DSpark adaptive verification: the draft and verify cost tables the engine profiles from timed dummy steps are built, as the engine builds them, from this kernel's own NoOverlap prices of the same dummy steps, so the budget follows the kernel's prices rather than measured timings. |
 | `speculator` | The deployment speculates and the graph states no speculator, so draft passes are not priced; or the deployment names a different method from the graph's speculator, which is the one priced. |
 
 ### Optional coefficients that were missing

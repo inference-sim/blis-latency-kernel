@@ -403,9 +403,6 @@ func construct(in Inputs) (*Kernel, error) {
 	}
 	k.noteShardedProjections()
 	k.adoptRouting(in.Routing, k.totalExperts > 0)
-	if err := k.resolveAdaptive(in.Acceptance); err != nil {
-		return nil, err
-	}
 	k.tiers = map[string]hardware.StorageDevice{}
 	for _, d := range in.Devices {
 		if d != nil {
@@ -421,6 +418,11 @@ func construct(in Inputs) (*Kernel, error) {
 			"the scenario declares vLLM "+v+" and its rules pack is that release's, but "+
 				"the engine behaviour this kernel encodes -- backend selection, defaults, "+
 				"refusals -- is v"+EngineBehaviourVersion+"'s (README, Sources of truth)")
+	}
+	// Last before provenance: the adaptive budget's cost curves are this kernel's own step
+	// prices, so every pricing term is settled first (adaptive.go).
+	if err := k.resolveAdaptive(in.Acceptance); err != nil {
+		return nil, err
 	}
 	k.buildProvenance(coeffs)
 	k.fixed = k.computeFixedBytes(in.Model)

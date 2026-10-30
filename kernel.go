@@ -1577,8 +1577,14 @@ func (k *Kernel) hostPerStep(b kernel.Batch) time.Duration { return k.hostPerSte
 // under its own mode and ceiling (draftHost); any other drafter's launches run under the
 // target's.
 func (k *Kernel) hostPerStepWith(b kernel.Batch, draftKernels int) time.Duration {
+	return k.hostPerStepSplit(b, b, draftKernels)
+}
+
+// hostPerStepSplit is hostPerStepWith for a step whose target forward runs over b and whose
+// drafter runs over drafted, which differ only under adaptive verification (adaptive.go).
+func (k *Kernel) hostPerStepSplit(b, drafted kernel.Batch, draftKernels int) time.Duration {
 	if draftKernels > 0 && k.draftHasOwnGraphs() {
-		return k.targetHost(b, 0) + k.draftHost(b, draftKernels)
+		return k.targetHost(b, 0) + k.draftHost(drafted, draftKernels)
 	}
 	return k.targetHost(b, draftKernels)
 }
@@ -1588,7 +1594,7 @@ func (k *Kernel) hostPerStepWith(b kernel.Batch, draftKernels int) time.Duration
 func (k *Kernel) targetHost(b kernel.Batch, draftKernels int) time.Duration {
 	mode := k.graphOther
 	// An empty step runs no forward; it is charged as the decode loop's idle step.
-	if len(b.Reqs) == 0 || b.UniformDecode(k.uniformDecodeWidth) {
+	if k.decodeGraphed(b) {
 		mode = k.graphDecode
 	}
 	kernels := k.stepKernels(b) + draftKernels

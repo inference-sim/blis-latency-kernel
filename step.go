@@ -245,6 +245,19 @@ func (k *Kernel) shapeOf(b kernel.Batch) stepShape {
 
 func (k *Kernel) stepTime(b kernel.Batch,
 	into map[kernel.Resource]time.Duration) kernel.StepEstimate {
+	if k.adaptive != nil {
+		// The target's forward runs the verify budget the engine chose; the drafter, as
+		// scheduled (adaptive.go).
+		return k.priceStep(k.adaptive.trim(k, b), b, into, true)
+	}
+	return k.priceStep(b, b, into, true)
+}
+
+// priceStep prices one step whose target forward runs over b and whose drafter, when draft is
+// set, runs over drafted: the same batch but under adaptive verification, where the verifier
+// runs a trimmed one (adaptive.go).
+func (k *Kernel) priceStep(b, drafted kernel.Batch,
+	into map[kernel.Resource]time.Duration, draft bool) kernel.StepEstimate {
 	tokens := b.PaddedTokens()
 	if tokens == 0 {
 		// An empty step launches no work but still costs the host its per-step overhead.
@@ -290,17 +303,17 @@ func (k *Kernel) stepTime(b kernel.Batch,
 
 	// The drafter's passes, when the deployment speculates (see priceDraft).
 	draftKernels := 0
-	if k.speculating {
-		var draft float64
-		draft, draftKernels = k.priceDraft(b, &s, &perResource)
-		overlapSeconds += draft
+	if k.speculating && draft {
+		var d float64
+		d, draftKernels = k.priceDraft(drafted, &s, &perResource)
+		overlapSeconds += d
 	}
 
 	// The host is additive against everything: the CPU is a resource that cannot overlap
 	// with itself, and its work is not hidden behind a stage the way device work is. Per
 	// kernel dispatch joins it, for the same reason — a kernel cannot run before it has
 	// been dispatched.
-	host := k.hostPerStepWith(b, draftKernels) + seconds(k.launchSeconds(b, draftKernels))
+	host := k.hostPerStepSplit(b, drafted, draftKernels) + seconds(k.launchSeconds(b, draftKernels))
 	perResource[idxHost] = host.Seconds()
 
 	// The breakdown map is the only thing that can allocate here. A caller that supplied
@@ -1051,7 +1064,7 @@ func (k *Kernel) priceLayers(layers []price.PlannedLayer, fits [][]gemmFit, kv [
 // (gpu_model_runner.py:4407-4413).
 func (k *Kernel) stepGraphed(b kernel.Batch) bool {
 	mode := k.graphOther
-	if len(b.Reqs) == 0 || b.UniformDecode(k.uniformDecodeWidth) {
+	if k.decodeGraphed(b) {
 		mode = k.graphDecode
 	}
 	return mode != graphModeEager && b.PaddedTokens() <= k.captureTokens
