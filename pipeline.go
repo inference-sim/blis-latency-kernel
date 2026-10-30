@@ -211,9 +211,12 @@ func (k *Kernel) liftPipeline(g *model.Graph) error {
 			"per stage", pp)
 	}
 	seq := g.Stack.Expand()
+	// Not an engine refusal: get_pp_indices gives a stage no layers when there
+	// are fewer layers than stages (vllm/distributed/utils.py:152-163@v0.32.0) and vLLM
+	// checks nothing there, but a stage of no layers is not one this pricing describes.
 	if len(seq) < pp {
 		return fmt.Errorf("pipeline parallelism (pp %d) over %d decoder layers leaves a stage "+
-			"with none, which vLLM refuses", pp, len(seq))
+			"with none, which is not priced", pp, len(seq))
 	}
 	boundary := float64(g.Global.PipelineBoundaryBytesPerToken)
 	if boundary <= 0 {
@@ -276,16 +279,8 @@ func (k *Kernel) liftPipeline(g *model.Graph) error {
 			st.kernels += k.plan.Head.Kernels
 			st.prefillOnlyKernels += k.plan.Head.PrefillOnlyKernels
 		} else {
-			// The states captured at or before this boundary (a capture id L is the state
-			// entering layer L, so one at the boundary's own index is captured upstream)
-			// that the last stage still needs.
-			carried := 0
-			for _, id := range aux {
-				if id <= span[1] {
-					carried++
-				}
-			}
-			whole := boundary + float64(carried)*auxBytes
+			whole := boundary + auxCarriedBytes(aux, span, auxBytes,
+				float64(g.Global.HiddenSize)*price.ActivationBytes)
 			st.sendBytesPerToken = whole / float64(tp)
 			k.stages[s+1].recvBytesPerToken = whole
 			st.crossesNode = crosses(s)
@@ -330,6 +325,31 @@ func (k *Kernel) auxHiddenStates(g *model.Graph, layers int) ([]int, float64, er
 		b = float64(g.Global.HiddenSize) * price.ActivationBytes
 	}
 	return sp.AuxHiddenStateLayers, b, nil
+}
+
+// auxCarriedBytes is the auxiliary hidden states a stage spanning layers [span[0], span[1])
+// sends the next a token: every state captured at or before its boundary (a capture id L is
+// the state entering layer L, so one at the boundary's own index is captured upstream,
+// bisect_right in _aux_slot_base, vllm/model_executor/models/interfaces.py:1595@v0.32.0).
+// One captured on this stage crosses at own, the width the graph states; one captured on an
+// earlier stage is relayed out of the receive slot the engine allocated at the model dtype,
+// one hidden-width activation, act (reserve_aux_intermediate_tensor_slots,
+// vllm/v1/worker/gpu/spec_decode/eagle/eagle3_utils.py:89-95; the slots sized at
+// model_config.dtype, gpu/model_runner.py:537-541, and copied into at :1980; relayed as
+// received, gpu/pp_utils.py:109-123). The two differ only where the graph states a wider state
+// than an activation, and only from the third stage on.
+func auxCarriedBytes(aux []int, span [2]int, own, act float64) float64 {
+	var b float64
+	for _, id := range aux {
+		switch {
+		case id > span[1]:
+		case id > span[0] || span[0] == 0:
+			b += own
+		default:
+			b += act
+		}
+	}
+	return b
 }
 
 // pipelineSendSeconds prices one stage's boundary send for a step of tokens: the slice
@@ -511,12 +531,12 @@ func (k *Kernel) stageHost(b kernel.Batch, st *pipelineStage, draftKernels int) 
 //   - KV a token: its own layers' growing caches, the drafter's on the last.
 //
 // The binding stage is the one whose pool holds the fewest blocks: the memory left beside its
-// fixed bytes over its KV a block. The budget is the part's memory times
-// gpu_memory_utilization, which the engine model owns and the kernel does not see, and where
-// stages trade fixed bytes against KV a token the binding one can depend on it; the kernel
-// compares them at vLLM's default utilization (assumedMemoryUtilization) and records that,
-// and an engine model that sizes each stage's pool at its own budget reads
-// PipelineStageMemory.
+// fixed bytes over its KV a block. The budget is the part's memory times the deployment's
+// gpu_memory_utilization (requested_memory, vllm/v1/worker/gpu_worker.py:535-540@v0.32.0),
+// and where stages trade fixed bytes against KV a token the binding one depends on it, so the
+// stages are compared at the deployment's value, at vLLM's default (defaultMemoryUtilization)
+// only where the block states none, which is recorded. An engine model that sizes each stage's
+// pool at its own budget reads PipelineStageMemory.
 func (k *Kernel) liftPipelineMemory() {
 	embedding := k.embeddingResidentBytes(k.graph)
 	targetEmbedOnLast := k.speculating && k.plan.Draft != nil &&
@@ -549,7 +569,14 @@ func (k *Kernel) liftPipelineMemory() {
 
 // bindStage picks the binding pipeline stage from the stages' memory (liftPipelineMemory).
 func (k *Kernel) bindStage() {
-	part := k.chip.MemoryGiB * (1 << 30) * assumedMemoryUtilization
+	util := k.engine.GPUMemoryUtilization
+	if util <= 0 {
+		util = defaultMemoryUtilization
+		k.assume("pipeline_binding_utilization", strconv.FormatFloat(util, 'g', -1, 64),
+			"the deployment states no gpu_memory_utilization, so the pipeline stages' pools are "+
+				"compared at vLLM's default (vllm/config/cache.py:102@v0.32.0)")
+	}
+	part := k.chip.MemoryGiB * (1 << 30) * util
 	best, binding := math.Inf(1), 0
 	for i := range k.stages {
 		st := &k.stages[i]
@@ -581,14 +608,16 @@ func (k *Kernel) bindStage() {
 	k.ppKVBytesPerToken = k.stages[binding].memory.kvPerToken
 	k.assume("pipeline_binding_stage", strconv.Itoa(binding),
 		"FixedBytes and the sequence sizes are this pipeline rank's: of the stages' pools, "+
-			"each its own budget less its own fixed bytes over its own KV a token, it holds the "+
-			"fewest tokens at vLLM's default gpu_memory_utilization of 0.92 "+
-			"(vllm/config/cache.py:102); PipelineStageMemory reports every stage")
+			"each its own budget at the deployment's gpu_memory_utilization less its own fixed "+
+			"bytes over its own KV a token, it holds the fewest tokens "+
+			"(get_kv_cache_configs, vllm/v1/core/kv_cache_utils.py:2650-2680@v0.32.0); "+
+			"PipelineStageMemory reports every stage")
 }
 
-// assumedMemoryUtilization is vLLM's default gpu_memory_utilization (CacheConfig,
-// vllm/config/cache.py:102@v0.32.0), at which the kernel picks the binding pipeline stage.
-const assumedMemoryUtilization = 0.92
+// defaultMemoryUtilization is vLLM's default gpu_memory_utilization (CacheConfig,
+// vllm/config/cache.py:102@v0.32.0), at which the kernel picks the binding pipeline stage when
+// the deployment states none.
+const defaultMemoryUtilization = 0.92
 
 // needsTargetEmbed reports whether a draft method's drafter reads the target's input
 // embedding on the last pipeline stage, which the target then builds there:

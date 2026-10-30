@@ -100,3 +100,65 @@ func TestAnUnsplittableKVHeadCountIsRefused(t *testing.T) {
 		t.Error("a drafter layer's unsplittable heads at tp 32 were priced")
 	}
 }
+
+// The binding stage is compared at the deployment's gpu_memory_utilization, not vLLM's
+// default: each worker's pool is total x utilization less its own fixed bytes
+// (gpu_worker.py:535-540@v0.32.0), so a stage heavy on weights binds at a low utilization
+// and the KV-heavy one at a high one.
+func TestTheBindingStageIsReadAtTheDeploymentsUtilization(t *testing.T) {
+	const gb = 1e9
+	k := &Kernel{chip: hardware.Chip{MemoryGiB: 80}, graph: &model.Graph{}, blockSize: 16}
+	stages := func() []pipelineStage {
+		return []pipelineStage{
+			{memory: stageMemory{weights: 60 * gb, kvPerToken: 1000}},
+			{memory: stageMemory{weights: 20 * gb, kvPerToken: 3000}},
+		}
+	}
+	// 80 GiB is 85.9 GB. At 0.92 (79.0 GB) stage 0 holds 19.0M tokens and stage 1 19.7M: stage
+	// 0 binds. At 0.75 (64.4 GB) stage 0 holds 4.4M and stage 1 14.8M: stage 0. At 0.99
+	// (85.0 GB) stage 0 holds 25.0M and stage 1 21.7M: stage 1.
+	for _, c := range []struct {
+		util float64
+		want int
+	}{{0, 0}, {0.92, 0}, {0.99, 1}} {
+		k.stages = stages()
+		k.engine.GPUMemoryUtilization = c.util
+		k.bindStage()
+		if k.ppKVStage != c.want {
+			t.Errorf("gpu_memory_utilization %v: binding stage %d, want %d", c.util, k.ppKVStage, c.want)
+		}
+	}
+}
+
+// A boundary carries each auxiliary state the drafter reads that was captured upstream of it.
+// One captured on the sending stage crosses at the width the graph states (Muse Spark's fp32
+// stream); one captured on an earlier stage is relayed out of the receive slot the stage before
+// allocated at the model dtype (reserve_aux_intermediate_tensor_slots,
+// vllm/v1/worker/gpu/spec_decode/eagle/eagle3_utils.py:89-95@v0.32.0, sized at
+// model_config.dtype, gpu/model_runner.py:537-541, copied in at :1980, relayed as received,
+// gpu/pp_utils.py:109-123), so it crosses at one hidden-width activation.
+func TestARelayedAuxStateCrossesAtTheModelDType(t *testing.T) {
+	aux := []int{14, 30, 46, 58, 62}
+	const own, act = 32768.0, 16384.0
+	spans := ppIndices(62, 3) // [0,21) [21,42) [42,62)
+	for _, c := range []struct {
+		stage int
+		want  float64
+	}{
+		{0, 1 * own},       // 14 captured on stage 0
+		{1, 1*act + 1*own}, // 14 relayed, 30 captured on stage 1
+		{2, 0},             // the last stage sends nothing
+	} {
+		if c.stage == len(spans)-1 {
+			continue
+		}
+		if got := auxCarriedBytes(aux, spans[c.stage], own, act); got != c.want {
+			t.Errorf("stage %d %v: carries %v B of aux states a token, want %v", c.stage,
+				spans[c.stage], got, c.want)
+		}
+	}
+	// At pp 2 every carried state is the sending stage's own.
+	if got := auxCarriedBytes(aux, ppIndices(62, 2)[0], own, act); got != 2*own {
+		t.Errorf("pp 2 stage 0: %v B, want %v", got, 2*own)
+	}
+}
