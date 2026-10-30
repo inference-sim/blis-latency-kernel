@@ -89,6 +89,9 @@ type Kernel struct {
 	draftKVBytesPerToken float64
 	// speculating is a deployment that drafts with a speculator the graph states.
 	speculating bool
+	// adaptive is adaptive verification's resolved state, nil when the engine does not enable
+	// it (adaptive.go).
+	adaptive *adaptiveVerify
 
 	// attentionByRole holds a secondary attention kernel's measured form where the registry
 	// carries one under its role, as it does for DeepSeek-V4.1's block_index_scores.

@@ -13,6 +13,7 @@ import (
 	"github.com/inference-sim/blis-schemas/kernel"
 	"github.com/inference-sim/blis-schemas/kernel/enginesettings"
 	"github.com/inference-sim/blis-schemas/rules"
+	"github.com/inference-sim/blis-schemas/spec/acceptance"
 	"github.com/inference-sim/blis-schemas/spec/coefficient"
 	"github.com/inference-sim/blis-schemas/spec/deployment"
 	"github.com/inference-sim/blis-schemas/spec/hardware"
@@ -62,6 +63,11 @@ type Inputs struct {
 	// the caller, as speculative acceptance is. Nil prices an expert-parallel group as
 	// evenly loaded and records that as an assumption.
 	Routing *routing.Resolution
+	// Acceptance is the run's resolved speculative acceptance (blis-schemas acceptance.Resolve),
+	// resolved by the caller as Routing is. It is read only when the engine enables adaptive
+	// verification (enginesettings.Speculative.EnableAdaptiveVerification), where it is
+	// required: the verify budget the engine chooses depends on it (adaptive.go).
+	Acceptance *acceptance.Resolution
 }
 
 // New resolves the inputs into a kernel.
@@ -397,6 +403,9 @@ func construct(in Inputs) (*Kernel, error) {
 	}
 	k.noteShardedProjections()
 	k.adoptRouting(in.Routing, k.totalExperts > 0)
+	if err := k.resolveAdaptive(in.Acceptance); err != nil {
+		return nil, err
+	}
 	k.tiers = map[string]hardware.StorageDevice{}
 	for _, d := range in.Devices {
 		if d != nil {
