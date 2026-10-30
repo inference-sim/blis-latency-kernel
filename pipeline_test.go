@@ -148,3 +148,27 @@ func TestGroupedNVFP4ReadsItsOwnRamp(t *testing.T) {
 		t.Errorf("MXFP4 grouped on Hopper moved to %s", got.suffix)
 	}
 }
+
+// An entry of the efficiency's name scoped by hardware or model alone does not hide the
+// fabric-scoped one, whichever comes later in the sets and whatever the model precedence.
+func TestANonFabricEntryDoesNotHideTheFabricsEfficiency(t *testing.T) {
+	roce := &hardware.Fabric{Name: "roce-200g", InterNodeBwGBps: 25}
+	for _, c := range []struct {
+		what  string
+		other coefficient.Scope
+	}{
+		{"hardware-only after it", coefficient.Scope{Hardware: []string{"h100"}}},
+		{"model-only after it", coefficient.Scope{Model: []string{"m"}}},
+		{"model and hardware after it", coefficient.Scope{Hardware: []string{"h100"}, Model: []string{"m"}}},
+	} {
+		sets := fabricSet(efficiency(0.6, coefficient.Scope{Fabric: []string{"roce-200g"}}),
+			efficiency(0.3, c.other))
+		co, err := resolve.Load(sets, resolve.Scope{Hardware: "h100", Model: "m", Fabric: "roce-200g"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if e, ok, err := resolveFabricEfficiency(co, roce); err != nil || !ok || e != 0.6 {
+			t.Errorf("%s: %v stated=%v err=%v, want the fabric's 0.6", c.what, e, ok, err)
+		}
+	}
+}

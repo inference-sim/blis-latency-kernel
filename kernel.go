@@ -118,6 +118,9 @@ type Kernel struct {
 	// captureBreaks is how many regions a breakable capture leaves eager, zero for a model
 	// split at its attention ops instead (modeHost).
 	captureBreaks int
+	// breakableCapture is whether the model runs under a breakable capture at all, which a
+	// pipeline stage with no attention layer of its own (captureBreaks 0) still does.
+	breakableCapture bool
 
 	// Constants lifted out of the coefficient set once, so the hot path reads fields
 	// rather than hashing strings.

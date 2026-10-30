@@ -32,13 +32,15 @@ const fabricEfficiencyName = "fabric_bandwidth_efficiency"
 // its line rate, and zero or below would make a transfer free or infinite.
 //
 // Only an entry scoped to a fabric is read. An entry of this name scoped only by hardware or
-// model would apply over every fabric, which is the nominal-rate error this term corrects.
+// model would apply over every fabric, which is the nominal-rate error this term corrects;
+// it is skipped rather than allowed to hide the fabric's own entry, wherever the two sit in
+// the scenario's sets (resolve.Coefficients.EntryScopedToFabric).
 func resolveFabricEfficiency(c *resolve.Coefficients, f *hardware.Fabric) (float64, bool, error) {
 	if f == nil {
 		return 1, true, nil
 	}
-	r, ok := c.Entry(fabricEfficiencyName)
-	if !ok || len(r.Entry.Scope.Fabric) == 0 {
+	r, ok := c.EntryScopedToFabric(fabricEfficiencyName)
+	if !ok {
 		return 1, false, nil
 	}
 	e := r.Entry.Value

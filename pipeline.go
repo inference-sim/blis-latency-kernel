@@ -272,10 +272,15 @@ func (k *Kernel) stageHost(b kernel.Batch, st *pipelineStage, draftKernels int) 
 		case graphModeFull:
 			return k.replayPerStep
 		case graphModePiecewise:
-			if k.captureBreaks > 0 {
-				return time.Duration(float64(k.replayPerStep) * float64(1+k.captureBreaks))
+			// The stage's own pieces: a stage's worker compiles and captures only the layers
+			// it holds, so its replays are its layers' segments, or its breaks' regions under
+			// a breakable capture, not the whole model's.
+			if k.breakableCapture {
+				return time.Duration(float64(k.replayPerStep) *
+					float64(1+k.captureBreaksOf(st.layers)))
 			}
-			return time.Duration(float64(k.replayPerStep) * float64(max(st.totalLayers, 1)))
+			return time.Duration(float64(k.replayPerStep) *
+				float64(price.PiecewiseSegmentsOf(st.totalLayers, st.layers)))
 		}
 		return time.Duration(float64(k.launchEager) * float64(modeKernels))
 	}
