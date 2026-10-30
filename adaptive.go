@@ -60,7 +60,7 @@ func (k *Kernel) resolveAdaptive(acc *acceptance.Resolution) error {
 			"verification with pipeline parallelism (vllm/config/vllm.py:3019-3028@5df63a72)")
 	}
 	survival := acc.PerPositionRates
-	if len(survival) != n {
+	if len(survival) != n || acc.RatesDerived {
 		r, err := acceptance.MinimumVarianceRates(acc.AcceptanceLength, n)
 		if err != nil {
 			return fmt.Errorf("speculative.enable_adaptive_verification: acceptance: %w", err)

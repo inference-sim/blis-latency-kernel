@@ -1,6 +1,9 @@
 package latencykernel
 
 import (
+	"github.com/inference-sim/blis-latency-kernel/internal/price"
+	"github.com/inference-sim/blis-schemas/spec/model"
+	"strings"
 	"testing"
 
 	"github.com/inference-sim/blis-schemas/kernel"
@@ -204,5 +207,32 @@ func TestAdaptiveBudgetTiesKeepTheFirst(t *testing.T) {
 	}
 	if got, _ := k.adaptive.budget(k, decodeBatch(4)); got != 0 {
 		t.Errorf("all budgets tie: picked %d, want the first, 0", got)
+	}
+}
+
+// Rates the resolver derived are the minimum-variance schedule for the mean acceptance length,
+// and are disclosed as that, not as stated rates.
+func TestDerivedRatesAreDisclosedAsTheSchedule(t *testing.T) {
+	for _, derived := range []bool{true, false} {
+		k := adaptiveKernel(t, false, 0)
+		k.engine.Speculative.EnableAdaptiveVerification = true
+		k.adaptive = nil
+		k.graph = &model.Graph{}
+		k.plan = &price.Plan{}
+		acc := &acceptance.Resolution{AcceptanceLength: 2.84, PerPositionRates: []float64{1, 0.84, 0, 0, 0, 0, 0},
+			RatesDerived: derived}
+		// No capture sizes to profile, so it refuses; the assumption is recorded first.
+		if err := k.resolveAdaptive(acc); err == nil {
+			t.Error("profiled with no captured graph")
+		}
+		var scope string
+		for _, a := range k.assumptions {
+			if a.Name == "adaptive_verification_survival" {
+				scope = a.Scope
+			}
+		}
+		if got := strings.Contains(scope, "minimum-variance"); got != derived {
+			t.Errorf("derived %v: assumption %q", derived, scope)
+		}
 	}
 }
