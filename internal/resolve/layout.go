@@ -113,16 +113,31 @@ type Fabric struct {
 	// alone, which is why both arrive together.
 	IntraNodeBwGBps float64
 	InterNodeBwGBps float64
+	// InterNodeEfficiency is the measured fraction of InterNodeBwGBps a transfer over the
+	// fabric achieves (blis-registry fabric_bandwidth_efficiency); zero reads as one, the
+	// nominal rate.
+	InterNodeEfficiency float64
+}
+
+// EffectiveInterNodeBwGBps is the fabric's nominal per-GPU rate corrected by its measured
+// efficiency.
+func (f Fabric) EffectiveInterNodeBwGBps() float64 {
+	if f.InterNodeEfficiency > 0 {
+		return f.InterNodeBwGBps * f.InterNodeEfficiency
+	}
+	return f.InterNodeBwGBps
 }
 
 // Ratio returns the intra-to-inter bandwidth ratio a collective's span is scaled by. One
 // when no fabric is stated, which is the single-node case: nothing crosses, so nothing is
-// scaled.
+// scaled. The inter-node side is the effective rate, so a fabric that achieves less of its
+// line rate scales a crossing collective's bytes by more.
 func (f Fabric) Ratio() float64 {
-	if f.InterNodeBwGBps <= 0 || f.IntraNodeBwGBps <= 0 {
+	inter := f.EffectiveInterNodeBwGBps()
+	if inter <= 0 || f.IntraNodeBwGBps <= 0 {
 		return 1
 	}
-	return f.IntraNodeBwGBps / f.InterNodeBwGBps
+	return f.IntraNodeBwGBps / inter
 }
 
 // ResolveLayout derives a pool's layout from the scenario, the fabric it runs on, and the
@@ -243,6 +258,16 @@ func (l Layout) Emits(c model.EmitCondition) bool {
 		return l.ModelSequenceParallel
 	case model.EmitTensorParallelUnlessSequenceParallel:
 		return l.TP > 1 && !l.ModelSequenceParallel
+	case model.EmitTensorParallelWithoutExpertParallel:
+		// The experts are sharded by tensor parallelism only while expert parallelism is
+		// off; under it every expert is whole on one rank (FusedMoEParallelConfig.make,
+		// vllm/model_executor/layers/fused_moe/config.py: ep_size = tp_size, tp_size = 1).
+		return l.TP > 1 && l.ExpertWidth <= 1
+	case model.EmitExpertParallelWithoutDispatch:
+		// Expert parallelism over a group that holds every token: no all-to-all moves them
+		// (MoEDispatches is false), so each rank's partial expert output is all-reduced
+		// across the group, which is the tensor-parallel group here.
+		return l.ExpertWidth > 1 && l.TP > 1 && !l.MoEDispatches()
 	}
 	// An unrecognized condition answers false here, but it never reaches this line from
 	// the pricer: BuildPlan asks Recognizes first and rejects the graph, because silently
@@ -256,7 +281,8 @@ func Recognizes(c model.EmitCondition) bool {
 	switch c {
 	case model.EmitAlways, model.EmitTensorParallel, model.EmitExpertParallel,
 		model.EmitTensorParallelUnlessSequenceParallelMoE, model.EmitSequenceParallel,
-		model.EmitTensorParallelUnlessSequenceParallel:
+		model.EmitTensorParallelUnlessSequenceParallel,
+		model.EmitTensorParallelWithoutExpertParallel, model.EmitExpertParallelWithoutDispatch:
 		return true
 	}
 	return false

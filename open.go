@@ -11,6 +11,7 @@ import (
 	"github.com/inference-sim/blis-schemas/spec/coefficient"
 	"github.com/inference-sim/blis-schemas/spec/deployment"
 	"github.com/inference-sim/blis-schemas/spec/hardware"
+	"github.com/inference-sim/blis-schemas/spec/model"
 	"github.com/inference-sim/blis-schemas/spec/scenario"
 )
 
@@ -211,9 +212,16 @@ func OpenInputs(scenario string, r Repos, poolIndex int) (Inputs, error) {
 	if err != nil {
 		return Inputs{}, fmt.Errorf("%s: pool %d's engine block: %w", scenario, poolIndex, err)
 	}
+	var draft *model.Graph
+	if name := draftModelName(eng); name != "" {
+		if draft, err = schemas.LoadModelGraph(
+			filepath.Join(r.Catalog, "models", name, "graph.yaml")); err != nil {
+			return Inputs{}, fmt.Errorf("draft model %q: %w", name, err)
+		}
+	}
 	return Inputs{
 		Scenario: sc, Deployment: dep, PoolIndex: poolIndex,
-		Model: graph, Chip: chip, Fabric: fabric,
+		Model: graph, Draft: draft, Chip: chip, Fabric: fabric,
 		Devices: devices, Coefficients: sets, Rules: er, Engine: &eng,
 	}, nil
 }

@@ -25,6 +25,9 @@ import (
 type Coefficients struct {
 	// byName holds the winning entry per name, with the set it came from.
 	byName map[string]Resolved
+	// byNameFabric holds the winning FABRIC-scoped entry per name, by the same precedence
+	// among fabric-scoped entries alone (EntryScopedToFabric).
+	byNameFabric map[string]Resolved
 	// order records the set names in the order they were applied, for provenance.
 	order []string
 }
@@ -45,7 +48,14 @@ type Resolved struct {
 // make a model's own constant silently lose to the generic one placed after it. Among
 // entries equally specific in that sense, the later one wins as before.
 func Load(sets []*coefficient.Set, scope Scope) (*Coefficients, error) {
-	c := &Coefficients{byName: map[string]Resolved{}}
+	c := &Coefficients{byName: map[string]Resolved{}, byNameFabric: map[string]Resolved{}}
+	put := func(into map[string]Resolved, e coefficient.Entry, set string) {
+		if prev, ok := into[e.Name]; ok && len(prev.Entry.Scope.Model) > 0 &&
+			len(e.Scope.Model) == 0 {
+			return
+		}
+		into[e.Name] = Resolved{Entry: e, Set: set}
+	}
 	for _, s := range sets {
 		if s == nil {
 			continue
@@ -55,11 +65,10 @@ func Load(sets []*coefficient.Set, scope Scope) (*Coefficients, error) {
 			if !scope.Admits(e.Scope) {
 				continue
 			}
-			if prev, ok := c.byName[e.Name]; ok && len(prev.Entry.Scope.Model) > 0 &&
-				len(e.Scope.Model) == 0 {
-				continue
+			put(c.byName, e, s.Name)
+			if len(e.Scope.Fabric) > 0 {
+				put(c.byNameFabric, e, s.Name)
 			}
-			c.byName[e.Name] = Resolved{Entry: e, Set: s.Name}
 		}
 	}
 	if len(c.byName) == 0 {
@@ -76,11 +85,14 @@ type Scope struct {
 	TP           int
 	EP           int
 	NodesSpanned int
+	// Fabric is the cluster's inter-node network, its catalog identity, or "" for a
+	// single-node cluster. An entry scoped to a fabric applies only over that fabric.
+	Fabric string
 }
 
 func (s Scope) String() string {
-	return fmt.Sprintf("hardware=%s model=%s tp=%d ep=%d nodes_spanned=%d",
-		s.Hardware, s.Model, s.TP, s.EP, s.NodesSpanned)
+	return fmt.Sprintf("hardware=%s model=%s tp=%d ep=%d nodes_spanned=%d fabric=%s",
+		s.Hardware, s.Model, s.TP, s.EP, s.NodesSpanned, s.Fabric)
 }
 
 // Admits reports whether an entry's scope covers this deployment.
@@ -103,6 +115,11 @@ func (s Scope) Admits(e coefficient.Scope) bool {
 		return false
 	}
 	if len(e.NodesSpanned) > 0 && !containsInt(e.NodesSpanned, s.NodesSpanned) {
+		return false
+	}
+	// A fabric-scoped entry was measured over one interconnect, so a deployment on another
+	// fabric, or on none, is outside it.
+	if len(e.Fabric) > 0 && (s.Fabric == "" || !containsString(e.Fabric, s.Fabric)) {
 		return false
 	}
 	return true
@@ -138,6 +155,16 @@ func (c *Coefficients) Has(name string) bool {
 // Entry returns the full resolved entry, for a caller that needs its evidence.
 func (c *Coefficients) Entry(name string) (Resolved, bool) {
 	r, ok := c.byName[name]
+	return r, ok
+}
+
+// EntryScopedToFabric returns the winning entry of a name among the admitted entries that
+// state a fabric scope, by Load's precedence applied to those alone. A term that only a
+// fabric's own measurement may set reads this rather than Entry: an entry of the same name
+// scoped by hardware or model alone, wherever it sits in the scenario's sets, would win
+// Entry and hide the fabric's.
+func (c *Coefficients) EntryScopedToFabric(name string) (Resolved, bool) {
+	r, ok := c.byNameFabric[name]
 	return r, ok
 }
 

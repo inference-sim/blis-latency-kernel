@@ -1,17 +1,18 @@
 # Parallelism
 
-<p class="lede">A deployment spreads a model over several GPUs in up to five ways at once.
+<p class="lede">A deployment spreads a model over several GPUs in up to six ways at once.
 Each way divides some of the work or memory and adds communication to pay for it. The kernel
 prices one rank, so for each way it needs two answers: what this rank no longer has to do,
 and what it now has to exchange with its group.</p>
 
 A *rank* is one GPU's process in the deployment, numbered from 0. A *group* is the set of
 ranks that share one kind of parallelism, and its *width* is how many ranks it holds; the
-widths are written tp, dp, ep, pcp and dcp below.
+widths are written tp, pp, dp, ep, pcp and dcp below.
 
 | Parallelism | Divides | Costs |
 |---|---|---|
 | Tensor (tp) | Each layer's weights and attention heads | An all-reduce after the layers that split their output |
+| Pipeline (pp) | The decoder layers, a contiguous share per stage | Each stage hands its activations to the next |
 | Data (dp) | The requests: each replica serves its own | Nothing for dense layers; with experts, the replicas share them |
 | Expert (ep) | A mixture-of-experts layer's experts, whole experts per rank | Sending each token to its experts and back |
 | Prefill-context (pcp) | A prompt's tokens during prefill | Gathering the KV cache back onto every rank |
@@ -72,6 +73,43 @@ collectives it runs depends on a setting, `dcp_comm_backend`, and the kernel pri
 the ones vLLM launches for it. The slowest rank, the one holding the most tokens, sets the
 time.
 
+## Pipeline parallelism
+
+A pool of pp stages runs the model as pp forward passes in sequence, each stage on its own tp
+ranks holding a contiguous share of the decoder layers. The share is vLLM's own:
+`num_hidden_layers // pp` a stage, with the remainder spread over all but the last stage
+from the second-to-last backwards (`get_pp_indices`). The embedding runs on the first stage,
+the final norm, LM head and drafter on the last.
+
+Each stage is priced as a step of its own over its layers, with its own per-step host cost,
+since each stage is a separate worker launching its own kernels. It adds the send of its
+output to the next stage: the graph's `pipeline_boundary_bytes_per_token` (one hidden-width
+activation when unstated; four bytes a hidden unit for a model with an fp32 residual stream)
+over tp ranks sending in parallel, on NVLink when the next stage shares the node or the rack's
+NVLink domain, and on the fabric's NIC, at its effective rate, otherwise. The step is the sum
+of the stages, and `StepEstimate.Stages` reports each one, so a simulator can overlap the
+batches in flight one per stage.
+
+A rank holds its own stage's weights and KV. The engine sizes every worker's KV pool from its
+own free memory and keeps the smallest, so the binding rank is the stage holding the most
+weights and the most KV per token.
+
+Not priced: pipeline parallelism beside data or context parallelism, and a model whose graph
+states its caches. Both are refused.
+
+## Fabrics
+
+A collective, a P/D handoff or a pipeline boundary that leaves a node crosses the cluster's
+fabric. The catalog states its nominal per-GPU rate, a line rate divided by eight, and
+blis-registry states what fraction of it a transfer achieves (`fabric_bandwidth_efficiency`,
+scoped by the fabric's catalog name). The kernel prices every byte over the fabric at the
+corrected rate, and scales a cross-node collective's bytes by the ratio of on-node to
+corrected off-node bandwidth. Two clusters of comparable silicon on different fabrics price
+apart by this term. A part whose NVLink domain spans its rack (`GPUsPerRack` with
+`IntraRackBwGBps` in the catalog, as an NVL72 rack of 18 four-GPU trays) keeps a group inside
+the rack on NVLink, so the fabric applies only at the rack boundary. A cluster whose fabric
+has no efficiency in the registry is priced at the nominal rate, which is recorded.
+
 ## Which ranks a group contains
 
 The cost of a collective depends on where its members are: within a node it runs over
@@ -94,4 +132,7 @@ What each kind divides is resolved in
 Group placement is in `groupStride` and `crossesNodes` in
 [`kernel.go`](https://github.com/inference-sim/blis-latency-kernel/blob/main/kernel.go), and
 the context-parallel arithmetic is in the functions there whose names begin with `pcp` and
-`dcp`.
+`dcp`. The pipeline split is in
+[`pipeline.go`](https://github.com/inference-sim/blis-latency-kernel/blob/main/pipeline.go) and
+the fabric correction in
+[`fabric.go`](https://github.com/inference-sim/blis-latency-kernel/blob/main/fabric.go).

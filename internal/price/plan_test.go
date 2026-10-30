@@ -645,3 +645,56 @@ func TestConflictingExpertFormatsAreRefused(t *testing.T) {
 		t.Fatal("two routed-expert formats in one layer were planned as one")
 	}
 }
+
+// A latent MoE's dispatch and combine carry the routed experts' input width, latent_size,
+// not the hidden size, whichever order the graph states the two nodes in; a layer with no
+// latent projection keeps the hidden width, and a shared expert's latent_size does not count.
+func TestTheMoEDispatchCarriesTheLatentWidth(t *testing.T) {
+	const hidden, latent = 8192, 4096
+	experts := model.Node{Op: model.OpGroupedGEMM, Role: "experts", N: 4096, K: hidden,
+		Experts: 256, TopK: 8, LatentSize: latent}
+	a2a := model.Node{Op: model.OpAll2All, Emit: model.EmitExpertParallel}
+	for _, c := range []struct {
+		what  string
+		nodes []model.Node
+		want  float64
+	}{
+		{"experts then dispatch", []model.Node{experts, a2a}, latent * ActivationBytes},
+		{"dispatch then experts", []model.Node{a2a, experts}, latent * ActivationBytes},
+		{"no latent", []model.Node{{Op: model.OpGroupedGEMM, N: 4096, K: hidden, Experts: 256, TopK: 8}, a2a},
+			hidden * ActivationBytes},
+	} {
+		pl, err := planNodes(c.nodes, emitAll{}, PlanOptions{
+			WeightBytesPerParam: func(model.Node) float64 { return 2 },
+			Format:              func(model.Node) Format { return Format{DType: model.DTypeBF16} },
+		}, hidden)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var got float64
+		for _, col := range pl.Collectives {
+			if col.Op == model.OpAll2All {
+				got = col.BytesPerToken
+			}
+		}
+		if got != c.want {
+			t.Errorf("%s: the all-to-all carries %v B a token, want %v", c.what, got, c.want)
+		}
+	}
+}
+
+// A share of the stack's piecewise segments are its own layers' split points plus one, so a
+// pipeline stage counts the indexers of the sparse-MLA layers it holds and no others.
+func TestPiecewiseSegmentsOfAShare(t *testing.T) {
+	dense := PlannedLayer{Count: 10, AttnKind: model.AttentionGQA,
+		Attentions: []PlannedAttention{{}}}
+	sparse := PlannedLayer{Count: 6, AttnKind: model.AttentionSparseMLA,
+		Attentions: []PlannedAttention{{}, {Role: "block_index_scores"}}}
+	if got := PiecewiseSegmentsOf(16, []PlannedLayer{dense, sparse}); got != 16+6+1 {
+		t.Errorf("whole stack: %d segments, want 23", got)
+	}
+	sparse.Count = 2
+	if got := PiecewiseSegmentsOf(5, []PlannedLayer{{Count: 3, AttnKind: model.AttentionGQA}, sparse}); got != 5+2+1 {
+		t.Errorf("a stage of 3 dense and 2 sparse layers: %d segments, want 8", got)
+	}
+}

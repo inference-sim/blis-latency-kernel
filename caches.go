@@ -36,9 +36,33 @@ type layerKV struct {
 	// that primary's inferred cache, in bytes per context token, per rank.
 	stated   bool
 	perToken float64
+	// window is a sliding-window primary's window where its cache is inferred: the cache is
+	// a ring of that many tokens, not one that grows with context (SlidingWindowSpec,
+	// vllm/v1/kv_cache_interface.py:840-907@v0.32.0), so perToken prices its read and its
+	// ring's pages, and it adds nothing to the growing per-token figure (ringBytes).
+	window int
 	// inferred is the primary's inferred width whether or not it states its caches: the
 	// width a scorer that states none is scaled from.
 	inferred float64
+}
+
+// ringed reports whether a layer whose cache is inferred holds a sliding-window ring: its
+// primary attention is a sliding window with a window stated, and the layer owns no index
+// cache. A sparse or compressed layer's window bounds its read, not its cache, so only the
+// swa kind is a ring; and a sliding-window layer that owns an indexer's cache is a sparse
+// attention whose main cache the engine registers as full attention -- MiniMax-M3's
+// (get_kv_cache_spec returns FullAttentionSpec, vllm/models/minimax_m3/nvidia/model.py:
+// 562-571@v0.32.0), the rule blis-vllm's KV layer mapping applies too.
+func ringed(l price.PlannedLayer) bool {
+	if l.AttnKind != model.AttentionSWA || l.AttnWindow <= 0 {
+		return false
+	}
+	for _, c := range layerCaches(l) {
+		if c.Kind == model.CacheIndex && c.Owned {
+			return false
+		}
+	}
+	return true
 }
 
 // cacheTerm is one cache some layers own, with its paging resolved.
@@ -300,6 +324,57 @@ func (k *Kernel) cacheBoundedBytes(inFlight, extraRetained int) float64 {
 // tokens context tokens: WindowPagesPerRequest's own min() then caps each ring at those. A
 // negative count is a request that has seen none, whose rings hold no page.
 func (k *Kernel) cacheBoundedBytesUpTo(inFlight, extraRetained, tokens int) float64 {
+	return k.statedBoundedBytesUpTo(inFlight, extraRetained, tokens) +
+		k.ringBytes(inFlight, extraRetained, tokens)
+}
+
+// ringBytes is what the rank's inferred window rings hold for a request with inFlight tokens
+// in flight that has seen tokens context tokens: each ring at the pages the engine lets a
+// request hold, as a stated window cache is sized (WindowPagesPerRequest), times the layer's
+// per-token width. The drafter's rings count while the deployment speculates and the rank
+// holds the drafter.
+func (k *Kernel) ringBytes(inFlight, extraRetained, tokens int) float64 {
+	if tokens < 0 {
+		return 0
+	}
+	block := max(k.blockSize, 1)
+	ring := func(layers []price.PlannedLayer, kv []layerKV) float64 {
+		var total float64
+		for i, l := range layers {
+			if i >= len(kv) || kv[i].window <= 0 {
+				continue
+			}
+			pages := k.rules.WindowPagesPerRequest(model.Cache{Kind: model.CacheWindow,
+				Window: kv[i].window}, block, inFlight, extraRetained, tokens)
+			total += float64(pages*block) * kv[i].perToken * float64(l.Count)
+		}
+		return total
+	}
+	m := k.rankMemory()
+	total := ring(m.layers, m.kv)
+	if m.drafter && k.speculating && k.plan.Draft != nil {
+		total += ring(k.plan.Draft.Layers, k.draftLayerKV)
+	}
+	return total
+}
+
+// ringTransferBytes is what a P/D handoff moves of the target's inferred window rings for a
+// sequence of tokens: each ring clipped to cdiv(window, block) + 1 pages, as NIXL clips a
+// sliding-window group (cacheTransferBytes).
+func (k *Kernel) ringTransferBytes(tokens int) float64 {
+	block := max(k.blockSize, 1)
+	var total float64
+	for i, l := range k.plan.Layers {
+		if w := k.layerKV[i].window; w > 0 {
+			pages := min((tokens+block-1)/block, (w+block-1)/block+1)
+			total += float64(pages*block) * k.layerKV[i].perToken * float64(l.Count)
+		}
+	}
+	return total
+}
+
+// statedBoundedBytesUpTo is cacheBoundedBytesUpTo's share for the caches a graph states.
+func (k *Kernel) statedBoundedBytesUpTo(inFlight, extraRetained, tokens int) float64 {
 	if p := k.kvPool; p != nil {
 		var blocks int
 		for _, g := range p.groups {

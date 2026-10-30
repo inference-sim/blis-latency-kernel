@@ -118,6 +118,10 @@ type PlannedGEMM struct {
 	MHCFn bool
 	// Format is the weight format the GEMM computes from, which selects its compute rate.
 	Format Format
+	// ShardedAtDecode is a replicated GEMM whose output columns the engine splits over the
+	// tensor-parallel ranks for a small step (blis-schemas Node.ShardedAtDecode), nil for
+	// every other. It is never fused with a neighbour.
+	ShardedAtDecode *model.ShardedAtDecode
 }
 
 // Format is the weight format a GEMM computes from: the dtype and, for a block-scaled
@@ -482,8 +486,17 @@ const ActivationBytes = 2.0
 // mixer, and on a sparse-MLA layer its indexer as well (vllm::sparse_attn_indexer), which
 // the graph states as a second, cache-less attention node.
 func (p *Plan) PiecewiseSegments() int {
-	splits := p.TotalLayers
-	for _, l := range p.Layers {
+	return PiecewiseSegmentsOf(p.TotalLayers, p.Layers)
+}
+
+// PiecewiseSegmentsOf is PiecewiseSegments over any share of the stack: totalLayers decoder
+// layers, of which layers are the kinds with their counts. A pipeline stage is its own
+// compiled graph, split at its own layers' attention ops (each stage's worker compiles
+// and captures the layers it holds, vllm/model_executor/models/utils.py:895-919@v0.32.0
+// make_layers), so a stage's segment count is this over its layers.
+func PiecewiseSegmentsOf(totalLayers int, layers []PlannedLayer) int {
+	splits := totalLayers
+	for _, l := range layers {
 		if l.AttnKind != model.AttentionSparseMLA {
 			continue
 		}
@@ -689,6 +702,23 @@ func planNodes(nodes []model.Node, em Emitter, o PlanOptions,
 	// both column-parallel on the same K with the attention op between them, and vLLM
 	// cannot fuse across that.
 	fusable := -1
+	// dispatchWidth is the width a token crosses the MoE dispatch and combine at: the routed
+	// experts' input, which is latent_size where the layer's routed GroupedGEMM states one.
+	// A latent MoE projects to that width before the experts run, and FusedMoE is built at
+	// it, so its all-to-all carries latent rows: Nemotron-H passes the projection as
+	// routed_input_transform and builds FusedMoE at moe_latent_size
+	// (vllm/model_executor/models/nemotron_h.py:153-156, 230-250@v0.32.0; applied before
+	// dispatch, fused_moe/runner/moe_runner.py:714-722), and Muse Spark pools to
+	// moe_hidden_size before its experts (MuseSpark1xMoE, vllm/models/muse_spark/nvidia/
+	// model.py:450-457, 597-601, 922-928@0f6b2619). Read off every node first, so the order
+	// the graph states the All2All and the GroupedGEMM in does not matter.
+	dispatchWidth := hidden
+	for _, n := range nodes {
+		if n.Op == model.OpGroupedGEMM && n.Role != "shared_experts" && n.Experts != 1 &&
+			n.LatentSize > 0 && (n.Emit == model.EmitAlways || em.Emits(n.Emit)) {
+			dispatchWidth = n.LatentSize
+		}
+	}
 	for _, n := range nodes {
 		if n.Emit != model.EmitAlways {
 			if !em.Recognizes(n.Emit) {
@@ -744,7 +774,7 @@ func planNodes(nodes []model.Node, em Emitter, o PlanOptions,
 				N: n.N, K: n.K, FLOPsPerToken: f, ShardN: shardN,
 				Replicated: n.TP == model.TPReplicated, TokenSharded: tokenSharded,
 				WeightBytes: resident, WeightReadBytes: read, Format: o.Format(n),
-				MHCFn: mhcFn.MatchString(n.Role),
+				MHCFn: mhcFn.MatchString(n.Role), ShardedAtDecode: n.ShardedAtDecode,
 			}
 			// Fuse into the previous GEMM when the engine would. vLLM concatenates
 			// column-parallel projections that share an input ALONG THE OUTPUT
@@ -943,7 +973,7 @@ func planNodes(nodes []model.Node, em Emitter, o PlanOptions,
 			})
 		case model.OpAll2All:
 			pl.Collectives = append(pl.Collectives, PlannedCollective{
-				Op: n.Op, Group: GroupExpert, BytesPerToken: float64(hidden) * ActivationBytes,
+				Op: n.Op, Group: GroupExpert, BytesPerToken: float64(dispatchWidth) * ActivationBytes,
 				// Whether top_k multiplies this is a backend property, set by the caller
 				// that knows the resolved backend.
 				RoutedByTopK: true,

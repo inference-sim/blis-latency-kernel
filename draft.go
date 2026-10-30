@@ -107,6 +107,10 @@ func (k *Kernel) liftDraft(c *resolve.Coefficients, inferred func(price.PlannedL
 				continue
 			}
 			kv[i].perToken = per
+			if ringed(l) {
+				kv[i].window = l.AttnWindow
+				continue
+			}
 			k.draftKVBytesPerToken += per * float64(l.Count)
 		}
 		return kv
@@ -393,19 +397,29 @@ func (k *Kernel) liftStepTerms(c *resolve.Coefficients, g *model.Graph) error {
 	// (vllm/v1/worker/gpu_model_runner.py:5396-5407).
 	dbo := k.engine.DBO != nil && k.engine.DBO.Enabled
 	if a := g.Global.Architecture; !dbo && (a == rules.ArchDeepseekV41 || a == rules.ArchDeepseekV4) {
-		for _, l := range k.plan.Layers {
-			if l.AttnQHeads > 0 {
-				k.captureBreaks += l.Count
-			}
-			for _, gt := range l.Gathers {
-				if gt.Control == model.ResidencyEngramCPUOffload && k.engramOnHost {
-					// The prefetch's start and its finish.
-					k.captureBreaks += 2 * l.Count
-				}
+		k.breakableCapture = true
+		k.captureBreaks = k.captureBreaksOf(k.plan.Layers)
+	}
+	return nil
+}
+
+// captureBreaksOf is the eager regions a breakable capture leaves in these layers: one per
+// attention layer, and an Engram prefetch's start and finish where its table is on the host.
+// A pipeline stage counts its own layers' (stageHost).
+func (k *Kernel) captureBreaksOf(layers []price.PlannedLayer) int {
+	n := 0
+	for _, l := range layers {
+		if l.AttnQHeads > 0 {
+			n += l.Count
+		}
+		for _, gt := range l.Gathers {
+			if gt.Control == model.ResidencyEngramCPUOffload && k.engramOnHost {
+				// The prefetch's start and its finish.
+				n += 2 * l.Count
 			}
 		}
 	}
-	return nil
+	return n
 }
 
 // assumeEngram records how an engram table's placement was settled where the deployment did

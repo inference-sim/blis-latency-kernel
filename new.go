@@ -13,6 +13,7 @@ import (
 	"github.com/inference-sim/blis-schemas/kernel"
 	"github.com/inference-sim/blis-schemas/kernel/enginesettings"
 	"github.com/inference-sim/blis-schemas/rules"
+	"github.com/inference-sim/blis-schemas/spec/acceptance"
 	"github.com/inference-sim/blis-schemas/spec/coefficient"
 	"github.com/inference-sim/blis-schemas/spec/deployment"
 	"github.com/inference-sim/blis-schemas/spec/hardware"
@@ -53,11 +54,20 @@ type Inputs struct {
 	// the engine model's to open, not this cost model's, so it comes in already read, as Rules
 	// does (for vLLM, blis-latency-kernel/vllmsettings). Required.
 	Engine *enginesettings.Settings
+	// Draft is the graph of the catalog model the deployment names as its drafter
+	// (speculative.draft_model), a checkpoint of its own; nil when the deployment names none.
+	// It states itself as a speculator and is priced as the target's (withDrafter).
+	Draft *model.Graph
 	// Routing is the run's resolved expert-parallel routing imbalance (blis-schemas
 	// routing.Resolve), which depends on the model and the traffic and so is resolved by
 	// the caller, as speculative acceptance is. Nil prices an expert-parallel group as
 	// evenly loaded and records that as an assumption.
 	Routing *routing.Resolution
+	// Acceptance is the run's resolved speculative acceptance (blis-schemas acceptance.Resolve),
+	// resolved by the caller as Routing is. It is read only when the engine enables adaptive
+	// verification (enginesettings.Speculative.EnableAdaptiveVerification), where it is
+	// required: the verify budget the engine chooses depends on it (adaptive.go).
+	Acceptance *acceptance.Resolution
 }
 
 // New resolves the inputs into a kernel.
@@ -132,8 +142,10 @@ func construct(in Inputs) (*Kernel, error) {
 	eng := in.Engine.Clone()
 
 	fab := resolve.Fabric{IntraNodeBwGBps: in.Chip.IntraNodeBwGBps}
+	fabricName := ""
 	if in.Fabric != nil {
 		fab.InterNodeBwGBps = in.Fabric.InterNodeBwGBps
+		fabricName = in.Fabric.Name
 	}
 	// A rack is one NVLink domain where the chip says so: the catalog records a rack tier
 	// only on parts whose fabric spans chassis.
@@ -150,6 +162,29 @@ func construct(in Inputs) (*Kernel, error) {
 	if err != nil {
 		return nil, fmt.Errorf("resolving the model graph for %s: %w", in.Chip.Name, err)
 	}
+	// A drafter named by the deployment, a checkpoint of its own, joins the target graph as
+	// its speculator; one named without its graph is refused rather than priced as free.
+	if name := draftModelName(eng); name != "" || in.Draft != nil {
+		switch {
+		case in.Draft == nil:
+			return nil, fmt.Errorf("speculative.draft_model %q names a drafter whose graph was "+
+				"not given (Inputs.Draft), so its passes cannot be priced", name)
+		case name != in.Draft.Name:
+			return nil, fmt.Errorf("speculative.draft_model %q, and the drafter graph given is %q",
+				name, in.Draft.Name)
+		}
+		d, err := in.Draft.ForCapability(family)
+		if err != nil {
+			return nil, fmt.Errorf("resolving the drafter graph for %s: %w", in.Chip.Name, err)
+		}
+		if g, err = withDrafter(g, d); err != nil {
+			return nil, err
+		}
+		if p := g.Validate(); !p.OK() {
+			return nil, fmt.Errorf("the target graph with drafter %s does not validate:\n%w",
+				d.Name, p)
+		}
+	}
 	in.Model = g
 
 	layout, err := resolve.ResolveLayoutFor(in.Scenario, pool, eng, fab, in.Rules,
@@ -161,13 +196,29 @@ func construct(in Inputs) (*Kernel, error) {
 	coeffs, err := resolve.Load(in.Coefficients, resolve.Scope{
 		Hardware: in.Chip.Name, Model: in.Model.Name,
 		TP: layout.TP, EP: layout.ExpertWidth, NodesSpanned: layout.NodesSpanned,
+		Fabric: fabricName,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("resolving coefficients: %w", err)
 	}
+	// The fabric's measured effective fraction of its nominal line rate (blis-registry
+	// fabric_bandwidth_efficiency, scoped by fabric). The catalog states only the nominal
+	// figure, and two clusters of comparable silicon on RoCE and on InfiniBand differ by
+	// what this corrects; without it both price at their datasheet rates.
+	fabricEfficiency, fabricEfficiencyStated, err := resolveFabricEfficiency(coeffs, in.Fabric)
+	if err != nil {
+		return nil, err
+	}
+	fab.InterNodeEfficiency = fabricEfficiency
 
 	k := &Kernel{layout: layout, fabric: fab, pool: pool, engine: eng, chip: *in.Chip, rules: in.Rules,
-		family: family, architecture: g.Global.Architecture}
+		family: family, architecture: g.Global.Architecture, graph: g}
+	if in.Fabric != nil && !fabricEfficiencyStated {
+		k.assume("fabric_bandwidth_efficiency", "1",
+			"the scenario's coefficient sets carry no "+fabricEfficiencyName+" scoped to fabric "+
+				in.Fabric.Name+", so every byte that crosses it is priced at the catalog's "+
+				"nominal line rate")
+	}
 	k.tp = float64(max(layout.TP, 1))
 	k.kvConnector = (in.Deployment.Offload != nil && in.Deployment.Offload.Connector != "") ||
 		(in.Deployment.PDTransfer != nil && in.Deployment.PDTransfer.Connector != "")
@@ -219,16 +270,26 @@ func construct(in Inputs) (*Kernel, error) {
 	}
 	stateBytes := cacheDTypeBytes(eng.MambaCacheDType, model.DTypeFP32)
 
-	// PIPELINE PARALLELISM IS NOT PRICED. No collective here spans the pipeline axis, a
-	// stage's layers are not split out of the stack, and the rank-layout strides assume
-	// pp = 1 (groupStride), so a pp > 1 deployment would be priced as one stage holding the
-	// whole model. Refused rather than priced as something it is not.
-	if pool.Parallel.PP > 1 {
-		return nil, fmt.Errorf("pipeline parallelism (pp %d) is not priced by this kernel: "+
-			"it has no pipeline-stage split or inter-stage transfer, and pricing the whole "+
-			"model on one stage would misstate every term", pool.Parallel.PP)
+	// Pipeline parallelism is priced per stage (pipeline.go). What it is not combined with
+	// here is refused rather than priced half-way: a stage-level split of data or context
+	// parallelism, which no stage split here describes (DP with PP is refused by
+	// blis-vllm's v0.32.0 engine as well, core/vllm/config.go). A tensor-parallel width that
+	// does not divide a node is priced: liftPipeline places a stage's ranks one by one.
+	if pp := pool.Parallel.PP; pp > 1 {
+		switch {
+		case pool.Parallel.DP > 1:
+			return nil, fmt.Errorf("pipeline parallelism (pp %d) with data parallelism "+
+				"(dp %d) is not priced: each data-parallel rank would be a pipeline of its "+
+				"own, which no stage split here describes", pp, pool.Parallel.DP)
+		case pool.Parallel.PCP > 1 || pool.Parallel.DCP > 1:
+			return nil, fmt.Errorf("pipeline parallelism (pp %d) with context parallelism "+
+				"(pcp %d, dcp %d) is not priced", pp, pool.Parallel.PCP, pool.Parallel.DCP)
+		}
 	}
 
+	if err := refuseUnsplittableKVHeads(in.Model, layout.TP); err != nil {
+		return nil, err
+	}
 	if err := refuseV4Layouts(in, k.cacheDType); err != nil {
 		return nil, err
 	}
@@ -337,6 +398,10 @@ func construct(in Inputs) (*Kernel, error) {
 	if err := k.lift(coeffs, in.Model, cacheBytes); err != nil {
 		return nil, err
 	}
+	if err := k.liftPipeline(in.Model); err != nil {
+		return nil, err
+	}
+	k.noteShardedProjections()
 	k.adoptRouting(in.Routing, k.totalExperts > 0)
 	k.tiers = map[string]hardware.StorageDevice{}
 	for _, d := range in.Devices {
@@ -353,6 +418,11 @@ func construct(in Inputs) (*Kernel, error) {
 			"the scenario declares vLLM "+v+" and its rules pack is that release's, but "+
 				"the engine behaviour this kernel encodes -- backend selection, defaults, "+
 				"refusals -- is v"+EngineBehaviourVersion+"'s (README, Sources of truth)")
+	}
+	// Last before provenance: the adaptive budget's cost curves are this kernel's own step
+	// prices, so every pricing term is settled first (adaptive.go).
+	if err := k.resolveAdaptive(in.Acceptance); err != nil {
+		return nil, err
 	}
 	k.buildProvenance(coeffs)
 	k.fixed = k.computeFixedBytes(in.Model)
@@ -538,6 +608,29 @@ func (k *Kernel) resolveMaxModelLen(g *model.Graph) {
 //     support DBO or microbatching", vllm/config/vllm.py).
 //   - V4.1 refuses MTP drafting: its drafter is DSpark (the rules pack's
 //     deepseek-v41-refuses-mtp).
+//
+// refuseUnsplittableKVHeads refuses a tensor-parallel width that does not divide the KV heads
+// of an attention whose projection cannot replicate a head across ranks
+// (model.Node.KVHeadsNotReplicated): the engine asserts n_kv % tp == 0 when it builds the
+// layer, as Muse Spark's fused [Q, K, V, O-gate] projection does ("KV-head padding is not
+// supported", vllm/models/muse_spark/common/layers.py:368-371@0f6b2619). The drafter's layers
+// are checked too: they are built at the same width.
+func refuseUnsplittableKVHeads(g *model.Graph, tp int) error {
+	if tp <= 1 {
+		return nil
+	}
+	var err error
+	g.EachNode(func(at string, n model.Node) {
+		if err == nil && n.Op == model.OpAttention && n.KVHeadsNotReplicated &&
+			n.NumKVHeads%tp != 0 {
+			err = fmt.Errorf("tensor parallelism %d does not divide the %d KV heads of %s, whose "+
+				"projection cannot replicate a head across ranks, so vLLM refuses the layer when "+
+				"it builds it (n_kv %% tp == 0)", tp, n.NumKVHeads, at)
+		}
+	})
+	return err
+}
+
 func refuseV4Layouts(in Inputs, cacheDType string) error {
 	arch := in.Model.Global.Architecture
 	if arch != rules.ArchDeepseekV4 && arch != rules.ArchDeepseekV41 {
@@ -811,7 +904,7 @@ func (k *Kernel) lift(c *resolve.Coefficients, g *model.Graph, cacheBytes float6
 	}
 
 	k.nvlinkBytesPerSecond = k.chip.IntraNodeBwGBps * 1e9
-	k.nicBytesPerSecond = k.fabric.InterNodeBwGBps * 1e9
+	k.nicBytesPerSecond = k.fabric.EffectiveInterNodeBwGBps() * 1e9
 	if k.nicBytesPerSecond <= 0 {
 		// No fabric: a single-node deployment, where no collective leaves the node. The
 		// rate is unused, and setting it to the on-node rate keeps a stray cross-node term
@@ -1365,6 +1458,13 @@ func (k *Kernel) lift(c *resolve.Coefficients, g *model.Graph, cacheBytes float6
 			continue
 		}
 		k.layerKV[i].perToken = per
+		if ringed(l) {
+			// A sliding-window layer's cache is a ring of its window, bounded per sequence
+			// (ringBytes), not one that grows with context (SlidingWindowSpec,
+			// vllm/v1/kv_cache_interface.py:840-907@v0.32.0).
+			k.layerKV[i].window = l.AttnWindow
+			continue
+		}
 		k.kvBytesPerToken += per * float64(l.Count)
 		layers += l.Count
 	}
@@ -2024,9 +2124,27 @@ func formatFit(f price.Format, grouped bool, chip hardware.Chip, hopper bool) fi
 		return fitSpec{suffix: "w8a16_mxfp8", fallback: "bf16", peak: bf16}
 	case (f.DType == model.DTypeMXFP4 || f.DType == model.DTypeNVFP4) && chip.NVFP4Peak <= 0:
 		if grouped {
+			// NVFP4 on Hopper is Marlin W4A16 too ("MuseSpark NVFP4: Marlin W4A16 GEMMs",
+			// vllm/models/muse_spark/nvidia/muse_moe_runner.py:540-551@0f6b2619), with
+			// 16-element FP8 scales where MXFP4 has 32-element E8M0 ones; its own grouped
+			// ramp is read where the registry carries one, the MXFP4 one otherwise.
+			if f.DType == model.DTypeNVFP4 {
+				return fitSpec{suffix: "w4a16_nvfp4_grouped", fallback: "w4a16_mxfp4_grouped",
+					peak: bf16}
+			}
 			return fitSpec{suffix: "w4a16_mxfp4_grouped", fallback: "bf16", peak: bf16}
 		}
 		return fitSpec{suffix: "bf16", peak: bf16}
+	case f.DType == model.DTypeNVFP4 && grouped:
+		// A native-FP4 part's NVFP4 fused MoE (FlashInfer TRT-LLM, CUTLASS NvFp4) runs its
+		// own grouped kernels, whose efficiency is not the dense FlashInfer CuTe-DSL linear's
+		// (blis-registry#51). Its own grouped ramp is read where the registry carries one,
+		// the dense NVFP4 ramp otherwise, which is recorded.
+		spec := dtypeFitSuffix(f.DType, chip)
+		if spec.suffix == "nvfp4" {
+			spec.fallback, spec.suffix = spec.suffix, "nvfp4_grouped"
+		}
+		return spec
 	}
 	return dtypeFitSuffix(f.DType, chip)
 }
@@ -2045,8 +2163,16 @@ func (k *Kernel) addFit(c *resolve.Coefficients, f price.Format, grouped bool) e
 	if spec.fallback != "" && !c.Has("gemm_eps_max_"+spec.suffix) {
 		k.assume("gemm_eps_max_"+spec.suffix, spec.fallback,
 			"no efficiency ramp for the "+spec.suffix+" kernel on "+k.chip.Name+", so it is "+
-				"priced on the "+spec.fallback+" ramp at the BF16 peak it computes at")
+				"priced on the "+spec.fallback+" ramp at the peak it computes at")
 		spec.suffix = spec.fallback
+		// A fallback may need one of its own: NVFP4 W4A16 on Hopper falls back to the MXFP4
+		// Marlin ramp, which a registry may not carry either.
+		if spec.suffix == "w4a16_mxfp4_grouped" && !c.Has("gemm_eps_max_"+spec.suffix) {
+			k.assume("gemm_eps_max_"+spec.suffix, "bf16",
+				"no efficiency ramp for the "+spec.suffix+" kernel on "+k.chip.Name+", so it "+
+					"is priced on the bf16 ramp at the BF16 peak it computes at")
+			spec.suffix = "bf16"
+		}
 	}
 	if spec.why != "" {
 		k.assume("compute_rate_"+string(f.DType), spec.suffix, spec.why)
@@ -2319,82 +2445,30 @@ func sortedKinds(kinds map[model.AttentionKind]bool) []model.AttentionKind {
 // part localizes it, capacity under expert parallelism is overstated by that much a rank
 // (TestInternalH200ArmsAreTheEnginesFigures).
 func (k *Kernel) computeFixedBytes(g *model.Graph) kernel.MemoryBreakdown {
+	// Under pipeline parallelism a rank holds its own stage's share (liftPipelineMemory),
+	// and the binding stage's is the one a single pool is sized against.
+	if len(k.stages) > 0 {
+		m := k.stages[k.ppKVStage].memory
+		return kernel.MemoryBreakdown{
+			Weights:        int64(m.weights - m.eplbRedundant),
+			ActivationPeak: int64(m.activation),
+			CUDAGraph:      k.captureBytes,
+			EPLBRedundant:  int64(m.eplbRedundant),
+			CommBuffers:    k.deepEPBufferBytes(g),
+		}
+	}
 	var weights float64
 	for _, l := range k.plan.Layers {
 		weights += float64(l.Count) * k.residentBytes(l)
 	}
 	weights += k.residentBytes(k.plan.Head)
-	// The embedding. A graph that states it (blis-schemas v0.3.0 Graph.Embedding) is sized
-	// from its Gather's table; one that does not is inferred as a vocab x hidden table.
-	// Either is tensor-parallel sharded but not expert-parallel sharded.
-	//
-	// Embeddings are not quantized by --quantization in vLLM: the flag applies to the
-	// linear layers, and the embedding table stays at the checkpoint's width. Nor is an
-	// embedding quantized by a quantized CHECKPOINT: the FP8 quant config returns no method
-	// for one, and vLLM falls back to UnquantizedEmbeddingMethod
-	// (vllm/model_executor/layers/quantization/fp8.py:177-209,
-	// vocab_parallel_embedding.py:314-317 at v0.31.0), so an inferred table is sized at the
-	// checkpoint's width where that is a compute width and at BF16 where it is a storage
-	// one. Sizing DeepSeek-V4.1's at its FP8 global dtype halved a 1.32 GB table.
-	if k.plan.Embedding.Count > 0 {
-		weights += k.residentBytes(k.plan.Embedding)
-	} else {
-		width := g.Global.WeightDType.Bytes()
-		if width < model.DTypeBF16.Bytes() {
-			width = model.DTypeBF16.Bytes()
-		}
-		weights += float64(g.Global.VocabSize) * float64(g.Global.HiddenSize) * width /
-			float64(max(k.layout.TP, 1))
-	}
-	// The drafter's weights, while the deployment speculates. A node aliasing a target
-	// weight -- DSpark's LM head and embedding read the target's -- adds none.
-	if d := k.plan.Draft; d != nil && k.speculating {
-		for _, l := range append(append([]price.PlannedLayer{}, d.Layers...), d.Context...) {
-			weights += float64(l.Count) * k.residentBytes(l)
-		}
-		for _, l := range []price.PlannedLayer{d.Embedding, d.Head, d.SequentialHead} {
-			weights += k.residentBytes(l)
-		}
-	}
-
-	// Activation scratch at the batched-token bound: NVIDIA's live-buffer multiple of one
-	// bf16 activation row per token, floored (see liftMemory).
-	//
-	// The 2 is the ACTIVATION width, which is the model's compute dtype and does not follow
-	// the served weight format: vLLM's fp8 and fp4 linears quantize their input transiently
-	// and return out_dtype=x.dtype (vllm/model_executor/kernels/linear/scaled_mm/
-	// cutlass.py at v0.31.0), so an fp8 deployment's residual stream and inter-layer
-	// buffers stay bf16. Sizing it at the served width would halve this term on an fp8
-	// deployment and understate its occupancy.
-	const activationBytes = price.ActivationBytes
-	//
-	// The profile run's peak is the larger of the forward's and the dummy sampler's, which
-	// runs after the forward has released its activations (samplerPeakBytes).
-	act := math.Max(math.Max(
-		k.activationBuffers*float64(k.batchedTokens)*k.activationWidth*activationBytes,
-		k.activationFloor), k.samplerPeakBytes(g)) + k.engineBufferBytes(g)
-
-	// EPLB's redundant replicas, reported apart from the weights rather than on top of
-	// them. expertsPerRank is the PHYSICAL count -- the model's experts plus the redundant
-	// ones, divided over the group -- so the expert term above already holds them; the
-	// replicas' share is moved out of Weights into EPLBRedundant, leaving Total what a rank
-	// actually holds. An earlier form added them here as well, counting every replica twice.
-	var eplb float64
-	if k.engine.EPLB != nil && k.engine.EPLB.Enabled &&
-		k.layout.ExpertWidth > 0 {
-		for _, l := range k.plan.Layers {
-			if l.ExpertWeightBytesPerExpert == 0 {
-				continue
-			}
-			eplb += float64(l.Count) * l.ExpertWeightBytesPerExpert *
-				float64(k.engine.EPLB.NumRedundantExperts) /
-				float64(k.layout.ExpertWidth) / k.expertTensorShards
-		}
-		weights -= eplb
-	}
+	weights += k.embeddingResidentBytes(g)
+	// The drafter's weights, while the deployment speculates.
+	weights += k.draftResidentBytes()
+	eplb := k.eplbRedundantBytes(k.plan.Layers)
 	return kernel.MemoryBreakdown{
-		Weights:        int64(weights),
-		ActivationPeak: int64(act),
+		Weights:        int64(weights - eplb),
+		ActivationPeak: int64(k.activationBytes(g, true)),
 		CUDAGraph:      k.captureBytes,
 		EPLBRedundant:  int64(eplb),
 		// The NCCL communicator reservation and the engine workspace are not here: vLLM
@@ -2403,6 +2477,94 @@ func (k *Kernel) computeFixedBytes(g *model.Graph) kernel.MemoryBreakdown {
 		// after it, so they are (deepEPBufferBytes).
 		CommBuffers: k.deepEPBufferBytes(g),
 	}
+}
+
+// embeddingResidentBytes is the target's embedding table on a rank that holds it. A graph
+// that states it (blis-schemas v0.3.0 Graph.Embedding) is sized from its Gather's table; one
+// that does not is inferred as a vocab x hidden table. Either is tensor-parallel sharded but
+// not expert-parallel sharded.
+//
+// Embeddings are not quantized by --quantization in vLLM: the flag applies to the linear
+// layers, and the embedding table stays at the checkpoint's width. Nor is an embedding
+// quantized by a quantized CHECKPOINT: the FP8 quant config returns no method for one, and
+// vLLM falls back to UnquantizedEmbeddingMethod (vllm/model_executor/layers/quantization/
+// fp8.py:177-209, vocab_parallel_embedding.py:314-317 at v0.31.0), so an inferred table is
+// sized at the checkpoint's width where that is a compute width and at BF16 where it is a
+// storage one. Sizing DeepSeek-V4.1's at its FP8 global dtype halved a 1.32 GB table.
+func (k *Kernel) embeddingResidentBytes(g *model.Graph) float64 {
+	if k.plan.Embedding.Count > 0 {
+		return k.residentBytes(k.plan.Embedding)
+	}
+	width := g.Global.WeightDType.Bytes()
+	if width < model.DTypeBF16.Bytes() {
+		width = model.DTypeBF16.Bytes()
+	}
+	return float64(g.Global.VocabSize) * float64(g.Global.HiddenSize) * width /
+		float64(max(k.layout.TP, 1))
+}
+
+// eplbRedundantBytes is EPLB's redundant replicas over these MoE layers, reported apart from
+// the weights rather than on top of them. expertsPerRank is the PHYSICAL count -- the model's
+// experts plus the redundant ones, divided over the group -- so the expert term of
+// residentBytes already holds them; the replicas' share is moved out of Weights into
+// EPLBRedundant, leaving Total what a rank actually holds. An earlier form added them as
+// well, counting every replica twice. Under pipeline parallelism a rank holds its own
+// stage's MoE layers, so their replicas are summed over those (each MoE layer replicates its
+// own experts, vllm/distributed/eplb/eplb_state.py; num_redundant_experts is per layer).
+func (k *Kernel) eplbRedundantBytes(layers []price.PlannedLayer) float64 {
+	if k.engine.EPLB == nil || !k.engine.EPLB.Enabled || k.layout.ExpertWidth <= 0 {
+		return 0
+	}
+	var eplb float64
+	for _, l := range layers {
+		if l.ExpertWeightBytesPerExpert == 0 {
+			continue
+		}
+		eplb += float64(l.Count) * l.ExpertWeightBytesPerExpert *
+			float64(k.engine.EPLB.NumRedundantExperts) /
+			float64(k.layout.ExpertWidth) / k.expertTensorShards
+	}
+	return eplb
+}
+
+// activationBytes is the profile run's activation peak on a rank: the forward's scratch at
+// the batched-token bound -- NVIDIA's live-buffer multiple of one bf16 activation row per
+// token, floored (see liftMemory) -- and, on a rank that samples, the dummy sampler's, which
+// runs after the forward has released its activations (samplerPeakBytes). Under pipeline
+// parallelism only the last stage samples (vllm/v1/worker/gpu/model_runner.py:1010-1015@
+// v0.32.0).
+//
+// The 2 is the ACTIVATION width, which is the model's compute dtype and does not follow the
+// served weight format: vLLM's fp8 and fp4 linears quantize their input transiently and
+// return out_dtype=x.dtype (vllm/model_executor/kernels/linear/scaled_mm/cutlass.py at
+// v0.31.0), so an fp8 deployment's residual stream and inter-layer buffers stay bf16. Sizing
+// it at the served width would halve this term on an fp8 deployment and understate its
+// occupancy.
+func (k *Kernel) activationBytes(g *model.Graph, samples bool) float64 {
+	const activationBytes = price.ActivationBytes
+	act := math.Max(k.activationBuffers*float64(k.batchedTokens)*k.activationWidth*activationBytes,
+		k.activationFloor)
+	if samples {
+		act = math.Max(act, k.samplerPeakBytes(g))
+	}
+	return act + k.engineBufferBytes(g)
+}
+
+// draftResidentBytes is the drafter's weights while the deployment speculates. A node
+// aliasing a target weight -- DSpark's LM head and embedding read the target's -- adds none.
+func (k *Kernel) draftResidentBytes() float64 {
+	d := k.plan.Draft
+	if d == nil || !k.speculating {
+		return 0
+	}
+	var b float64
+	for _, l := range append(append([]price.PlannedLayer{}, d.Layers...), d.Context...) {
+		b += float64(l.Count) * k.residentBytes(l)
+	}
+	for _, l := range []price.PlannedLayer{d.Embedding, d.Head, d.SequentialHead} {
+		b += k.residentBytes(l)
+	}
+	return b
 }
 
 // DeepSeek-V4.1 sizes three of its engine buffers from config.json values its graph does not

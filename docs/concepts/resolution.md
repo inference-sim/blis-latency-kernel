@@ -21,8 +21,9 @@ are four reasons:
 - **The engine would not start it.** vLLM v0.31.0 refuses some layouts at startup, for
   example prefill-context parallelism on a model whose attention is not latent. Pricing such
   a deployment would describe something that cannot run.
-- **The kernel cannot price it truthfully.** Pipeline parallelism, for example, is not
-  modeled, and pricing the whole model as one stage would misstate every term.
+- **The kernel cannot price it truthfully.** Pipeline parallelism beside data or context
+  parallelism, for example, is not modeled, and pricing it as one pipeline would misstate
+  every term.
 - **A coefficient it needs is missing.** A rate or a floor the price depends on has no entry
   in the coefficient sets the scenario names. Pricing that term at zero would give a step
   that looks plausible and is wrong by whatever the term contributes.
