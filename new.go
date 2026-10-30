@@ -266,8 +266,9 @@ func construct(in Inputs) (*Kernel, error) {
 
 	// Pipeline parallelism is priced per stage (pipeline.go). What it is not combined with
 	// here is refused rather than priced half-way: a stage-level split of data or context
-	// parallelism, which the engine does not run beside PP for the models priced
-	// (DP with PP is refused by blis-vllm's factory as well, core/vllm/config.go).
+	// parallelism, which no stage split here describes (DP with PP is refused by
+	// blis-vllm's v0.32.0 engine as well, core/vllm/config.go). A tensor-parallel width that
+	// does not divide a node is priced: liftPipeline places a stage's ranks one by one.
 	if pp := pool.Parallel.PP; pp > 1 {
 		switch {
 		case pool.Parallel.DP > 1:
@@ -280,6 +281,9 @@ func construct(in Inputs) (*Kernel, error) {
 		}
 	}
 
+	if err := refuseUnsplittableKVHeads(in.Model, layout.TP); err != nil {
+		return nil, err
+	}
 	if err := refuseV4Layouts(in, k.cacheDType); err != nil {
 		return nil, err
 	}
@@ -592,6 +596,29 @@ func (k *Kernel) resolveMaxModelLen(g *model.Graph) {
 //     support DBO or microbatching", vllm/config/vllm.py).
 //   - V4.1 refuses MTP drafting: its drafter is DSpark (the rules pack's
 //     deepseek-v41-refuses-mtp).
+//
+// refuseUnsplittableKVHeads refuses a tensor-parallel width that does not divide the KV heads
+// of an attention whose projection cannot replicate a head across ranks
+// (model.Node.KVHeadsNotReplicated): the engine asserts n_kv % tp == 0 when it builds the
+// layer, as Muse Spark's fused [Q, K, V, O-gate] projection does ("KV-head padding is not
+// supported", vllm/models/muse_spark/common/layers.py:368-371@0f6b2619). The drafter's layers
+// are checked too: they are built at the same width.
+func refuseUnsplittableKVHeads(g *model.Graph, tp int) error {
+	if tp <= 1 {
+		return nil
+	}
+	var err error
+	g.EachNode(func(at string, n model.Node) {
+		if err == nil && n.Op == model.OpAttention && n.KVHeadsNotReplicated &&
+			n.NumKVHeads%tp != 0 {
+			err = fmt.Errorf("tensor parallelism %d does not divide the %d KV heads of %s, whose "+
+				"projection cannot replicate a head across ranks, so vLLM refuses the layer when "+
+				"it builds it (n_kv %% tp == 0)", tp, n.NumKVHeads, at)
+		}
+	})
+	return err
+}
+
 func refuseV4Layouts(in Inputs, cacheDType string) error {
 	arch := in.Model.Global.Architecture
 	if arch != rules.ArchDeepseekV4 && arch != rules.ArchDeepseekV41 {
@@ -1419,6 +1446,13 @@ func (k *Kernel) lift(c *resolve.Coefficients, g *model.Graph, cacheBytes float6
 			continue
 		}
 		k.layerKV[i].perToken = per
+		if ringed(l) {
+			// A sliding-window layer's cache is a ring of its window, bounded per sequence
+			// (ringBytes), not one that grows with context (SlidingWindowSpec,
+			// vllm/v1/kv_cache_interface.py:840-907@v0.32.0).
+			k.layerKV[i].window = l.AttnWindow
+			continue
+		}
 		k.kvBytesPerToken += per * float64(l.Count)
 		layers += l.Count
 	}
@@ -2399,86 +2433,30 @@ func sortedKinds(kinds map[model.AttentionKind]bool) []model.AttentionKind {
 // part localizes it, capacity under expert parallelism is overstated by that much a rank
 // (TestInternalH200ArmsAreTheEnginesFigures).
 func (k *Kernel) computeFixedBytes(g *model.Graph) kernel.MemoryBreakdown {
+	// Under pipeline parallelism a rank holds its own stage's share (liftPipelineMemory),
+	// and the binding stage's is the one a single pool is sized against.
+	if len(k.stages) > 0 {
+		m := k.stages[k.ppKVStage].memory
+		return kernel.MemoryBreakdown{
+			Weights:        int64(m.weights - m.eplbRedundant),
+			ActivationPeak: int64(m.activation),
+			CUDAGraph:      k.captureBytes,
+			EPLBRedundant:  int64(m.eplbRedundant),
+			CommBuffers:    k.deepEPBufferBytes(g),
+		}
+	}
 	var weights float64
 	for _, l := range k.plan.Layers {
 		weights += float64(l.Count) * k.residentBytes(l)
 	}
 	weights += k.residentBytes(k.plan.Head)
-	staged := len(k.stages) > 0
-	if staged {
-		// A pipeline-parallel rank holds its own stage's layers: the most loaded stage's,
-		// embedding and head included, is what binds (stageResidentBytes).
-		weights = k.stageResidentBytes()
-	}
-	// The embedding. A graph that states it (blis-schemas v0.3.0 Graph.Embedding) is sized
-	// from its Gather's table; one that does not is inferred as a vocab x hidden table.
-	// Either is tensor-parallel sharded but not expert-parallel sharded.
-	//
-	// Embeddings are not quantized by --quantization in vLLM: the flag applies to the
-	// linear layers, and the embedding table stays at the checkpoint's width. Nor is an
-	// embedding quantized by a quantized CHECKPOINT: the FP8 quant config returns no method
-	// for one, and vLLM falls back to UnquantizedEmbeddingMethod
-	// (vllm/model_executor/layers/quantization/fp8.py:177-209,
-	// vocab_parallel_embedding.py:314-317 at v0.31.0), so an inferred table is sized at the
-	// checkpoint's width where that is a compute width and at BF16 where it is a storage
-	// one. Sizing DeepSeek-V4.1's at its FP8 global dtype halved a 1.32 GB table.
-	if staged {
-		// stageResidentBytes counted the embedding where the first stage binds, and the
-		// tables of a graph that states none are the first stage's alone.
-	} else if k.plan.Embedding.Count > 0 {
-		weights += k.residentBytes(k.plan.Embedding)
-	} else {
-		width := g.Global.WeightDType.Bytes()
-		if width < model.DTypeBF16.Bytes() {
-			width = model.DTypeBF16.Bytes()
-		}
-		weights += float64(g.Global.VocabSize) * float64(g.Global.HiddenSize) * width /
-			float64(max(k.layout.TP, 1))
-	}
-	// The drafter's weights, while the deployment speculates, on the last stage of a
-	// pipeline (stageResidentBytes holds them there).
-	if !staged {
-		weights += k.draftResidentBytes()
-	}
-
-	// Activation scratch at the batched-token bound: NVIDIA's live-buffer multiple of one
-	// bf16 activation row per token, floored (see liftMemory).
-	//
-	// The 2 is the ACTIVATION width, which is the model's compute dtype and does not follow
-	// the served weight format: vLLM's fp8 and fp4 linears quantize their input transiently
-	// and return out_dtype=x.dtype (vllm/model_executor/kernels/linear/scaled_mm/
-	// cutlass.py at v0.31.0), so an fp8 deployment's residual stream and inter-layer
-	// buffers stay bf16. Sizing it at the served width would halve this term on an fp8
-	// deployment and understate its occupancy.
-	const activationBytes = price.ActivationBytes
-	//
-	// The profile run's peak is the larger of the forward's and the dummy sampler's, which
-	// runs after the forward has released its activations (samplerPeakBytes).
-	act := math.Max(math.Max(
-		k.activationBuffers*float64(k.batchedTokens)*k.activationWidth*activationBytes,
-		k.activationFloor), k.samplerPeakBytes(g)) + k.engineBufferBytes(g)
-
-	// EPLB's redundant replicas, reported apart from the weights rather than on top of
-	// them. expertsPerRank is the PHYSICAL count -- the model's experts plus the redundant
-	// ones, divided over the group -- so the expert term above already holds them; the
-	// replicas' share is moved out of Weights into EPLBRedundant, leaving Total what a rank
-	// actually holds. An earlier form added them here as well, counting every replica twice.
-	var eplb float64
-	if k.engine.EPLB != nil && k.engine.EPLB.Enabled &&
-		k.layout.ExpertWidth > 0 {
-		for _, l := range k.plan.Layers {
-			if l.ExpertWeightBytesPerExpert == 0 {
-				continue
-			}
-			eplb += float64(l.Count) * l.ExpertWeightBytesPerExpert *
-				float64(k.engine.EPLB.NumRedundantExperts) /
-				float64(k.layout.ExpertWidth) / k.expertTensorShards
-		}
-		weights -= eplb
-	}
+	weights += k.embeddingResidentBytes(g)
+	// The drafter's weights, while the deployment speculates.
+	weights += k.draftResidentBytes()
+	eplb := k.eplbRedundantBytes(k.plan.Layers)
 	return kernel.MemoryBreakdown{
-		Weights:        int64(weights),
-		ActivationPeak: int64(act),
+		Weights:        int64(weights - eplb),
+		ActivationPeak: int64(k.activationBytes(g, true)),
 		CUDAGraph:      k.captureBytes,
 		EPLBRedundant:  int64(eplb),
 		// The NCCL communicator reservation and the engine workspace are not here: vLLM
@@ -2487,6 +2465,77 @@ func (k *Kernel) computeFixedBytes(g *model.Graph) kernel.MemoryBreakdown {
 		// after it, so they are (deepEPBufferBytes).
 		CommBuffers: k.deepEPBufferBytes(g),
 	}
+}
+
+// embeddingResidentBytes is the target's embedding table on a rank that holds it. A graph
+// that states it (blis-schemas v0.3.0 Graph.Embedding) is sized from its Gather's table; one
+// that does not is inferred as a vocab x hidden table. Either is tensor-parallel sharded but
+// not expert-parallel sharded.
+//
+// Embeddings are not quantized by --quantization in vLLM: the flag applies to the linear
+// layers, and the embedding table stays at the checkpoint's width. Nor is an embedding
+// quantized by a quantized CHECKPOINT: the FP8 quant config returns no method for one, and
+// vLLM falls back to UnquantizedEmbeddingMethod (vllm/model_executor/layers/quantization/
+// fp8.py:177-209, vocab_parallel_embedding.py:314-317 at v0.31.0), so an inferred table is
+// sized at the checkpoint's width where that is a compute width and at BF16 where it is a
+// storage one. Sizing DeepSeek-V4.1's at its FP8 global dtype halved a 1.32 GB table.
+func (k *Kernel) embeddingResidentBytes(g *model.Graph) float64 {
+	if k.plan.Embedding.Count > 0 {
+		return k.residentBytes(k.plan.Embedding)
+	}
+	width := g.Global.WeightDType.Bytes()
+	if width < model.DTypeBF16.Bytes() {
+		width = model.DTypeBF16.Bytes()
+	}
+	return float64(g.Global.VocabSize) * float64(g.Global.HiddenSize) * width /
+		float64(max(k.layout.TP, 1))
+}
+
+// eplbRedundantBytes is EPLB's redundant replicas over these MoE layers, reported apart from
+// the weights rather than on top of them. expertsPerRank is the PHYSICAL count -- the model's
+// experts plus the redundant ones, divided over the group -- so the expert term of
+// residentBytes already holds them; the replicas' share is moved out of Weights into
+// EPLBRedundant, leaving Total what a rank actually holds. An earlier form added them as
+// well, counting every replica twice. Under pipeline parallelism a rank holds its own
+// stage's MoE layers, so their replicas are summed over those (each MoE layer replicates its
+// own experts, vllm/distributed/eplb/eplb_state.py; num_redundant_experts is per layer).
+func (k *Kernel) eplbRedundantBytes(layers []price.PlannedLayer) float64 {
+	if k.engine.EPLB == nil || !k.engine.EPLB.Enabled || k.layout.ExpertWidth <= 0 {
+		return 0
+	}
+	var eplb float64
+	for _, l := range layers {
+		if l.ExpertWeightBytesPerExpert == 0 {
+			continue
+		}
+		eplb += float64(l.Count) * l.ExpertWeightBytesPerExpert *
+			float64(k.engine.EPLB.NumRedundantExperts) /
+			float64(k.layout.ExpertWidth) / k.expertTensorShards
+	}
+	return eplb
+}
+
+// activationBytes is the profile run's activation peak on a rank: the forward's scratch at
+// the batched-token bound -- NVIDIA's live-buffer multiple of one bf16 activation row per
+// token, floored (see liftMemory) -- and, on a rank that samples, the dummy sampler's, which
+// runs after the forward has released its activations (samplerPeakBytes). Under pipeline
+// parallelism only the last stage samples (vllm/v1/worker/gpu/model_runner.py:1010-1015@
+// v0.32.0).
+//
+// The 2 is the ACTIVATION width, which is the model's compute dtype and does not follow the
+// served weight format: vLLM's fp8 and fp4 linears quantize their input transiently and
+// return out_dtype=x.dtype (vllm/model_executor/kernels/linear/scaled_mm/cutlass.py at
+// v0.31.0), so an fp8 deployment's residual stream and inter-layer buffers stay bf16. Sizing
+// it at the served width would halve this term on an fp8 deployment and understate its
+// occupancy.
+func (k *Kernel) activationBytes(g *model.Graph, samples bool) float64 {
+	const activationBytes = price.ActivationBytes
+	act := math.Max(k.activationBuffers*float64(k.batchedTokens)*k.activationWidth*activationBytes,
+		k.activationFloor)
+	if samples {
+		act = math.Max(act, k.samplerPeakBytes(g))
+	}
+	return act + k.engineBufferBytes(g)
 }
 
 // draftResidentBytes is the drafter's weights while the deployment speculates. A node

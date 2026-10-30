@@ -66,12 +66,19 @@ These are layouts vLLM v0.31.0 refuses at startup.
 - An expert-parallel width larger than the model's number of experts, which would leave some
   ranks with none.
 
+**Attention heads**
+
+- A tensor-parallel width that does not divide the KV heads of an attention whose graph says
+  its projection cannot replicate a head across ranks (`kv_heads_not_replicated`), as Muse
+  Spark's fused QKV and output-gate projection cannot: TP above 16 on its 16 KV heads.
+
 ## The kernel cannot price it truthfully
 
 - Pipeline parallelism beside data parallelism or context parallelism (`pcp` or `dcp`
   above one): the stage split prices one pipeline per pool. Pipeline parallelism on a model
   whose graph states its caches, whose sizes are per layer kind over the whole stack rather
-  than per stage.
+  than per stage. A drafter that reads an auxiliary hidden state of a layer outside the
+  target's stack.
 - `dcp_q_replicate` where it would take effect: decode-context parallelism without
   prefill-context parallelism, on a latent-attention model. It trades a collective for a
   replicated projection the kernel cannot identify in the graph, so pricing only the saving

@@ -107,6 +107,10 @@ func (k *Kernel) liftDraft(c *resolve.Coefficients, inferred func(price.PlannedL
 				continue
 			}
 			kv[i].perToken = per
+			if ringed(l) {
+				kv[i].window = l.AttnWindow
+				continue
+			}
 			k.draftKVBytesPerToken += per * float64(l.Count)
 		}
 		return kv

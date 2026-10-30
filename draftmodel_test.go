@@ -92,3 +92,42 @@ func TestGraphIsWhatThePlanPriced(t *testing.T) {
 		t.Errorf("Graph() %d kinds, speculator %v: want the grafted graph", len(got.LayerKinds), got.Speculator)
 	}
 }
+
+// A grafted drafter's weights are its own checkpoint's: every weight node that states no dtype
+// takes the drafter's global dtype and scale, not the target's, its own head included; an alias
+// reads the target's weights and keeps no dtype of its own.
+func TestADraftersNodesKeepItsOwnDType(t *testing.T) {
+	target, draft := draftGraphs()
+	target.Global.WeightDType = model.DTypeFP8
+	target.Global.WeightScale = &model.WeightScale{Elements: 16384, Bytes: 4}
+	draft.Speculator.Head = append(draft.Speculator.Head, model.Node{Op: model.OpGEMM, Role: "proj", N: 64, K: 64})
+	draft.LayerKinds[0].Nodes = append(draft.LayerKinds[0].Nodes, model.Node{Op: model.OpGEMM, Role: "fc", N: 64, K: 64})
+	draft.Head = nil
+	g, err := withDrafter(target, draft)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, lk := range g.LayerKinds {
+		if !strings.HasPrefix(lk.ID, draftKindPrefix) {
+			continue
+		}
+		for _, n := range lk.Nodes {
+			if n.Op == model.OpGEMM && (n.WeightDType != model.DTypeBF16 || n.WeightScale != nil) {
+				t.Errorf("drafter node %s: dtype %q scale %v, want the drafter's bf16", n.Role, n.WeightDType, n.WeightScale)
+			}
+		}
+	}
+	for _, n := range g.Speculator.Head {
+		switch {
+		case n.Aliases != "" && n.WeightDType != "":
+			t.Errorf("aliased head node %s states dtype %q", n.Role, n.WeightDType)
+		case n.Aliases == "" && n.WeightDType != model.DTypeBF16:
+			t.Errorf("drafter head node %s: dtype %q, want bf16", n.Role, n.WeightDType)
+		}
+	}
+	for _, n := range g.LayerKinds[0].Nodes {
+		if n.WeightDType != "" {
+			t.Errorf("the target's node %s was stamped %q", n.Role, n.WeightDType)
+		}
+	}
+}

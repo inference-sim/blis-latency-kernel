@@ -18,8 +18,10 @@ import (
 // decoding" (:1553-1567). Left to the engine, it turns on unless an incompatible option is
 // present (:1576-1635). Of those conditions the kernel can see one, the draft method; the
 // others cannot occur in a priced deployment: pooling runners are not priced, pipeline
-// parallelism is refused (New), disable_padded_drafter_batch has no deployment field, the
-// DeepEP DBO case is ROCm-only, and CUDA's default executor on one node or many is
+// parallelism turns it off only under the V1 model runner (vllm/config/vllm.py:1634-1641@
+// v0.32.0) and CUDA defaults to the V2 one, which the kernel takes (maxInFlightTokens records
+// the V1 case as a coverage limit), disable_padded_drafter_batch has no deployment field,
+// the DeepEP DBO case is ROCm-only, and CUDA's default executor on one node or many is
 // multiprocessing (vllm/config/parallel.py:990-1030), which supports async scheduling
 // (vllm/v1/executor/multiproc_executor.py:560-561).
 func (k *Kernel) resolveAsyncScheduling(r resolve.EngineRules) error {

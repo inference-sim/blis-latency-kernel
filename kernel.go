@@ -422,7 +422,9 @@ func (k *Kernel) sequenceBoundedBytes(caches float64) int64 {
 		// variable term and this one reports none of it.
 		return int64(total)
 	}
-	for _, l := range k.plan.Layers {
+	// The rank's own layers: under pipeline parallelism a worker holds the recurrent state of
+	// its stage's layers only (the binding stage's, rankMemory), as it holds their KV.
+	for _, l := range k.rankMemory().layers {
 		if l.RecurrentStateBytes == 0 {
 			continue
 		}
@@ -504,19 +506,13 @@ func (k *Kernel) SequenceVariableBytes(tokens int) int64 {
 	if k.layout.DCP > 1 && k.dcpShardsAllKVLayers {
 		shardedTokens = (tokens + k.layout.DCP - 1) / k.layout.DCP
 	}
-	// The inferred caches, the drafter's while the deployment speculates (a draft layer
-	// holds a cache of its own), and the growing caches a graph states, each paged as its
-	// own owner pages it.
-	perToken := k.kvBytesPerToken
-	if k.speculating {
-		perToken += k.draftKVBytesPerToken
-	}
-	if len(k.stages) > 0 {
-		// A pipeline-parallel rank holds its own stage's layers' KV (liftPipelineMemory).
-		perToken = k.ppKVBytesPerToken
-	}
-	total := price.PagedBytes(shardedTokens, k.blockSize, perToken) +
-		int64(k.cacheVariableBytes(tokens))
+	// The inferred caches that grow with context, the drafter's while the deployment
+	// speculates (a draft layer holds a cache of its own), and the growing caches a graph
+	// states, each paged as its own owner pages it. A pipeline-parallel rank holds its own
+	// stage's layers' KV (rankMemory, the binding stage's). A window ring is bounded and is
+	// not here (ringBytes).
+	perToken := k.rankMemory().kvPerToken
+	total := k.pagedKVBytes(shardedTokens, perToken) + int64(k.cacheVariableBytes(tokens))
 
 	// Under the all-positions recurrent cache mode the state is proportional to the
 	// context bound, so it is a variable cost rather than a fixed one.
@@ -531,7 +527,7 @@ func (k *Kernel) SequenceVariableBytes(tokens int) int64 {
 		if k.engine.Speculative != nil {
 			spec = k.engine.Speculative.NumSpecTokens
 		}
-		for _, l := range k.plan.Layers {
+		for _, l := range k.rankMemory().layers {
 			if l.RecurrentStateBytes == 0 {
 				continue
 			}
@@ -540,6 +536,11 @@ func (k *Kernel) SequenceVariableBytes(tokens int) int64 {
 		}
 	}
 	return total
+}
+
+// pagedKVBytes is tokens of perToken KV, quantized to the engine's page.
+func (k *Kernel) pagedKVBytes(tokens int, perToken float64) int64 {
+	return price.PagedBytes(tokens, k.blockSize, perToken)
 }
 
 // StepTime prices one forward pass. This is the hot path.
@@ -641,8 +642,8 @@ func (k *Kernel) crossesNodes(key collKey) bool {
 // with the tensor-parallel axis innermost (vllm/distributed/parallel_state.py:2045,
 // :2054-2060 at v0.31.0), and a node holds consecutive ranks. So a group's members sit
 // `stride` ranks apart, where the stride is the product of the axes inside the one the
-// group runs along. With pp = 1, which every layout this kernel prices has (New refuses
-// pp > 1):
+// group runs along. Within one pipeline stage (pp_rank x tp + tp_rank, :2045-2060, so a
+// stage is a contiguous block of tp ranks and its groups are the ones below):
 //
 //	tensor-parallel     contiguous                                     stride 1
 //	expert-parallel     one contiguous DP x PCP x TP block (:2212-2220)   stride 1
@@ -707,9 +708,11 @@ func (k *Kernel) groupSize(group price.GroupAxis) (int, bool) {
 	// the composite key exists to prevent: an all-gather's 8-rank floor is 1.35x to 1.59x
 	// its 4-rank figure across the nine parts measured at both, so a wrong axis is not a
 	// rounding error.
-	// Pipeline parallelism is the obvious future candidate -- Layout.PP exists and no
-	// collective spans it yet -- and it should arrive as a refusal rather than as a
-	// silently tensor-parallel price.
+	// Pipeline parallelism has no collective of its own: a stage boundary is a
+	// point-to-point send priced apart (pipelineSendSeconds), and the receiving stage's
+	// reassembly is a TP all-gather (pipelineRecvGatherSeconds). A future pipeline-wide
+	// collective should arrive here as a refusal rather than as a silently tensor-parallel
+	// price.
 	//
 	// This is the half of the resolve.Emits/Recognizes pair that a bare default would
 	// have left out: that pair exists so an unrecognized condition can be refused rather
@@ -1819,8 +1822,12 @@ func (k *Kernel) PDTransferDemand(tokens int, from, to kernel.Placement) kernel.
 // decode ranks pull from one prefill rank (tp_mapping.py:97), whose link then carries
 // decode_tp / prefill_tp payloads, which a placement that names a node and not a rank
 // cannot express.
+//
+// A sliding-window layer whose cache is inferred is a ring, which NIXL clips as it clips a
+// stated window cache (ringTransferBytes), not a cache that grows with the prompt.
 func (k *Kernel) pdTransferBytes(tokens int) float64 {
-	return float64(tokens)*k.kvBytesPerToken + k.cacheTransferBytes(tokens)
+	return float64(tokens)*k.kvBytesPerToken + k.ringTransferBytes(tokens) +
+		k.cacheTransferBytes(tokens)
 }
 
 // AdmissionOverhead returns host time before a request can be scheduled.

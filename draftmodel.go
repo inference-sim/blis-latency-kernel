@@ -56,8 +56,30 @@ func withDrafter(target, draft *model.Graph) (*model.Graph, error) {
 	g := *target
 	g.LayerKinds = append([]model.LayerKind{}, target.LayerKinds...)
 	rename := func(id string) string { return draftKindPrefix + id }
+	// The grafted graph keeps the TARGET's global dtype and scale, so a drafter node that
+	// states no weight dtype of its own is stamped with the DRAFTER checkpoint's global ones:
+	// the drafter loads its own checkpoint at its own quantization (get_draft_quant_config,
+	// vllm/model_executor/models/utils.py:985-1007@v0.32.0), whatever the target's is.
+	stamp := func(n *model.Node) {
+		if n.Op != model.OpGEMM && n.Op != model.OpGroupedGEMM || n.Aliases != "" ||
+			n.WeightDType != "" {
+			return
+		}
+		n.WeightDType = draft.Global.WeightDType
+		if n.WeightScale == nil && draft.Global.WeightScale != nil {
+			s := *draft.Global.WeightScale
+			n.WeightScale = &s
+		}
+	}
 	realias := func(nodes []model.Node) []model.Node {
 		out := append([]model.Node(nil), nodes...)
+		defer func() {
+			// After the aliases are settled: a head alias dropped above is the drafter's own
+			// weight, and takes the drafter's dtype too.
+			for i := range out {
+				stamp(&out[i])
+			}
+		}()
 		for i, n := range out {
 			if n.Aliases == "" {
 				continue
